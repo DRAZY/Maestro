@@ -51,6 +51,15 @@ import {
 import { loadAllSettings } from '../../stores/settingsStore';
 import { useRemoteGroupChat } from './useRemoteGroupChat';
 
+type RemoteConfigureAutoRunConfig = {
+	documents: Array<{ filename: string; resetOnCompletion?: boolean }>;
+	prompt?: string;
+	loopEnabled?: boolean;
+	maxLoops?: number;
+	saveAsPlaybook?: string;
+	launch?: boolean;
+};
+
 /**
  * Dependencies for the useRemoteIntegration hook.
  * Uses refs for values that change frequently to avoid re-attaching listeners.
@@ -522,6 +531,23 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 
 		return () => {
 			unsubscribeRefreshAutoRunDocs();
+		};
+	}, []);
+
+	// Handle remote Auto Run configuration requests from CLI IPC
+	useEffect(() => {
+		const unsubscribeConfigureAutoRun = window.maestro.process.onRemoteConfigureAutoRun(
+			(sessionId: string, config: RemoteConfigureAutoRunConfig, responseChannel: string) => {
+				window.dispatchEvent(
+					new CustomEvent('maestro:configureAutoRun', {
+						detail: { sessionId, config, responseChannel },
+					})
+				);
+			}
+		);
+
+		return () => {
+			unsubscribeConfigureAutoRun();
 		};
 	}, []);
 
