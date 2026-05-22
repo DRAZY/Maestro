@@ -245,6 +245,16 @@ export interface ConfigureAutoRunConfig {
 	maxLoops?: number;
 	saveAsPlaybook?: string;
 	launch?: boolean;
+	model?: string;
+	effort?: string;
+	worktree?: {
+		enabled: boolean;
+		path: string;
+		branchName: string;
+		baseBranch: string;
+		createPROnCompletion: boolean;
+		prTargetBranch: string;
+	};
 }
 
 /**
@@ -275,6 +285,7 @@ export interface WebClient {
  */
 export interface WebClientMessage {
 	type: string;
+	requestId?: string;
 	sessionId?: string;
 	tabId?: string;
 	command?: string;
@@ -596,31 +607,6 @@ export type InteractMovementDesignerCallback = (
 	action: ConcertoDesignerAction
 ) => Promise<ConcertoDesignerActionResult>;
 export type NotifyCenterFlashCallback = (params: NotifyCenterFlashParams) => Promise<boolean>;
-export type ConfigureAutoRunCallback = (
-	sessionId: string,
-	config: {
-		documents: Array<{ filename: string; resetOnCompletion?: boolean }>;
-		prompt?: string;
-		loopEnabled?: boolean;
-		maxLoops?: number;
-		saveAsPlaybook?: string;
-		launch?: boolean;
-		/**
-		 * Per-run model/effort override (CLI `--model` / `--effort`). Wins over the
-		 * session's configured model for this run's spawns only; never written back
-		 * to the session. Absent means "use the agent default".
-		 */
-		model?: string;
-		effort?: string;
-		worktree?: {
-			enabled: boolean;
-			path: string;
-			branchName: string;
-			createPROnCompletion: boolean;
-			prTargetBranch: string;
-		};
-	}
-) => Promise<{ success: boolean; playbookId?: string; error?: string }>;
 
 /**
  * Callback type for fetching current theme.
