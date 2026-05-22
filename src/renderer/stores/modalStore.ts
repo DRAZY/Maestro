@@ -770,6 +770,13 @@ export const useModalStore = create<ModalStore>()((set, get) => ({
 			state.openModal('promptComposer');
 		}
 	},
+
+	openBatchRunnerWithConfig: (initialConfig) => {
+		get().openModal('batchRunner', {
+			initialConfig,
+			presetDocuments: initialConfig.documents?.map((doc) => doc.filename),
+		});
+	},
 }));
 
 // ============================================================================
