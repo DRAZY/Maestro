@@ -7,8 +7,11 @@ import {
 	sanitizeLoadedAutoRunMaxTaskDurationMin,
 	DEFAULT_AUTORUN_MAX_TASK_DURATION_MIN,
 	resolveForceParallel,
+	FILE_PREVIEW_TOOLBAR_BUTTON_KEYS,
+	DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY,
 } from '../../../renderer/stores/settingsStore';
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
+import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
 import { useUIStore } from '../../../renderer/stores/uiStore';
 import type { FileExplorerIconTheme } from '../../../renderer/utils/fileExplorerIcons/shared';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS } from '../../../renderer/constants/shortcuts';
@@ -2243,6 +2246,43 @@ describe('settingsStore', () => {
 			expect(sanitizeLoadedAutoRunMaxTaskDurationMin(undefined as any)).toBe(
 				DEFAULT_AUTORUN_MAX_TASK_DURATION_MIN
 			);
+		});
+	});
+
+	// ========================================================================
+	// 15. File Preview Toolbar Metadata Parity
+	// ========================================================================
+
+	// The SETTINGS_METADATA default is a plain object literal, so TypeScript
+	// can't catch a key that drifts out of sync with the canonical key list the
+	// way it does for the Record<FilePreviewToolbarButton, ...> maps. `editImage`
+	// went missing here once already; `maestro-cli settings reset` writes this
+	// literal verbatim, so a gap ships an incomplete map to disk.
+	describe('filePreviewToolbarVisibility metadata parity', () => {
+		it('metadata default covers exactly the canonical toolbar button keys', () => {
+			const metaDefault = SETTINGS_METADATA.filePreviewToolbarVisibility.default as Record<
+				string,
+				boolean
+			>;
+
+			expect(Object.keys(metaDefault).sort()).toEqual([...FILE_PREVIEW_TOOLBAR_BUTTON_KEYS].sort());
+		});
+
+		it('metadata default and the store default agree on every button', () => {
+			const metaDefault = SETTINGS_METADATA.filePreviewToolbarVisibility.default as Record<
+				string,
+				boolean
+			>;
+
+			expect(metaDefault).toEqual(DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY);
+		});
+
+		it('metadata description lists every toolbar button key', () => {
+			const { description } = SETTINGS_METADATA.filePreviewToolbarVisibility;
+
+			for (const key of FILE_PREVIEW_TOOLBAR_BUTTON_KEYS) {
+				expect(description).toContain(key);
+			}
 		});
 	});
 });
