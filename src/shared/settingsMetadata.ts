@@ -688,7 +688,7 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	// --- Updates & Crash Reporting ---
 	checkForUpdatesOnStartup: {
 		description:
-			'Automatically check for Maestro updates on launch and once per day while running.',
+			'Automatically check for Maestro updates on launch and once per day while running. Also sends an anonymous check-in (a random install ID, app version, OS, and theme) so we can count active installs. Turning this off disables both.',
 		type: 'boolean',
 		default: true,
 		category: 'updates',
