@@ -19,6 +19,7 @@ import { AgentDetailModal } from '../AgentDetailModal';
 import { EmptyState } from '../EmptyState';
 import { DashboardSkeleton } from '../ChartSkeletons';
 import { CueStats } from '../CueStats';
+import { TokenSeriesProvider } from '../TokenSeriesContext';
 import type { Session } from '../../../types';
 import { useModalLayer } from '../../../hooks/ui/useModalLayer';
 import { useResizableModal } from '../../../hooks/ui/useResizableModal';
@@ -405,7 +406,7 @@ export function UsageDashboardModal({
 					className="flex-1 overflow-y-auto scrollbar-thin p-6"
 					style={{ backgroundColor: theme.colors.bgMain }}
 				>
-					{renderTabContent()}
+					<TokenSeriesProvider timeRange={timeRange}>{renderTabContent()}</TokenSeriesProvider>
 				</div>
 
 				<UsageDashboardFooter

@@ -35,6 +35,7 @@ import {
 	type TokenUsageAggregate,
 	type TokenUsageGroup,
 	type TokenUsageQuery,
+	type TokenSeries,
 	type TokenUsageTimeBucket,
 	type TokenUsageTotals,
 	type TokenTimelineGranularity,
@@ -199,6 +200,7 @@ function toBreakdown(
 		projectPath: info.projectPath,
 		accountKey,
 		timestampMs,
+		origin: info.origin,
 		byModel,
 		inputTokens: totals.inputTokens,
 		outputTokens: totals.outputTokens,
@@ -442,9 +444,73 @@ function aggregate(all: SessionTokenBreakdown[], query: TokenUsageQuery): TokenU
 		byProject: toGroups(byProject),
 		byAccount: toGroups(byAccount),
 		timeline: timelineArr,
+		series: buildSeries(all, sinceMs, untilMs),
 		coverageByAgent,
 		generatedAtMs: Date.now(),
 	};
+}
+
+/** Local `YYYY-MM-DD` for a timestamp, matching the format `StatsAggregation.byDay` uses. */
+function localDayKey(ms: number): string {
+	const d = new Date(ms);
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+		d.getDate()
+	).padStart(2, '0')}`;
+}
+
+/** Add `n` into `map[key]`, creating the entry when absent. */
+function bump(map: Record<string, number>, key: string, n: number): void {
+	map[key] = (map[key] ?? 0) + n;
+}
+
+/**
+ * Bucket session tokens into the shapes the existing dashboard charts already
+ * consume for queries/duration, so each can offer a Tokens metric mode.
+ *
+ * See {@link TokenSeries} for the last-activity attribution caveat.
+ */
+function buildSeries(all: SessionTokenBreakdown[], sinceMs: number, untilMs: number): TokenSeries {
+	const series: TokenSeries = {
+		byDay: {},
+		byHour: {},
+		byAgentByDay: {},
+		bySessionByDay: {},
+		bySource: { user: 0, auto: 0 },
+	};
+
+	for (const s of all) {
+		if (s.timestampMs < sinceMs || s.timestampMs > untilMs) continue;
+		const tokens = s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheCreationTokens;
+		if (tokens <= 0) continue;
+
+		// A session with no usable timestamp can still contribute to the
+		// non-temporal splits, but must not pollute a specific day/hour.
+		if (s.timestampMs > 0) {
+			const day = localDayKey(s.timestampMs);
+			bump(series.byDay, day, tokens);
+			bump(series.byHour, String(new Date(s.timestampMs).getHours()), tokens);
+
+			let agentDays = series.byAgentByDay[s.agentType];
+			if (!agentDays) {
+				agentDays = {};
+				series.byAgentByDay[s.agentType] = agentDays;
+			}
+			bump(agentDays, day, tokens);
+
+			let sessionDays = series.bySessionByDay[s.sessionId];
+			if (!sessionDays) {
+				sessionDays = {};
+				series.bySessionByDay[s.sessionId] = sessionDays;
+			}
+			bump(sessionDays, day, tokens);
+		}
+
+		if (s.origin === 'user' || s.origin === 'auto') {
+			series.bySource[s.origin] += tokens;
+		}
+	}
+
+	return series;
 }
 
 /** Human label for a model bucket. */
@@ -506,5 +572,7 @@ export const _internal = {
 	discoverClaudeAccounts,
 	accountLabel,
 	bucketStart,
+	buildSeries,
+	localDayKey,
 	COVERAGE_BY_AGENT,
 };

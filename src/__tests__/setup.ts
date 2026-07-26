@@ -602,6 +602,31 @@ const mockMaestro = {
 	},
 	stats: {
 		recordQuery: vi.fn().mockResolvedValue({ success: true }),
+		getTokenUsage: vi.fn().mockResolvedValue({
+			totals: {
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				costUsd: 0,
+				costEstimated: false,
+				sessionCount: 0,
+			},
+			byAgent: [],
+			byModel: [],
+			byProject: [],
+			byAccount: [],
+			timeline: [],
+			series: {
+				byDay: {},
+				byHour: {},
+				byAgentByDay: {},
+				bySessionByDay: {},
+				bySource: { user: 0, auto: 0 },
+			},
+			coverageByAgent: {},
+			generatedAtMs: 0,
+		}),
 		getAggregation: vi.fn().mockResolvedValue({
 			totalQueries: 0,
 			totalDuration: 0,
