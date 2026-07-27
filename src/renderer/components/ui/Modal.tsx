@@ -34,11 +34,13 @@
  * ```
  */
 
-import React, { useRef, useEffect, ReactNode } from 'react';
+import React, { useRef, useEffect, useCallback, ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { GhostIconButton } from './GhostIconButton';
 import type { Theme } from '../../types';
 import { useModalLayer, type UseModalLayerOptions } from '../../hooks';
+import { useResizableModal, MODAL_MIN_WIDTH } from '../../hooks/ui/useResizableModal';
+import { ModalResizeGrip } from './ModalResizeGrip';
 
 export interface ModalProps {
 	/** Theme object for styling */
@@ -96,6 +98,21 @@ export interface ModalProps {
 	allowOverflow?: boolean;
 	/** Ref to the inner modal card (used by callers that need to animate the card itself) */
 	cardRef?: React.Ref<HTMLDivElement>;
+	/**
+	 * Opt this modal into drag-to-resize. The value is the stable key its size
+	 * persists under (one entry in uiStore's `modalSizes` map), so it must be
+	 * unique per modal and must not change between renders. Omit for a modal
+	 * that should stay at its declared size.
+	 */
+	resizeKey?: string;
+	/**
+	 * Smallest width the user may drag to, in px. Defaults to MODAL_MIN_WIDTH,
+	 * or the declared `width` when that is already narrower. Raise it for a
+	 * modal whose content stops making sense below a certain width.
+	 */
+	minWidth?: number;
+	/** Smallest height the user may drag to, in px. Defaults to MODAL_MIN_HEIGHT */
+	minHeight?: number;
 }
 
 /**
@@ -124,11 +141,33 @@ export function Modal({
 	contentClassName,
 	allowOverflow = false,
 	cardRef,
+	resizeKey,
+	minWidth,
+	minHeight,
 }: ModalProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	// Register with layer stack for Escape handling and focus management
 	useModalLayer(priority, title, onClose, layerOptions);
+
+	const resize = useResizableModal({
+		resizeKey,
+		// Never let the floor exceed the modal's own declared width - a narrow
+		// modal (e.g. a 400px confirm) would otherwise open wider than designed.
+		minWidth: minWidth ?? Math.min(width, MODAL_MIN_WIDTH),
+		minHeight,
+	});
+
+	// Merge the internal resize ref with any caller-supplied cardRef so both see
+	// the same node (callers use theirs to animate the card).
+	const setCardRef = useCallback(
+		(node: HTMLDivElement | null) => {
+			(resize.cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+			if (typeof cardRef === 'function') cardRef(node);
+			else if (cardRef) (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+		},
+		[cardRef, resize.cardRef]
+	);
 
 	// Auto-focus on mount
 	useEffect(() => {
@@ -168,13 +207,18 @@ export function Modal({
 			data-testid={testId}
 		>
 			<div
-				ref={cardRef}
-				className={`border rounded-lg shadow-2xl flex flex-col ${allowOverflow ? 'overflow-visible' : 'overflow-hidden'}`}
+				ref={setCardRef}
+				className={`border rounded-lg shadow-2xl flex flex-col relative ${allowOverflow ? 'overflow-visible' : 'overflow-hidden'} ${resize.isResizing ? 'select-none' : ''}`}
 				style={{
-					width: scaleWidthWithFont
-						? `min(calc(${width}px * var(--font-scale, 1)), ${maxWidthCss})`
-						: `${width}px`,
-					maxHeight,
+					// A size the user dragged to wins over the declared width, and
+					// stays clamped to the viewport so it survives a display change.
+					width: resize.size
+						? `min(${resize.size.width}px, 95vw)`
+						: scaleWidthWithFont
+							? `min(calc(${width}px * var(--font-scale, 1)), ${maxWidthCss})`
+							: `${width}px`,
+					height: resize.size ? `min(${resize.size.height}px, 95vh)` : undefined,
+					maxHeight: resize.size ? undefined : maxHeight,
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
 				}}
@@ -216,6 +260,15 @@ export function Modal({
 					>
 						{footer}
 					</div>
+				)}
+
+				{resize.enabled && (
+					<ModalResizeGrip
+						theme={theme}
+						onResizeStart={resize.onResizeStart}
+						onReset={resize.onResetSize}
+						canReset={resize.size !== null}
+					/>
 				)}
 			</div>
 		</div>

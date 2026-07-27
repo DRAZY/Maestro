@@ -1047,6 +1047,49 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().autoRunStats.cumulativeTimeMs).toBe(60000);
 		});
 
+		it('updateAutoRunProgress keeps Auto Run time out of the Cue subtotal', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 50000, cueTimeMs: 5000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000);
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(5000);
+		});
+
+		it('updateAutoRunProgress accrues Cue credit into both cumulative and Cue time', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 50000, cueTimeMs: 5000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000, 'cue');
+			const stats = useSettingsStore.getState().autoRunStats;
+			expect(stats.cumulativeTimeMs).toBe(60000);
+			expect(stats.cueTimeMs).toBe(15000);
+		});
+
+		it('updateAutoRunProgress treats legacy stats without cueTimeMs as all Auto Run', () => {
+			const { cueTimeMs: _dropped, ...legacy } = DEFAULT_AUTO_RUN_STATS;
+			useSettingsStore.setState({
+				autoRunStats: { ...legacy, cumulativeTimeMs: 50000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000, 'cue');
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(10000);
+		});
+
+		it('recordAutoRunComplete preserves the Cue subtotal', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 60000, cueTimeMs: 15000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().recordAutoRunComplete(30000);
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(15000);
+		});
+
 		it('updateAutoRunProgress detects new badge level', () => {
 			// Just below 15min threshold
 			const justBelow15Min = 15 * 60 * 1000 - 1000;

@@ -10,6 +10,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { Modal, ModalFooter } from '../../../../renderer/components/ui/Modal';
 import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackContext';
+import { useUIStore } from '../../../../renderer/stores/uiStore';
 
 import { mockTheme } from '../../../helpers/mockTheme';
 // Mock theme for testing
@@ -477,6 +478,104 @@ describe('Modal', () => {
 
 			// Modal should render successfully with options
 			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+	});
+
+	describe('resizing', () => {
+		const renderResizable = (props: Partial<React.ComponentProps<typeof Modal>> = {}) =>
+			render(
+				<Modal
+					theme={mockTheme}
+					title="Resizable"
+					priority={100}
+					onClose={vi.fn()}
+					resizeKey="test-modal"
+					{...props}
+				>
+					<p>Content</p>
+				</Modal>,
+				{ wrapper: TestWrapper }
+			);
+
+		/** Drag the grip by (dx, dy) from a card measuring 500x400. */
+		const dragGrip = (dx: number, dy: number) => {
+			vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+				width: 500,
+				height: 400,
+				top: 0,
+				left: 0,
+				right: 500,
+				bottom: 400,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			} as DOMRect);
+
+			fireEvent.mouseDown(screen.getByTestId('modal-resize-grip'), { clientX: 0, clientY: 0 });
+			fireEvent.mouseMove(document, { clientX: dx, clientY: dy });
+			fireEvent.mouseUp(document);
+		};
+
+		beforeEach(() => {
+			useUIStore.setState({ modalSizes: {} });
+		});
+
+		it('should not render a grip without a resizeKey', () => {
+			render(
+				<Modal theme={mockTheme} title="Fixed" priority={100} onClose={vi.fn()}>
+					<p>Content</p>
+				</Modal>,
+				{ wrapper: TestWrapper }
+			);
+
+			expect(screen.queryByTestId('modal-resize-grip')).not.toBeInTheDocument();
+		});
+
+		it('should render a grip when a resizeKey is supplied', () => {
+			renderResizable();
+
+			expect(screen.getByTestId('modal-resize-grip')).toBeInTheDocument();
+		});
+
+		it('should persist the dragged size under the resizeKey', () => {
+			renderResizable();
+
+			// Centered card: the grip moves half as fast as the size grows, so a
+			// 50px drag widens the modal by 100px.
+			dragGrip(50, 25);
+
+			expect(useUIStore.getState().modalSizes['test-modal']).toEqual({
+				width: 600,
+				height: 450,
+			});
+		});
+
+		it('should clamp a drag to the configured minimums', () => {
+			renderResizable({ minWidth: 480, minHeight: 420 });
+
+			dragGrip(-400, -400);
+
+			expect(useUIStore.getState().modalSizes['test-modal']).toEqual({
+				width: 480,
+				height: 420,
+			});
+		});
+
+		it('should apply a remembered size to the card', () => {
+			useUIStore.setState({ modalSizes: { 'test-modal': { width: 700, height: 500 } } });
+			renderResizable();
+
+			const card = screen.getByText('Content').closest('div.rounded-lg');
+			expect(card).toHaveStyle({ width: 'min(700px, 95vw)', height: 'min(500px, 95vh)' });
+		});
+
+		it('should forget the remembered size on double-click', () => {
+			useUIStore.setState({ modalSizes: { 'test-modal': { width: 700, height: 500 } } });
+			renderResizable();
+
+			fireEvent.doubleClick(screen.getByTestId('modal-resize-grip'));
+
+			expect(useUIStore.getState().modalSizes['test-modal']).toBeUndefined();
 		});
 	});
 });

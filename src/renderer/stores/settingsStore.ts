@@ -22,6 +22,7 @@ import type {
 	ThemeColors,
 	Shortcut,
 	CustomAICommand,
+	AchievementTimeSource,
 	AutoRunStats,
 	MaestroUsageStats,
 	OnboardingStats,
@@ -41,7 +42,7 @@ import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { logger } from '../utils/logger';
-import { useUIStore } from './uiStore';
+import { useUIStore, type ModalSize } from './uiStore';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -156,6 +157,7 @@ const DEFAULT_CONTEXT_MANAGEMENT_SETTINGS: ContextManagementSettings = {
 
 const DEFAULT_AUTO_RUN_STATS: AutoRunStats = {
 	cumulativeTimeMs: 0,
+	cueTimeMs: 0,
 	longestRunMs: 0,
 	longestRunTimestamp: 0,
 	totalRuns: 0,
@@ -607,7 +609,15 @@ export interface SettingsStoreActions {
 		newBadgeLevel: number | null;
 		isNewRecord: boolean;
 	};
-	updateAutoRunProgress: (deltaMs: number) => {
+	/**
+	 * Credit a block of autonomous time toward the Conductor level. `source`
+	 * defaults to 'autoRun'; pass 'cue' so the block also lands in the Cue
+	 * subtotal shown on the About card.
+	 */
+	updateAutoRunProgress: (
+		deltaMs: number,
+		source?: AchievementTimeSource
+	) => {
 		newBadgeLevel: number | null;
 		isNewRecord: boolean;
 	};
@@ -1734,6 +1744,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 
 			const updated: AutoRunStats = {
 				cumulativeTimeMs: prev.cumulativeTimeMs, // Already updated incrementally
+				cueTimeMs: prev.cueTimeMs ?? 0, // Also accrued incrementally
 				longestRunMs: isNewRecord ? elapsedTimeMs : prev.longestRunMs,
 				longestRunTimestamp: isNewRecord ? Date.now() : prev.longestRunTimestamp,
 				totalRuns: prev.totalRuns + 1,
@@ -1750,7 +1761,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			return { newBadgeLevel, isNewRecord };
 		},
 
-		updateAutoRunProgress: (deltaMs) => {
+		updateAutoRunProgress: (deltaMs, source = 'autoRun') => {
 			const prev = get().autoRunStats;
 
 			// Add the delta to cumulative time
@@ -1774,6 +1785,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 
 			const updated: AutoRunStats = {
 				cumulativeTimeMs: newCumulativeTime,
+				// Cue credit is a subset of cumulative time, not an addition to it
+				cueTimeMs: (prev.cueTimeMs ?? 0) + (source === 'cue' ? deltaMs : 0),
 				longestRunMs: prev.longestRunMs, // Don't update until run completes
 				longestRunTimestamp: prev.longestRunTimestamp,
 				totalRuns: prev.totalRuns, // Don't increment - run not complete yet
@@ -2476,6 +2489,13 @@ export async function loadAllSettings(): Promise<void> {
 		)
 			useUIStore.setState({
 				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
+			});
+
+		// Per-modal sizes live in uiStore next to the other persisted UI maps, so
+		// the resize hook can read and write them without a settings round-trip.
+		if (allSettings['modalSizes'] !== undefined && typeof allSettings['modalSizes'] === 'object')
+			useUIStore.setState({
+				modalSizes: allSettings['modalSizes'] as Record<string, ModalSize>,
 			});
 
 		if (allSettings['tourCompleted'] !== undefined)

@@ -408,9 +408,23 @@ export interface BadgeUnlockRecord {
 	unlockedAt: number; // Timestamp when badge was unlocked
 }
 
+/**
+ * Which autonomous surface credited a block of Conductor time. Both accrue into
+ * `AutoRunStats.cumulativeTimeMs`; 'cue' additionally accrues into `cueTimeMs`
+ * so the About card can show the Cue subset of the total.
+ */
+export type AchievementTimeSource = 'autoRun' | 'cue';
+
 // Auto-run achievement statistics (survives app restarts)
 export interface AutoRunStats {
 	cumulativeTimeMs: number; // Total cumulative AutoRun time across all sessions
+	/**
+	 * Subset of `cumulativeTimeMs` credited by autonomous Maestro Cue runs
+	 * (the remainder came from Auto Run). Optional because it was added after
+	 * Cue credit already existed: stats persisted before this field report
+	 * `undefined`, which reads as 0 and attributes all prior time to Auto Run.
+	 */
+	cueTimeMs?: number;
 	longestRunMs: number; // Longest single AutoRun session
 	longestRunTimestamp: number; // When the longest run occurred
 	totalRuns: number; // Total number of AutoRun sessions completed
