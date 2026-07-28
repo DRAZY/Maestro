@@ -57,6 +57,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	fontSize: 14,
 	fontFamily: 'Roboto Mono, Menlo, "Courier New", monospace',
 	customFonts: [],
+	mediaPlaybackRate: 1,
 	logLevel: 'info',
 	defaultShell: getDefaultShell(),
 	webAuthEnabled: false,

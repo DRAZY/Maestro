@@ -41,6 +41,7 @@ import type { FileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
+import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import { logger } from '../utils/logger';
 import { useUIStore, type ModalSize } from './uiStore';
 
@@ -315,6 +316,8 @@ export interface SettingsStoreState {
 	ghPath: string;
 	fontFamily: string;
 	fontSize: number;
+	/** Playback speed for audio/video in the file preview. Sticky across files. */
+	mediaPlaybackRate: number;
 	activeThemeId: ThemeId;
 	customThemeColors: ThemeColors;
 	customThemeBaseId: ThemeId;
@@ -465,6 +468,7 @@ export interface SettingsStoreActions {
 	setGhPath: (value: string) => void;
 	setFontFamily: (value: string) => void;
 	setFontSize: (value: number) => void;
+	setMediaPlaybackRate: (value: number) => void;
 	setActiveThemeId: (value: ThemeId) => void;
 	setCustomThemeColors: (value: ThemeColors) => void;
 	setCustomThemeBaseId: (value: ThemeId) => void;
@@ -684,6 +688,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		ghPath: '',
 		fontFamily: 'Roboto Mono, Menlo, "Courier New", monospace',
 		fontSize: 14,
+		mediaPlaybackRate: 1,
 		activeThemeId: 'dracula',
 		customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 		customThemeBaseId: 'dracula',
@@ -881,6 +886,12 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setFontSize: (value) => {
 			set({ fontSize: value });
 			window.maestro.settings.set('fontSize', value);
+		},
+
+		setMediaPlaybackRate: (value) => {
+			const rate = normalizePlaybackRate(value);
+			set({ mediaPlaybackRate: rate });
+			window.maestro.settings.set('mediaPlaybackRate', rate);
 		},
 
 		setActiveThemeId: (value) => {
@@ -2211,6 +2222,9 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['fontSize'] !== undefined) patch.fontSize = allSettings['fontSize'] as number;
 
+		if (allSettings['mediaPlaybackRate'] !== undefined)
+			patch.mediaPlaybackRate = normalizePlaybackRate(allSettings['mediaPlaybackRate']);
+
 		if (allSettings['activeThemeId'] !== undefined)
 			patch.activeThemeId = allSettings['activeThemeId'] as ThemeId;
 
@@ -2912,6 +2926,7 @@ export function getSettingsActions() {
 		setGhPath: state.setGhPath,
 		setFontFamily: state.setFontFamily,
 		setFontSize: state.setFontSize,
+		setMediaPlaybackRate: state.setMediaPlaybackRate,
 		setActiveThemeId: state.setActiveThemeId,
 		setCustomThemeColors: state.setCustomThemeColors,
 		setCustomThemeBaseId: state.setCustomThemeBaseId,

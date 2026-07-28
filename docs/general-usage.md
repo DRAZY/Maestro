@@ -38,8 +38,39 @@ The **File Explorer** (Right Panel → Files tab) lets you browse project files.
 - **Syntax highlighting** for code files
 - **Markdown rendering** with toggle between raw/preview (`Cmd+E` / `Ctrl+E`)
 - **Image viewing** for common image formats
+- **Audio and video playback** with a speed control that sticks (see below)
 - **Line numbers** for easy reference
 - **Search within file** (`Cmd+F` / `Ctrl+F`)
+
+### Audio and Video Playback
+
+Click an audio or video file and it opens in a player right inside the File
+Preview. Supported formats are the ones Chromium can decode: `mp3`, `wav`,
+`m4a`, `aac`, `flac`, `ogg`, `oga`, `opus`, `weba` for audio, and `mp4`, `m4v`,
+`webm`, `mov`, `ogv` for video. Anything else (`mkv`, `avi`) still gets the
+"Open in Default App" fallback.
+
+Files stream from disk with range requests, so scrubbing a multi-gigabyte
+screen recording is instant and does not load the file into memory.
+
+**Playback speed persists.** Whatever rate you pick - anywhere from 0.25x to 4x
+
+- carries over to the next file you open and survives a restart. Pitch is
+  preserved, so a 2x podcast still sounds like a person.
+
+| Shortcut               | Action                         |
+| ---------------------- | ------------------------------ |
+| `Space` or `K`         | Play / pause                   |
+| `Left` / `Right`       | Skip back / forward 10 seconds |
+| `Shift+Left` / `Right` | Skip back / forward 5 seconds  |
+| `Up` / `Down`          | Volume up / down               |
+| `,` / `.`              | Step playback speed down / up  |
+| `M`                    | Mute                           |
+| `L`                    | Loop                           |
+| `F`                    | Fullscreen (video only)        |
+
+You can also set the speed outside the app with
+`maestro-cli settings set mediaPlaybackRate 1.5`.
 
 ### File Explorer Keyboard Shortcuts
 
