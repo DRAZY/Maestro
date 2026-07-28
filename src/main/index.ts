@@ -772,7 +772,7 @@ app
 		// context-window popover has fresh quota data on first turn. Failures here
 		// are non-fatal — the spawner's resolver tolerates a null snapshot by
 		// defaulting to interactive, and the next sampler refresh will repopulate.
-		void runStartupUsageSampling({
+		const startupUsageSampling = runStartupUsageSampling({
 			sessionsStore,
 			agentConfigsStore,
 			settingsStore: store,
@@ -795,6 +795,21 @@ app
 			agentDetector,
 		});
 		usageRefreshScheduler.start();
+
+		// Warm any provider the strict startup pass left cold (no auto-refresh
+		// interval picked, no eligible recent maestro-p session, Codex not sampled
+		// on boot at all). Runs after that pass settles so the two can't spawn
+		// `maestro-p --status` for the same account at once, and no-ops when the
+		// snapshots already hold renderable data. This is what makes the Usage
+		// Dashboard's Anthropic / OpenAI tabs show up on the first open instead of
+		// only after a close-and-reopen.
+		void startupUsageSampling
+			.then(() => usageRefreshScheduler?.warmUp())
+			.catch((err: unknown) => {
+				logger.warn('Provider quota warm-up failed', 'Startup', {
+					error: err instanceof Error ? err.message : String(err),
+				});
+			});
 
 		// Initialize Cue Engine for event-driven automation
 		cueEngine = new CueEngine({

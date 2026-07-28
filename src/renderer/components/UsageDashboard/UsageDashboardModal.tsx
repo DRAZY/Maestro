@@ -60,8 +60,12 @@ import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
-import { useClaudeUsageStore, type ClaudeUsageSnapshot } from '../../stores/claudeUsageStore';
-import { useCodexUsageStore, type CodexUsageSnapshot } from '../../stores/codexUsageStore';
+import { useClaudeUsageStore } from '../../stores/claudeUsageStore';
+import { useCodexUsageStore } from '../../stores/codexUsageStore';
+import {
+	hasUsefulAnthropicQuotaDetails,
+	hasUsefulCodexQuotaDetails,
+} from '../../../shared/usageQuota';
 import { useGlobalAgentStats } from '../../hooks/stats/useGlobalAgentStats';
 import { getRendererPerfMetrics, logger } from '../../utils/logger';
 import { PERFORMANCE_THRESHOLDS } from '../../../shared/performance-metrics';
@@ -164,31 +168,6 @@ const BASE_VIEW_MODE_TABS: { value: ViewMode; label: string }[] = [
 ];
 
 const EMPTY_SESSIONS: Session[] = [];
-
-function hasValidQuotaWindow(window: { percent: number; resetsAt?: string } | undefined): boolean {
-	if (!window) return false;
-	if (!Number.isFinite(window.percent)) return false;
-	if (window.percent < 0) return false;
-	return typeof window.resetsAt === 'string' && window.resetsAt.length > 0;
-}
-
-function hasUsefulAnthropicQuotaDetails(snapshot: ClaudeUsageSnapshot): boolean {
-	if (snapshot.authState === 'unauthenticated') return false;
-	return (
-		hasValidQuotaWindow(snapshot.session) ||
-		hasValidQuotaWindow(snapshot.weekAllModels) ||
-		hasValidQuotaWindow(snapshot.weekSonnetOnly)
-	);
-}
-
-function hasUsefulCodexQuotaDetails(snapshot: CodexUsageSnapshot): boolean {
-	if (snapshot.authState !== 'authenticated') return false;
-	return (
-		hasValidQuotaWindow(snapshot.session) ||
-		hasValidQuotaWindow(snapshot.weekly) ||
-		(snapshot.additionalLimits ?? []).some(hasValidQuotaWindow)
-	);
-}
 
 export function UsageDashboardModal({
 	isOpen,
