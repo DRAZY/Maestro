@@ -658,6 +658,20 @@ Standard cancel/confirm button layout:
 />
 ```
 
+### `<ShortcutHint>` (`src/renderer/components/TabBar/ShortcutHint.tsx`)
+
+The keys badge at the right edge of a tab overlay-menu row:
+
+```tsx
+{
+	tabShortcuts.moveTabToStart && (
+		<ShortcutHint keys={tabShortcuts.moveTabToStart.keys} theme={theme} />
+	);
+}
+```
+
+Used by every tab item's overlay menu (`AITabOverlayMenu`, `FileTab`, `TerminalTabItem`, `BrowserTabItem`, `GroupTabChip`). It was previously re-declared inline, byte-identical, in four of those components - do NOT add a fifth copy. Positions itself with `ml-auto`, so it only lays out correctly inside a flex row item. Key glyphs come from `formatShortcutKeys`, which is platform-correct; never hard-code `⌘` / `Ctrl` in menu copy.
+
 ### `<AdditionalDirectoriesSection>` (`src/renderer/components/shared/AdditionalDirectoriesSection.tsx`)
 
 The row editor for an agent's extra directory grants (path + independent R / W square toggles + remove). Shared by NewInstanceModal, EditAgentModal, and the Wizard's DirectorySelectionScreen so all three emit the same `AdditionalDirectory[]`.
@@ -1079,7 +1093,7 @@ Each tab has an `AITab` type with:
 - `handleCloseTabsLeft()` / `handleCloseTabsRight()` - close tabs on one side of active
 - `handleCloseCurrentTab()` - returns `CloseCurrentTabResult` indicating which tab type was closed
 - `handleTabReorder(fromIndex, toIndex)` - reorder AI tabs
-- `handleUnifiedTabReorder(fromIndex, toIndex)` - reorder the unified tab bar (mixes AI, file, browser, terminal)
+- `handleUnifiedTabReorder(fromIndex, toIndex)` - reorder the unified tab bar (mixes AI, file, browser, terminal, and tiled-group chips). A tiled group is ONE unified tab and drags/reorders as a single unit like any other chip; its panes are referenced by the group's layout tree, not by `unifiedTabOrder`, so moving the chip never disturbs the tiling.
 - `handleRequestTabRename(tabId)` - open rename modal
 - `handleTabStar(tabId, starred)` - pin/unpin
 - `handleTabMarkUnread(tabId)` - mark unread

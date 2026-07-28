@@ -310,7 +310,9 @@ function TabBarInner({
 			e.dataTransfer.setData('text/plain', tabId);
 			// ADD (never replace) the tiling payload so a drop onto the tiled panel can
 			// identify this tab. Resolve the tab's type from the unified list (legacy
-			// mode is AI-only). Group chips aren't draggable, so this is a leaf tab.
+			// mode is AI-only). A GROUP chip is deliberately excluded: a group drags for
+			// strip reordering (via text/plain) but carries no tile payload, so dropping
+			// it onto a tiled panel can't try to nest a group inside another group.
 			const unifiedType = unifiedTabs?.find((ut) => ut.id === tabId)?.type;
 			const ref: UnifiedTabRef | null =
 				unifiedType && unifiedType !== 'group'
@@ -853,6 +855,19 @@ function TabBarInner({
 										onRename={onGroupRename}
 										onSetEmoji={onGroupSetEmoji}
 										onBreakApart={onGroupBreakApart}
+										onDragStart={handleDragStart}
+										onDragOver={handleDragOver}
+										onDragEnd={handleDragEnd}
+										onDrop={handleDrop}
+										isDragging={draggingTabId === unifiedTab.id}
+										isDragOver={dragOverTabId === unifiedTab.id}
+										registerRef={(el) => registerTabRef(unifiedTab.id, el)}
+										onMoveToFirst={
+											!isFirstTab && onUnifiedTabReorder ? handleMoveToFirst : undefined
+										}
+										onMoveToLast={!isLastTab && onUnifiedTabReorder ? handleMoveToLast : undefined}
+										isFirstTab={isFirstTab}
+										isLastTab={isLastTab}
 									/>
 								</React.Fragment>
 							);

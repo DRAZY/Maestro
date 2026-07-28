@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Session, AITab, ThinkingMode } from '../../types';
-import {
-	getInitialRenameValue,
-	moveActiveUnifiedTabToEdge,
-	toggleReadOnlyModeFields,
-} from '../../utils/tabHelpers';
+import { moveActiveUnifiedTabToEdge, toggleReadOnlyModeFields } from '../../utils/tabHelpers';
+import { resolveActiveTabRef, resolveTabRefRenameValue } from '../../utils/panelLayout';
 import { useModalStore } from '../../stores/modalStore';
 import { selectActiveSession, useSessionStore } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -1070,48 +1067,16 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				}
 				if (ctx.isTabShortcut(e, 'renameTab')) {
 					e.preventDefault();
-					if (activeSession.inputMode === 'terminal') {
-						const activeTerminalTabId = activeSession.activeTerminalTabId;
-						const terminalTab = activeSession.terminalTabs?.find(
-							(t: { id: string }) => t.id === activeTerminalTabId
-						);
-						if (activeTerminalTabId && terminalTab) {
-							ctx.setRenameTabId(activeTerminalTabId);
-							ctx.setRenameTabInitialName(terminalTab.name ?? '');
-							ctx.setRenameTabModalOpen(true);
-							trackShortcut('renameTab');
-						}
-					} else if (activeSession.activeFileTabId) {
-						// File tabs keep inputMode 'ai' but outrank the AI tab in render
-						// precedence, so rename the visible file tab, not the hidden AI tab.
-						const activeFileTabId = activeSession.activeFileTabId;
-						const fileTab = activeSession.filePreviewTabs?.find(
-							(t: { id: string }) => t.id === activeFileTabId
-						);
-						if (fileTab) {
-							ctx.setRenameTabId(fileTab.id);
-							ctx.setRenameTabInitialName(fileTab.customName ?? '');
-							ctx.setRenameTabModalOpen(true);
-							trackShortcut('renameTab');
-						}
-					} else if (activeSession.activeBrowserTabId) {
-						const browserTab = activeSession.browserTabs?.find(
-							(t: { id: string }) => t.id === activeSession.activeBrowserTabId
-						);
-						if (browserTab) {
-							ctx.setRenameTabId(browserTab.id);
-							ctx.setRenameTabInitialName(browserTab.customTitle ?? '');
-							ctx.setRenameTabModalOpen(true);
-							trackShortcut('renameTab');
-						}
-					} else {
-						const activeTab = ctx.getActiveTab(activeSession);
-						if (activeTab) {
-							ctx.setRenameTabId(activeTab.id);
-							ctx.setRenameTabInitialName(getInitialRenameValue(activeTab));
-							ctx.setRenameTabModalOpen(true);
-							trackShortcut('renameTab');
-						}
+					// Group-aware: with a tiled group active this targets its FOCUSED PANE,
+					// so renaming a terminal/browser/file tile actually renames that tile
+					// instead of the AI tab hidden behind the group.
+					const renameRef = resolveActiveTabRef(activeSession);
+					const renameValue = renameRef ? resolveTabRefRenameValue(activeSession, renameRef) : null;
+					if (renameRef && renameValue !== null) {
+						ctx.setRenameTabId(renameRef.id);
+						ctx.setRenameTabInitialName(renameValue);
+						ctx.setRenameTabModalOpen(true);
+						trackShortcut('renameTab');
 					}
 				}
 				// AI-tab-specific metadata toggles (read-only, save-to-history,

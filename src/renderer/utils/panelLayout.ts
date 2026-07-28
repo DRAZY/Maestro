@@ -17,7 +17,7 @@ import type {
 	UnifiedTabRef,
 } from '../types';
 import { generateId } from './ids';
-import { getTabDisplayName } from './tabHelpers';
+import { getActiveTab, getTabDisplayName } from './tabHelpers';
 import { getTerminalTabDisplayName } from './terminalTabHelpers';
 import { getBrowserTabLabel } from './browserTabPersistence';
 
@@ -323,6 +323,78 @@ export function resolveTabRefTitle(session: Session, ref: UnifiedTabRef): string
 		default:
 			return 'Tab';
 	}
+}
+
+/**
+ * Resolve a unified tab ref to the value a rename dialog should seed its input
+ * with: the USER-assigned name only, never the auto-generated display title, so
+ * clearing the field restores the default ("Terminal 2", the filename, the page
+ * title). Returns null when the ref no longer points at a live tab, letting
+ * callers skip opening a rename that could not commit.
+ *
+ * The counterpart to `resolveTabRefTitle` (display) and the single source of
+ * truth for every rename entry point - keyboard shortcut, Quick Actions, and the
+ * tiled pane menu - so they can't drift on what "current name" means.
+ */
+export function resolveTabRefRenameValue(session: Session, ref: UnifiedTabRef): string | null {
+	switch (ref.type) {
+		case 'ai': {
+			const aiTab = session.aiTabs?.find((t) => t.id === ref.id);
+			return aiTab ? (aiTab.name ?? '') : null;
+		}
+		case 'file': {
+			const fileTab = session.filePreviewTabs?.find((t) => t.id === ref.id);
+			return fileTab ? (fileTab.customName ?? '') : null;
+		}
+		case 'terminal': {
+			const terminalTab = session.terminalTabs?.find((t) => t.id === ref.id);
+			return terminalTab ? (terminalTab.name ?? '') : null;
+		}
+		case 'browser': {
+			const browserTab = session.browserTabs?.find((t) => t.id === ref.id);
+			return browserTab ? (browserTab.customTitle ?? '') : null;
+		}
+		default:
+			return null;
+	}
+}
+
+/**
+ * The tab ref the single (non-tiled) view is currently showing. Terminal mode
+ * wins, then a file tab, then a browser tab, then the AI tab - file and browser
+ * tabs keep `inputMode: 'ai'` but outrank the AI tab in render precedence, so
+ * this order mirrors what the panel actually paints. Null when nothing is
+ * showing (an agent with no tabs).
+ */
+export function resolveSingleViewTabRef(session: Session): UnifiedTabRef | null {
+	if (session.inputMode === 'terminal' && session.activeTerminalTabId) {
+		return { type: 'terminal', id: session.activeTerminalTabId };
+	}
+	if (session.activeFileTabId) return { type: 'file', id: session.activeFileTabId };
+	if (session.activeBrowserTabId) return { type: 'browser', id: session.activeBrowserTabId };
+	const aiTab = getActiveTab(session);
+	return aiTab ? { type: 'ai', id: aiTab.id } : null;
+}
+
+/**
+ * The tab a tab-scoped action (rename, and any future per-tab command) should
+ * target. When a tiled group has taken over the panel, that's the group's
+ * FOCUSED PANE - not the single-view tab, which is hidden behind the group and
+ * whose id would silently rename the wrong tab. Falls back to the group's first
+ * pane when nothing is focused, and to the single-view tab when no group is
+ * active.
+ */
+export function resolveActiveTabRef(session: Session): UnifiedTabRef | null {
+	const group =
+		session.activeGroupId != null
+			? session.tabGroups?.find((g) => g.id === session.activeGroupId)
+			: undefined;
+	if (group) {
+		const leaf = group.focusedPaneId ? findLeafById(group.layout, group.focusedPaneId) : null;
+		if (leaf && leaf.kind === 'leaf') return leaf.tab;
+		return collectLeafTabRefs(group.layout)[0] ?? null;
+	}
+	return resolveSingleViewTabRef(session);
 }
 
 /** Build an auto group name from the first tab's title (used for auto-naming). */

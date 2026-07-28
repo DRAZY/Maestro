@@ -45,6 +45,9 @@ import {
 	setGroupEmoji,
 	normalizeTabGroups,
 	resolveTabRefTitle,
+	resolveTabRefRenameValue,
+	resolveSingleViewTabRef,
+	resolveActiveTabRef,
 	type DropRect,
 } from '../panelLayout';
 import type { PaneRects } from '../../types';
@@ -1039,6 +1042,117 @@ describe('resolveTabRefTitle', () => {
 		expect(resolveTabRefTitle(s, fileRef('gone'))).toBe('File');
 		expect(resolveTabRefTitle(s, { type: 'terminal', id: 'gone' })).toBe('Terminal');
 		expect(resolveTabRefTitle(s, { type: 'browser', id: 'gone' })).toBe('Browser');
+	});
+});
+
+describe('resolveTabRefRenameValue', () => {
+	function sessionWithTabs(): Session {
+		return {
+			aiTabs: [{ id: 'a1', name: 'My Chat' }, { id: 'a2' }],
+			filePreviewTabs: [{ id: 'f1', name: 'README.md', customName: 'Notes' }, { id: 'f2' }],
+			terminalTabs: [
+				{ id: 't1', name: 'Build' },
+				{ id: 't2', name: null },
+			],
+			browserTabs: [
+				{ id: 'b1', customTitle: 'Pinned', title: 'Docs', url: 'https://x' },
+				{ id: 'b2', title: 'Docs', url: 'https://x' },
+			],
+		} as unknown as Session;
+	}
+
+	it('returns the user-assigned name for each tab kind', () => {
+		const s = sessionWithTabs();
+		expect(resolveTabRefRenameValue(s, aiRef('a1'))).toBe('My Chat');
+		expect(resolveTabRefRenameValue(s, fileRef('f1'))).toBe('Notes');
+		expect(resolveTabRefRenameValue(s, { type: 'terminal', id: 't1' })).toBe('Build');
+		expect(resolveTabRefRenameValue(s, { type: 'browser', id: 'b1' })).toBe('Pinned');
+	});
+
+	it('returns an empty string (never the auto title) when no custom name is set', () => {
+		const s = sessionWithTabs();
+		expect(resolveTabRefRenameValue(s, aiRef('a2'))).toBe('');
+		expect(resolveTabRefRenameValue(s, fileRef('f2'))).toBe('');
+		expect(resolveTabRefRenameValue(s, { type: 'terminal', id: 't2' })).toBe('');
+		expect(resolveTabRefRenameValue(s, { type: 'browser', id: 'b2' })).toBe('');
+	});
+
+	it('returns null when the ref points at a tab that no longer exists', () => {
+		const s = sessionWithTabs();
+		expect(resolveTabRefRenameValue(s, aiRef('gone'))).toBeNull();
+		expect(resolveTabRefRenameValue(s, fileRef('gone'))).toBeNull();
+		expect(resolveTabRefRenameValue(s, { type: 'terminal', id: 'gone' })).toBeNull();
+		expect(resolveTabRefRenameValue(s, { type: 'browser', id: 'gone' })).toBeNull();
+	});
+});
+
+describe('resolveSingleViewTabRef / resolveActiveTabRef', () => {
+	function baseSession(extra?: Partial<Session>): Session {
+		return {
+			id: 'sess',
+			inputMode: 'ai',
+			aiTabs: [{ id: 'a1', name: 'My Chat' }],
+			activeTabId: 'a1',
+			filePreviewTabs: [{ id: 'f1', name: 'README.md' }],
+			terminalTabs: [{ id: 't1', name: null }],
+			browserTabs: [{ id: 'b1', title: 'Docs', url: 'https://x' }],
+			tabGroups: [],
+			activeGroupId: null,
+			...extra,
+		} as unknown as Session;
+	}
+
+	it('follows the single-view render precedence: terminal, file, browser, AI', () => {
+		expect(
+			resolveSingleViewTabRef(baseSession({ inputMode: 'terminal', activeTerminalTabId: 't1' }))
+		).toEqual({ type: 'terminal', id: 't1' });
+		expect(resolveSingleViewTabRef(baseSession({ activeFileTabId: 'f1' }))).toEqual({
+			type: 'file',
+			id: 'f1',
+		});
+		expect(resolveSingleViewTabRef(baseSession({ activeBrowserTabId: 'b1' }))).toEqual({
+			type: 'browser',
+			id: 'b1',
+		});
+		expect(resolveSingleViewTabRef(baseSession())).toEqual({ type: 'ai', id: 'a1' });
+	});
+
+	it('returns null when the agent has nothing showing', () => {
+		expect(resolveSingleViewTabRef(baseSession({ aiTabs: [] }))).toBeNull();
+	});
+
+	it('targets the focused pane when a tiled group is active', () => {
+		const group = createGroupFromTabRefs(
+			[{ type: 'terminal', id: 't1' }, aiRef('a1')],
+			'Group: Terminal 1'
+		);
+		const terminalLeafId = group.layout.kind === 'split' ? group.layout.children[0].id : '';
+		const session = baseSession({
+			tabGroups: [{ ...group, focusedPaneId: terminalLeafId }],
+			activeGroupId: group.id,
+			// The hidden single-view tab must NOT win while the group is showing.
+			activeFileTabId: 'f1',
+		});
+		expect(resolveActiveTabRef(session)).toEqual({ type: 'terminal', id: 't1' });
+	});
+
+	it('falls back to the first pane when the active group has no focused pane', () => {
+		const group = createGroupFromTabRefs([aiRef('a1'), { type: 'terminal', id: 't1' }], 'Group');
+		const session = baseSession({
+			tabGroups: [{ ...group, focusedPaneId: null }],
+			activeGroupId: group.id,
+		});
+		expect(resolveActiveTabRef(session)).toEqual({ type: 'ai', id: 'a1' });
+	});
+
+	it('falls back to the single view when no group is active', () => {
+		const group = createGroupFromTabRefs([aiRef('a1'), { type: 'terminal', id: 't1' }], 'Group');
+		const session = baseSession({
+			tabGroups: [group],
+			activeGroupId: null,
+			activeBrowserTabId: 'b1',
+		});
+		expect(resolveActiveTabRef(session)).toEqual({ type: 'browser', id: 'b1' });
 	});
 });
 
