@@ -53,10 +53,9 @@ Preview. Supported formats are the ones Chromium can decode: `mp3`, `wav`,
 Files stream from disk with range requests, so scrubbing a multi-gigabyte
 screen recording is instant and does not load the file into memory.
 
-**Playback speed persists.** Whatever rate you pick - anywhere from 0.25x to 4x
-
-- carries over to the next file you open and survives a restart. Pitch is
-  preserved, so a 2x podcast still sounds like a person.
+**Playback speed persists.** Whatever rate you pick (anywhere from 0.25x to 4x)
+carries over to the next file you open and survives a restart. Pitch is
+preserved, so a 2x podcast still sounds like a person.
 
 | Shortcut               | Action                         |
 | ---------------------- | ------------------------------ |
