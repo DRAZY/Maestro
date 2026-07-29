@@ -282,6 +282,9 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	);
 
 	const activeTabInfo = getActiveTabInfo(activeSession, isAiMode);
+
+	// Cross-tab search needs AI tabs to search; group chats have none.
+	const canSearchAllTabs = !activeGroupChatId && (activeSession?.aiTabs?.length ?? 0) > 0;
 	const activeTabType = activeTabInfo.activeTabType;
 
 	// Register layer on mount - escape behavior depends on current mode.
@@ -642,6 +645,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setOutputSearchOpen: openActiveOutputSearch,
 			setFileTreeFilterOpen: storeSetFileTreeFilterOpen,
 			setHistorySearchFilterOpen: storeSetHistorySearchFilterOpen,
+			openCrossTabSearch: canSearchAllTabs ? () => openModal('crossTabSearch') : undefined,
+			searchAllTabsShortcut: shortcuts.searchAllTabs,
 		}),
 		...buildGroupChatCommands({
 			sessions,

@@ -327,7 +327,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					isOutputSearchOpen &&
 					(ctx.isShortcut(e, 'agentSwitcher') ||
 						ctx.isShortcut(e, 'quickAction') ||
-						ctx.isShortcut(e, 'fuzzyFileSearch'));
+						ctx.isShortcut(e, 'fuzzyFileSearch') ||
+						// "Not in this tab - search them all" is the natural escalation
+						// from an open Find bar, so it must not be eaten by the guard.
+						ctx.isShortcut(e, 'searchAllTabs'));
 				const isOutputSearchRefocusShortcut =
 					isOutputSearchOpen &&
 					(e.metaKey || e.ctrlKey) &&
@@ -648,6 +651,13 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				e.preventDefault();
 				ctx.mainPanelRef?.current?.focusActiveTab();
 				trackShortcut('focusActiveTab');
+			} else if (ctx.isShortcut(e, 'searchAllTabs')) {
+				e.preventDefault();
+				// Group chats have no AI tabs to search across.
+				if (!ctx.activeGroupChatId && ctx.activeSession?.aiTabs?.length) {
+					ctx.handleOpenCrossTabSearch?.();
+					trackShortcut('searchAllTabs');
+				}
 			} else if (ctx.isShortcut(e, 'viewGitDiff') && !ctx.activeGroupChatId) {
 				e.preventDefault();
 				ctx.handleViewGitDiff();

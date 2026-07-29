@@ -326,6 +326,36 @@ The placeholder text updates to reflect the current mode:
 - Use patterns like `\berror\b` for word boundaries
 - Or `^\s*#` to match comment lines
 
+## Searching Message History
+
+Two searches share the magnifying-glass menu in the tab bar, and both accept
+plain text or a regular expression (toggle the `Aa` / `.*` chip).
+
+### In the current tab
+
+`Cmd+F` / `Ctrl+F` opens the Find bar over the conversation you're looking at.
+Every match is highlighted inline; `Enter` and `Shift+Enter` step forward and
+backward through them.
+
+### Across every open tab
+
+`Opt+Cmd+F` / `Alt+Ctrl+F` opens a modal that searches the message history of
+**all** open tabs in the current agent at once. It's also in the command palette
+as "Search: Message History (All Open Tabs)".
+
+Results are grouped by tab, each row showing who said it, when, a preview of the
+hit with the match highlighted, and a pill when that message contains several
+matches. The tab you're currently on is labeled "current".
+
+Pick a result with `Enter` or a click and Maestro:
+
+1. Switches to that tab
+2. Scrolls to the message and flashes it so you can see where you landed
+3. Seeds that tab's Find bar with the same query, positioned on the match you
+   picked, so `Enter` / `Shift+Enter` continues from there
+
+Navigate the list with the arrow keys, `PageUp` / `PageDown`, and `Home` / `End`.
+
 ## Command Interpreter
 
 The command interpreter can be focused for a clean, terminal-only experience when you collapse the left panel.

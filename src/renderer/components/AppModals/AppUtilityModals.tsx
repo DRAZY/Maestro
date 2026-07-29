@@ -23,6 +23,8 @@ import { useModalStore, selectModalData } from '../../stores/modalStore';
 import { QuickActionsModal } from '../QuickActionsModal';
 import { TabSwitcherModal } from '../TabSwitcherModal';
 import { FileSearchModal } from '../FileSearchModal';
+import { CrossTabSearchModal } from '../CrossTabSearchModal';
+import type { CrossTabSearchJumpTarget } from '../CrossTabSearchModal';
 import { PromptComposerModal } from '../PromptComposerModal';
 import { ExecutionQueueBrowser } from '../ExecutionQueueBrowser';
 import { BatchRunnerModal } from '../BatchRunnerModal';
@@ -227,6 +229,11 @@ export interface AppUtilityModalsProps {
 	) => void;
 	/** Whether colorblind-friendly colors should be used for extension badges */
 	colorBlindMode?: boolean;
+
+	// CrossTabSearchModal
+	crossTabSearchOpen: boolean;
+	onCloseCrossTabSearch: () => void;
+	onCrossTabSearchJump: (target: CrossTabSearchJumpTarget) => void;
 
 	// FileSearchModal
 	fuzzyFileSearchOpen: boolean;
@@ -445,6 +452,9 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	// TabSwitcherModal
 	tabSwitcherOpen,
 	onCloseTabSwitcher,
+	crossTabSearchOpen,
+	onCloseCrossTabSearch,
+	onCrossTabSearchJump,
 	onTabSelect,
 	onFileTabSelect,
 	onTerminalTabSelect,
@@ -724,6 +734,18 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onNamedSessionSelect={onNamedSessionSelect}
 					onClose={onCloseTabSwitcher}
 					colorBlindMode={colorBlindMode}
+				/>
+			)}
+
+			{/* --- CROSS-TAB MESSAGE SEARCH MODAL --- */}
+			{crossTabSearchOpen && activeSession?.aiTabs && (
+				<CrossTabSearchModal
+					theme={theme}
+					tabs={activeSession.aiTabs}
+					activeTabId={activeSession.activeTabId}
+					shortcut={shortcuts.searchAllTabs}
+					onJump={onCrossTabSearchJump}
+					onClose={onCloseCrossTabSearch}
 				/>
 			)}
 

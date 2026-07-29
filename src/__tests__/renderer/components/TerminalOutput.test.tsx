@@ -360,6 +360,47 @@ describe('TerminalOutput', () => {
 		});
 	});
 
+	describe('cross-tab search jump anchors', () => {
+		it('tags every rendered row with its entry id', () => {
+			const logs: LogEntry[] = [
+				createLogEntry({ id: 'user-1', text: 'A question', source: 'user' }),
+				createLogEntry({ id: 'resp-1', text: 'An answer', source: 'stdout' }),
+			];
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			const ids = Array.from(container.querySelectorAll('[data-log-id]')).map((el) =>
+				el.getAttribute('data-log-id')
+			);
+			expect(ids).toEqual(['user-1', 'resp-1']);
+		});
+
+		it('anchors a collapsed response group to its first entry id', () => {
+			// resp-2 and resp-3 merge into the row owned by resp-1, so a jump
+			// targeting any of them has to resolve to that one anchor.
+			const logs: LogEntry[] = [
+				createLogEntry({ id: 'resp-1', text: 'Part 1. ', source: 'stdout' }),
+				createLogEntry({ id: 'resp-2', text: 'Part 2. ', source: 'stdout' }),
+				createLogEntry({ id: 'resp-3', text: 'Part 3.', source: 'stdout' }),
+			];
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			const ids = Array.from(container.querySelectorAll('[data-log-id]')).map((el) =>
+				el.getAttribute('data-log-id')
+			);
+			expect(ids).toEqual(['resp-1']);
+		});
+	});
+
 	describe('search functionality', () => {
 		it('shows search input when outputSearchOpen is true', () => {
 			const props = createDefaultProps({ outputSearchOpen: true });

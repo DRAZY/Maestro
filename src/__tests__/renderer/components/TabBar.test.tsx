@@ -128,6 +128,11 @@ vi.mock('lucide-react', () => ({
 			🕐
 		</span>
 	),
+	Layers: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="layers-icon" className={className} style={style}>
+			▤
+		</span>
+	),
 	MessageSquare: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
 		<span data-testid="message-square-icon" className={className} style={style}>
 			💬
@@ -1079,6 +1084,45 @@ describe('TabBar', () => {
 			// Click "Search Message History" in the popover
 			fireEvent.click(screen.getByText('Search Message History'));
 			expect(mockOnOpenOutputSearch).toHaveBeenCalled();
+		});
+
+		it('calls onOpenCrossTabSearch when the all-tabs entry is clicked', () => {
+			const mockOnOpenCrossTabSearch = vi.fn();
+			render(
+				<TabBar
+					tabs={[createTab()]}
+					activeTabId="tab-1"
+					theme={mockTheme}
+					onTabSelect={mockOnTabSelect}
+					onTabClose={mockOnTabClose}
+					onNewTab={mockOnNewTab}
+					onOpenTabSearch={mockOnOpenTabSearch}
+					onOpenCrossTabSearch={mockOnOpenCrossTabSearch}
+				/>
+			);
+
+			fireEvent.click(screen.getByTitle('Search…'));
+			fireEvent.click(screen.getByText('Search Message History Across All Open Tabs'));
+			expect(mockOnOpenCrossTabSearch).toHaveBeenCalled();
+		});
+
+		it('hides the all-tabs entry when no handler is supplied', () => {
+			render(
+				<TabBar
+					tabs={[createTab()]}
+					activeTabId="tab-1"
+					theme={mockTheme}
+					onTabSelect={mockOnTabSelect}
+					onTabClose={mockOnTabClose}
+					onNewTab={mockOnNewTab}
+					onOpenTabSearch={mockOnOpenTabSearch}
+				/>
+			);
+
+			fireEvent.click(screen.getByTitle('Search…'));
+			expect(
+				screen.queryByText('Search Message History Across All Open Tabs')
+			).not.toBeInTheDocument();
 		});
 	});
 

@@ -1709,6 +1709,45 @@ describe('settingsStore', () => {
 			).toBe(false);
 		});
 
+		it('moves focusActiveTab off Opt+Cmd+F so cross-tab search can claim it', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: {
+					focusActiveTab: {
+						id: 'focusActiveTab',
+						label: 'Focus Active Tab',
+						keys: ['Alt', 'Meta', 'f'],
+					},
+				},
+			});
+
+			await loadAllSettings();
+
+			const shortcuts = useSettingsStore.getState().shortcuts;
+			expect(shortcuts.focusActiveTab.keys).toEqual(['Alt', 'Meta', 'ArrowUp']);
+			// The freed combo now belongs to cross-tab message search.
+			expect(shortcuts.searchAllTabs.keys).toEqual(['Alt', 'Meta', 'f']);
+		});
+
+		it('leaves a user-customized focusActiveTab binding alone', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: {
+					focusActiveTab: {
+						id: 'focusActiveTab',
+						label: 'Focus Active Tab',
+						keys: ['Meta', 'Shift', 'j'],
+					},
+				},
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().shortcuts.focusActiveTab.keys).toEqual([
+				'Meta',
+				'Shift',
+				'j',
+			]);
+		});
+
 		it('merges shortcuts: preserves user keys but updates labels from defaults', async () => {
 			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
 				shortcuts: {

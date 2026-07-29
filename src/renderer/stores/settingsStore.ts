@@ -2106,6 +2106,12 @@ const SHORTCUT_DEFAULT_REMAPS: Record<string, { fromKeys: string[]; toKeys: stri
 		fromKeys: ['Meta', 'Shift', '2'],
 		toKeys: ['Meta', 'Shift', 'e'],
 	},
+	// focusActiveTab moved off Opt+Cmd+F to free that combo for searchAllTabs
+	// (cross-tab message search), which reads as an escalation of Cmd+F.
+	focusActiveTab: {
+		fromKeys: ['Alt', 'Meta', 'f'],
+		toKeys: ['Alt', 'Meta', 'ArrowUp'],
+	},
 };
 
 function keysEqual(a: string[], b: string[]): boolean {

@@ -240,6 +240,7 @@ export type ModalId =
 	// Quick Actions
 	| 'quickAction'
 	| 'tabSwitcher'
+	| 'crossTabSearch'
 	| 'fuzzyFileSearch'
 	| 'promptComposer'
 	// Tab Management
@@ -855,6 +856,10 @@ export function getModalActions() {
 		setTabSwitcherOpen: (open: boolean) =>
 			open ? openModal('tabSwitcher') : closeModal('tabSwitcher'),
 
+		// Cross-Tab Message Search Modal
+		setCrossTabSearchOpen: (open: boolean) =>
+			open ? openModal('crossTabSearch') : closeModal('crossTabSearch'),
+
 		// Fuzzy File Search Modal
 		setFuzzyFileSearchOpen: (open: boolean) =>
 			open ? openModal('fuzzyFileSearch') : closeModal('fuzzyFileSearch'),
@@ -995,6 +1000,7 @@ export function useModalActions() {
 	const deleteWorktreeModalOpen = useModalStore(selectModalOpen('deleteWorktree'));
 	const deleteWorktreeData = useModalStore(selectModalData('deleteWorktree'));
 	const tabSwitcherOpen = useModalStore(selectModalOpen('tabSwitcher'));
+	const crossTabSearchOpen = useModalStore(selectModalOpen('crossTabSearch'));
 	const fuzzyFileSearchOpen = useModalStore(selectModalOpen('fuzzyFileSearch'));
 	const promptComposerOpen = useModalStore(selectModalOpen('promptComposer'));
 	const mergeSessionModalOpen = useModalStore(selectModalOpen('mergeSession'));
@@ -1159,6 +1165,9 @@ export function useModalActions() {
 
 		// Tab Switcher Modal
 		tabSwitcherOpen,
+
+		// Cross-Tab Message Search Modal
+		crossTabSearchOpen,
 
 		// Fuzzy File Search Modal
 		fuzzyFileSearchOpen,

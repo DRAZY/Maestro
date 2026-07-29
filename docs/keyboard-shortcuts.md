@@ -111,7 +111,7 @@ Toggle states are saved per-tab. See [Input Toggles](./general-usage#input-toggl
 | New Terminal Tab          | `Ctrl+Shift+` + `` ` `` | `Ctrl+Shift+` + `` ` ``   |
 | Focus Browser Address Bar | `Cmd+L`                 | `Ctrl+L`                  |
 | Find in Browser Tab       | `Cmd+F`                 | `Ctrl+F`                  |
-| Focus Active Tab          | `Opt+Cmd+F`             | `Alt+Ctrl+F`              |
+| Focus Active Tab          | `Opt+Cmd+Up`            | `Alt+Ctrl+Up`             |
 | Close Tab                 | `Cmd+W`                 | `Ctrl+W`                  |
 | Close All Tabs            | `Cmd+Shift+W`           | `Ctrl+Shift+W`            |
 | Close Other Tabs          | `Opt+Cmd+W`             | `Alt+Ctrl+W`              |
@@ -217,6 +217,7 @@ In AI mode, use `@` to reference files in your prompts:
 | Filter Files (in Files tab)     | `Cmd+F`                            | `Ctrl+F`                           |
 | Filter History (in History tab) | `Cmd+F`                            | `Ctrl+F`                           |
 | Search Output (in Main Window)  | `Cmd+F`                            | `Ctrl+F`                           |
+| Search Messages Across All Tabs | `Opt+Cmd+F`                        | `Alt+Ctrl+F`                       |
 | Search System Logs              | `Cmd+F`                            | `Ctrl+F`                           |
 | Search Director's Notes         | `Cmd+F`                            | `Ctrl+F`                           |
 | Open File Preview               | `Enter` on selected file           | `Enter` on selected file           |

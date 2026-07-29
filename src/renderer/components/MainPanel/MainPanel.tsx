@@ -181,6 +181,7 @@ export const MainPanel = React.memo(
 			onToggleUnreadFilter,
 			onOpenTabSearch,
 			onOpenOutputSearch,
+			onOpenCrossTabSearch,
 			onCloseAllTabs,
 			onCloseOtherTabs,
 			onCloseTabsLeft,
@@ -850,6 +851,7 @@ export const MainPanel = React.memo(
 									onToggleUnreadFilter={onToggleUnreadFilter}
 									onOpenTabSearch={onOpenTabSearch}
 									onOpenOutputSearch={onOpenOutputSearch}
+									onOpenCrossTabSearch={onOpenCrossTabSearch}
 									onCloseAllTabs={onCloseAllTabs}
 									onCloseOtherTabs={onCloseOtherTabs}
 									onCloseTabsLeft={onCloseTabsLeft}

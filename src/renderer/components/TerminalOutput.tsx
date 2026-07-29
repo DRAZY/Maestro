@@ -41,6 +41,8 @@ import { flashCopiedToClipboard } from '../utils/flashCopiedToClipboard';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useMessageGistStore } from '../stores/messageGistStore';
 import { useSessionStore } from '../stores/sessionStore';
+import { useUIStore } from '../stores/uiStore';
+import { jumpToElement } from '../utils/jumpHighlight';
 import { SessionRecoveryCard } from './SessionRecoveryCard';
 import { RetryStatusCard } from './RetryStatusCard';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
@@ -474,6 +476,7 @@ const LogItemComponent = memo(
 					ref={logItemRef}
 					className="flex gap-4 px-6 py-2"
 					data-log-index={index}
+					data-log-id={log.id}
 					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
 				>
 					<div className="w-20 shrink-0" />
@@ -489,6 +492,9 @@ const LogItemComponent = memo(
 				ref={logItemRef}
 				className={`flex gap-4 group ${isReversed ? 'flex-row-reverse' : ''} px-6 py-2`}
 				data-log-index={index}
+				// Jump anchor for cross-tab message search. For a collapsed response
+				// group this is the FIRST entry's id (see renderedIdByLogId).
+				data-log-id={log.id}
 				// PERF: the transcript is not virtualized, so every message stays in the
 				// DOM. content-visibility:auto lets the browser skip style/layout/paint for
 				// off-screen rows (the dominant scroll cost - a huge static layer tree the
@@ -1663,8 +1669,14 @@ export const TerminalOutput = memo(
 		// In AI mode, collapse consecutive non-user entries into single response blocks
 		// This provides a cleaner view where each user message gets one response
 		// Tool and thinking entries are kept separate (not collapsed)
-		const collapsedLogs = useMemo(() => {
+		//
+		// Also returns renderedIdByLogId: because grouped entries render as ONE row
+		// carrying the first entry's id, anything that wants to scroll to a raw log
+		// entry (cross-tab search jumps) has to resolve it to the row that actually
+		// exists in the DOM.
+		const { logs: collapsedLogs, renderedIdByLogId } = useMemo(() => {
 			const result: LogEntry[] = [];
+			const renderedIds = new Map<string, string>();
 			let currentResponseGroup: LogEntry[] = [];
 
 			// Helper to flush accumulated response group
@@ -1679,6 +1691,10 @@ export const TerminalOutput = memo(
 					// that entry's missing renderStyle and mislabel an interactive turn
 					// as "API". Preserve text-stream if ANY grouped entry carries it.
 					const hasTextStream = currentResponseGroup.some((l) => l.renderStyle === 'text-stream');
+					const groupId = currentResponseGroup[0].id;
+					for (const grouped of currentResponseGroup) {
+						renderedIds.set(grouped.id, groupId);
+					}
 					result.push({
 						...currentResponseGroup[0],
 						text: combinedText,
@@ -1693,6 +1709,7 @@ export const TerminalOutput = memo(
 				if (log.source === 'user') {
 					// Flush any accumulated response group before user message
 					flushResponseGroup();
+					renderedIds.set(log.id, log.id);
 					result.push(log);
 				} else if (
 					log.source === 'tool' ||
@@ -1705,6 +1722,7 @@ export const TerminalOutput = memo(
 					// marker must not merge into a text group - it renders as a live
 					// status card.
 					flushResponseGroup();
+					renderedIds.set(log.id, log.id);
 					result.push(log);
 				} else {
 					// Accumulate non-user entries (AI responses)
@@ -1715,7 +1733,7 @@ export const TerminalOutput = memo(
 			// Flush final response group
 			flushResponseGroup();
 
-			return result;
+			return { logs: result, renderedIdByLogId: renderedIds };
 		}, [activeLogs]);
 
 		// PERF: Debounce search query so the highlight pass doesn't run on every keystroke
@@ -1724,6 +1742,41 @@ export const TerminalOutput = memo(
 		// Search no longer filters logs — all logs stay visible. Matches are highlighted and
 		// navigated inline via CSS Custom Highlight API (see highlight effect below).
 		const filteredLogs = collapsedLogs;
+
+		// ============================================================================
+		// Cross-tab search jump (Opt+Cmd+F -> pick a hit in another tab)
+		// ============================================================================
+		// The modal switches the active tab, seeds this tab's Find bar with the same
+		// query, and leaves a pendingLogJump behind. Here we scroll that entry into
+		// view, flash it, and hand the match index to the Find bar so next/prev
+		// continues from the hit the user actually clicked.
+		const pendingLogJump = useUIStore((s) => s.pendingLogJump);
+		const pendingJumpMatchIdRef = useRef<string | null>(null);
+		const cancelJumpRef = useRef<(() => void) | null>(null);
+		// Only cancel an in-flight jump when the transcript goes away; clearing the
+		// store entry inside the effect must NOT tear down the flash we just started.
+		useEffect(() => () => cancelJumpRef.current?.(), []);
+
+		useEffect(() => {
+			if (!pendingLogJump) return;
+			if (pendingLogJump.sessionId !== session.id) return;
+			// Wait for the tab switch to land before hunting for the entry.
+			if (!activeTab || pendingLogJump.tabId !== activeTab.id) return;
+
+			const { logId } = pendingLogJump;
+			const renderedId = renderedIdByLogId.get(logId) ?? logId;
+			pendingJumpMatchIdRef.current = renderedId;
+			cancelJumpRef.current?.();
+			cancelJumpRef.current = jumpToElement(
+				() =>
+					Array.from(
+						scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-log-id]') ?? []
+					).find((el) => el.getAttribute('data-log-id') === renderedId),
+				{ color: theme.colors.accent }
+			);
+			// Consume it: the jump is a one-shot request, not persistent state.
+			useUIStore.getState().clearPendingLogJump(logId);
+		}, [pendingLogJump, session.id, activeTab, renderedIdByLogId, theme.colors.accent]);
 
 		// ============================================================================
 		// Search match navigation (CSS Custom Highlight API)
@@ -1750,6 +1803,9 @@ export const TerminalOutput = memo(
 				setTotalMatches(0);
 				setCurrentMatchIndex(0);
 				setRegexError(null);
+				// A closed/cleared search cancels any queued jump-to-match request so
+				// it can't hijack the user's next search in this tab.
+				pendingJumpMatchIdRef.current = null;
 				return;
 			}
 
@@ -1801,6 +1857,27 @@ export const TerminalOutput = memo(
 			matchRangesRef.current = ranges;
 			setTotalMatches(ranges.length);
 			setCurrentMatchIndex((prev) => (ranges.length === 0 ? 0 : Math.min(prev, ranges.length - 1)));
+
+			// A cross-tab search jump pre-fills this query, so the "current" match
+			// should be the entry the user clicked, not the first hit in the tab.
+			const jumpTargetId = pendingJumpMatchIdRef.current;
+			if (jumpTargetId) {
+				const idx = ranges.findIndex((r) => {
+					const el = (
+						r.startContainer.nodeType === Node.ELEMENT_NODE
+							? (r.startContainer as Element)
+							: r.startContainer.parentElement
+					)?.closest('[data-log-id]');
+					return el?.getAttribute('data-log-id') === jumpTargetId;
+				});
+				// Keep the request pending if this pass ran against a stale debounced
+				// query (no range inside the target row yet) - the next pass, with the
+				// jump's own query, will land it.
+				if (idx >= 0) {
+					pendingJumpMatchIdRef.current = null;
+					setCurrentMatchIndex(idx);
+				}
+			}
 
 			if (!('highlights' in CSS) || ranges.length === 0) {
 				clearHighlights();
