@@ -508,6 +508,10 @@ let pluginGroupingRegistry: PluginGroupingRegistry | null = null;
 let pluginBackgroundSupervisor: PluginBackgroundSupervisor | null = null;
 let pluginAuthStore: AuthorizationStore | null = null;
 let pluginEventBus: PluginEventBusImpl | null = null;
+// Set by registerPersistenceHandlers (in setupIpcHandlers). Lets the plugin
+// focus verbs record into the persistence layer's `session.activated` dedupe so
+// the two emit paths never desync. Null before IPC setup / when unavailable.
+let noteSessionActivatedInPersistence: ((sessionId: string) => void) | null = null;
 let usageRefreshScheduler: UsageRefreshScheduler | null = null;
 let interactiveReplayController: InteractiveReplayController<ProcessSpawnConfig> | null = null;
 
@@ -1944,21 +1948,48 @@ app
 				...(typeof session.cwd === 'string' ? { projectPath: session.cwd } : {}),
 			};
 		};
+		/**
+		 * Main-side mirror of the renderer's `aiTabFocusFields()`
+		 * (`src/renderer/utils/tabHelpers.ts`): land a session on an AI tab by
+		 * clearing every non-AI view that would otherwise outrank it in the render
+		 * precedence. Shared by `tabs.focus` and `sessions.focus` so the two plugin
+		 * verbs can never drift into different notions of "focused".
+		 */
+		const pluginAiFocusFields = (tabId?: string): Record<string, unknown> => ({
+			...(tabId ? { activeTabId: tabId } : {}),
+			activeFileTabId: null,
+			activeBrowserTabId: null,
+			activeTerminalTabId: null,
+			inputMode: 'ai',
+			activeGroupId: null,
+		});
+		// Plugin focus verbs write sessionsStore directly, so they never reach the
+		// sessions:setActiveSessionId IPC handler where session.activated is emitted
+		// for event subscribers. Emit here so plugins observing focus changes see
+		// plugin-driven jumps, not only user-driven Left Bar navigation.
+		const emitPluginSessionActivated = (sessionId: string): void => {
+			if (!sessionId) return;
+			pluginEventBus?.emit({
+				topic: 'session.activated',
+				at: new Date().toISOString(),
+				payload: { sessionId },
+			});
+			// Keep the persistence-layer dedupe in sync: flushSessionActivated guards
+			// repeats with its own last-emitted id, and this direct emit bypasses it.
+			// Without recording here, a later user navigation back to the previously
+			// focused session would be wrongly suppressed (see PersistenceHandlers).
+			noteSessionActivatedInPersistence?.(sessionId);
+		};
 		const pluginTabsFocus = async (tabId: string): Promise<boolean> => {
 			const sessions = pluginSessionsRaw();
 			let focused = false;
+			let focusedSessionId: string | undefined;
 			const next = sessions.map((session) => {
 				if ((Array.isArray(session.aiTabs) ? session.aiTabs : []).some((t) => t?.id === tabId)) {
 					focused = true;
+					focusedSessionId = session.id as string;
 					sessionsStore.set('activeSessionId', session.id as string);
-					return {
-						...session,
-						activeTabId: tabId,
-						activeFileTabId: null,
-						activeBrowserTabId: null,
-						activeTerminalTabId: null,
-						inputMode: 'ai',
-					};
+					return { ...session, ...pluginAiFocusFields(tabId) };
 				}
 				if (
 					(Array.isArray(session.terminalTabs) ? session.terminalTabs : []).some(
@@ -1966,6 +1997,7 @@ app
 					)
 				) {
 					focused = true;
+					focusedSessionId = session.id as string;
 					sessionsStore.set('activeSessionId', session.id as string);
 					return {
 						...session,
@@ -1977,8 +2009,45 @@ app
 				}
 				return session;
 			});
-			if (focused) setPluginSessionsRaw(next);
+			if (focused) {
+				setPluginSessionsRaw(next);
+				if (focusedSessionId) emitPluginSessionActivated(focusedSessionId);
+			}
 			return focused;
+		};
+		/**
+		 * Jump the user to an existing session (the `sessions.focus` verb). Without
+		 * a tabId it keeps whichever AI tab the session already had active, falling
+		 * back to its first AI tab; with one, that tab must belong to the session or
+		 * the call is rejected rather than silently landing somewhere else.
+		 */
+		const pluginSessionsFocus = async (sessionId: string, tabId?: string): Promise<boolean> => {
+			const sessions = pluginSessionsRaw();
+			const session = sessions.find((s) => s.id === sessionId);
+			if (!session) return false;
+			const aiTabs = (Array.isArray(session.aiTabs) ? session.aiTabs : []) as Array<
+				Record<string, unknown> | undefined
+			>;
+			const hasAiTab = (id: unknown) =>
+				typeof id === 'string' && aiTabs.some((t) => t?.id === id) ? id : undefined;
+			if (tabId !== undefined && !hasAiTab(tabId)) return false;
+			const target =
+				tabId ??
+				hasAiTab(session.activeTabId) ??
+				(typeof aiTabs[0]?.id === 'string' ? (aiTabs[0].id as string) : undefined);
+			sessionsStore.set('activeSessionId', sessionId);
+			setPluginSessionsRaw(
+				sessions.map((s) => (s.id === sessionId ? { ...s, ...pluginAiFocusFields(target) } : s))
+			);
+			emitPluginSessionActivated(sessionId);
+			// The store write above is only the persistence path: the renderer's
+			// Zustand session store is canonical and reads main's store only at
+			// startup, then flushes its own tree back down - so a main-side write is
+			// invisible to the live UI and gets clobbered on the next flush. Push a
+			// focus-request event alongside it so a renderer listener applies the
+			// jump through the same canonical helpers, moving the visible workspace.
+			safeSend('sessions:focus-request', { sessionId, tabId: target });
+			return true;
 		};
 		const pluginTabsClose = async (tabId: string): Promise<boolean> => {
 			const sessions = pluginSessionsRaw();
@@ -2269,6 +2338,7 @@ app
 				sessionsCreate: pluginSessionsCreate,
 				sessionsUpdate: pluginSessionsUpdate,
 				sessionsDelete: pluginSessionsDelete,
+				sessionsFocus: pluginSessionsFocus,
 				tabsList: pluginTabsList,
 				tabsCreate: pluginTabsCreate,
 				tabsFocus: pluginTabsFocus,
@@ -2345,6 +2415,13 @@ app
 						.panels.find((p) => p.pluginId === pluginId && p.localId === localId) ?? null,
 				panelPost: (pluginId, panelId, data) => {
 					safeSend('plugins:panel-data', { pluginId, panelId, data });
+				},
+				// ui.openPanel/closePanel/togglePanel: a pure show/hide signal for the
+				// caller's own modal panel, already resolved and namespaced by the
+				// handler. The renderer owns the single modal-panel mount, so all main
+				// does is broadcast the requested action.
+				panelVisibility: (pluginId, panelId, action) => {
+					safeSend('plugins:panel-visibility', { pluginId, panelId, action });
 				},
 				listAgents: () => {
 					const sessions = sessionsStore.get('sessions', []) as Array<{
@@ -3249,7 +3326,7 @@ function setupIpcHandlers() {
 	});
 
 	// Persistence operations - extracted to src/main/ipc/handlers/persistence.ts
-	registerPersistenceHandlers({
+	const persistenceHandlers = registerPersistenceHandlers({
 		settingsStore: store,
 		sessionsStore,
 		groupsStore,
@@ -3260,6 +3337,9 @@ function setupIpcHandlers() {
 		emitPluginEvent: (event) => pluginEventBus?.emit(event),
 		safeSend,
 	});
+	// Wire the plugin focus verbs into the persistence layer's session.activated
+	// dedupe so the two emit paths share one last-emitted id.
+	noteSessionActivatedInPersistence = persistenceHandlers.noteSessionActivated;
 
 	// System operations - extracted to src/main/ipc/handlers/system.ts
 	registerSystemHandlers({

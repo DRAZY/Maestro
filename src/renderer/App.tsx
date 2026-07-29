@@ -133,6 +133,7 @@ import {
 	useSessionSwitchCallbacks,
 } from './hooks';
 import { SidebarNavSync } from './hooks/session/SidebarNavSync';
+import { usePluginFocusRequestListener } from './hooks/session/usePluginFocusRequestListener';
 import { useSidebarNavStore } from './stores/sidebarNavStore';
 import { useChatFileDropZone } from './hooks/ui/useChatFileDropZone';
 import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './hooks/props';
@@ -172,6 +173,7 @@ import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineW
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 import { usePluginCommandBridge } from './hooks/usePluginCommandBridge';
 import { usePluginKeybindings } from './hooks/usePluginKeybindings';
+import { PluginModalPanelMount } from './components/plugins/PluginModalPanelMount';
 
 // Import services
 // gitService - now used in useModalHandlers (Tier 3C)
@@ -2273,6 +2275,10 @@ function MaestroConsoleInner() {
 		abortBatchOnError: abortAutoRunBatchOnError,
 	});
 
+	// Plugin `sessions.focus` (e.g. Agent Flow node-jump) writes main's store,
+	// which is invisible to the live renderer store - apply it via canonical helpers.
+	usePluginFocusRequestListener();
+
 	// --- GROUP MANAGEMENT ---
 	// Extracted hook for group CRUD operations (toggle, rename, create, drag-drop)
 	const {
@@ -2984,6 +2990,9 @@ function MaestroConsoleInner() {
 			{/* Owns Left Bar sort/nav/starred subscriptions; memoized so App wakes
 			    do not re-run this host. Must sit under WindowProvider (ownsSession). */}
 			<SidebarNavSync />
+			{/* The ONE mount for modal-placement plugin panels: serves both the
+			    Settings launch button and a plugin summoning its own overlay. */}
+			<PluginModalPanelMount theme={theme} />
 			<AppShell
 				theme={theme}
 				fontFamily={fontFamily}

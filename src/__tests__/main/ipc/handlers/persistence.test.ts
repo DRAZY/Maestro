@@ -230,6 +230,143 @@ describe('persistence IPC handlers', () => {
 
 			expect(mockSessionsStore.set).toHaveBeenCalledWith('activeSessionId', 'quit-id');
 		});
+
+		describe('session.activated plugin event', () => {
+			let emitPluginEvent: ReturnType<typeof vi.fn>;
+			let setHandler: (event: unknown, id: string) => Promise<unknown>;
+
+			beforeEach(() => {
+				handlers.clear();
+				emitPluginEvent = vi.fn();
+				const deps: PersistenceHandlerDependencies = {
+					settingsStore: mockSettingsStore as unknown as Store<MaestroSettings>,
+					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
+					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
+					getWebServer: getWebServerFn,
+					safeSend: mockSafeSend,
+					emitPluginEvent,
+				};
+				registerPersistenceHandlers(deps);
+				setHandler = handlers.get('sessions:setActiveSessionId') as typeof setHandler;
+			});
+
+			it('emits a metadata-only session.activated after its own short debounce', async () => {
+				await setHandler({}, 'sess-1');
+				expect(emitPluginEvent).not.toHaveBeenCalled();
+
+				vi.advanceTimersByTime(100);
+				expect(emitPluginEvent).toHaveBeenCalledTimes(1);
+				const event = emitPluginEvent.mock.calls[0][0];
+				expect(event.topic).toBe('session.activated');
+				expect(event.payload).toEqual({ sessionId: 'sess-1' });
+				expect(typeof event.at).toBe('string');
+			});
+
+			it('coalesces a burst of switches into one event for the session landed on', async () => {
+				await setHandler({}, 'a');
+				await setHandler({}, 'b');
+				await setHandler({}, 'c');
+
+				vi.advanceTimersByTime(100);
+				expect(emitPluginEvent).toHaveBeenCalledTimes(1);
+				expect(emitPluginEvent.mock.calls[0][0].payload).toEqual({ sessionId: 'c' });
+			});
+
+			it('does not re-emit when the same session is re-focused', async () => {
+				await setHandler({}, 'same');
+				vi.advanceTimersByTime(100);
+				await setHandler({}, 'same');
+				vi.advanceTimersByTime(100);
+
+				expect(emitPluginEvent).toHaveBeenCalledTimes(1);
+			});
+
+			it('ignores an empty session id', async () => {
+				await setHandler({}, '');
+				vi.advanceTimersByTime(100);
+
+				expect(emitPluginEvent).not.toHaveBeenCalled();
+			});
+
+			// Regression: the plugin focus verbs (index.ts) emit session.activated
+			// directly, bypassing flushSessionActivated's dedupe. If the plugin path
+			// does not record its id via noteSessionActivated, the two paths desync:
+			// after the user is on A and a plugin focuses B, returning to A would be
+			// wrongly suppressed and subscribers stay stuck on B.
+			it('keeps the plugin path in sync so returning to a prior session still emits', async () => {
+				handlers.clear();
+				const localEmit = vi.fn();
+				const { noteSessionActivated } = registerPersistenceHandlers({
+					settingsStore: mockSettingsStore as unknown as Store<MaestroSettings>,
+					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
+					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
+					getWebServer: getWebServerFn,
+					safeSend: mockSafeSend,
+					emitPluginEvent: localEmit,
+				});
+				const localSetHandler = handlers.get('sessions:setActiveSessionId') as (
+					event: unknown,
+					id: string
+				) => Promise<unknown>;
+
+				// User navigates to A: the flush path emits A (lastEmitted = A).
+				await localSetHandler({}, 'A');
+				vi.advanceTimersByTime(100);
+				expect(localEmit).toHaveBeenCalledTimes(1);
+				expect(localEmit.mock.calls[0][0].payload).toEqual({ sessionId: 'A' });
+
+				// Agent Flow calls sessions.focus(B): index.ts emits B directly, then
+				// records it through the shared dedupe. Simulate that record here.
+				noteSessionActivated('B');
+
+				// User returns to A: A differs from the last-emitted id (now B), so it
+				// must still be emitted rather than suppressed as a repeat.
+				await localSetHandler({}, 'A');
+				vi.advanceTimersByTime(100);
+				expect(localEmit).toHaveBeenCalledTimes(2);
+				expect(localEmit.mock.calls[1][0].payload).toEqual({ sessionId: 'A' });
+			});
+
+			// Regression (race): a direct plugin focus must supersede an already-queued
+			// debounced flush for a DIFFERENT session, or that stale timer fires after
+			// the plugin's emit and re-announces the wrong session.
+			it('cancels a pending debounced flush when the plugin directly focuses another session', async () => {
+				handlers.clear();
+				const localEmit = vi.fn();
+				const { noteSessionActivated } = registerPersistenceHandlers({
+					settingsStore: mockSettingsStore as unknown as Store<MaestroSettings>,
+					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
+					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
+					getWebServer: getWebServerFn,
+					safeSend: mockSafeSend,
+					emitPluginEvent: localEmit,
+				});
+				const localSetHandler = handlers.get('sessions:setActiveSessionId') as (
+					event: unknown,
+					id: string
+				) => Promise<unknown>;
+
+				// User navigates to A: its 100ms flush is now armed but has NOT fired.
+				await localSetHandler({}, 'A');
+				expect(localEmit).not.toHaveBeenCalled();
+
+				// Agent Flow directly focuses B mid-window (index.ts emits B on the bus
+				// and records it here). This must cancel the pending A flush.
+				noteSessionActivated('B');
+
+				// Let the original A timer elapse: it must be dead, so A is never emitted
+				// after B. Subscribers stay on B (the real active session).
+				vi.advanceTimersByTime(100);
+				expect(localEmit).not.toHaveBeenCalled();
+
+				// And a later genuine navigation back to A still emits (B was the last
+				// recorded id, so A is not a duplicate).
+				await localSetHandler({}, 'A');
+				vi.advanceTimersByTime(100);
+				expect(localEmit).toHaveBeenCalledTimes(1);
+				expect(localEmit.mock.calls[0][0].payload).toEqual({ sessionId: 'A' });
+			});
+		});
 	});
 
 	describe('settings:get', () => {

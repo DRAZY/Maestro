@@ -81,9 +81,28 @@ export interface PersistenceHandlerDependencies {
 }
 
 /**
+ * Handles exposed by {@link registerPersistenceHandlers} for callers that emit
+ * `session.activated` outside the debounced `setActiveSessionId` flush.
+ */
+export interface PersistenceHandlers {
+	/**
+	 * Record that a session was activated through a path OTHER than this module's
+	 * debounced flush - specifically the plugin focus verbs in index.ts, which
+	 * emit `session.activated` directly onto the same plugin event bus. Without
+	 * this, the two emit paths keep separate dedupe state: the plugin emits B
+	 * while `flushSessionActivated` still believes the last emitted id is A, so a
+	 * later user navigation back to A is wrongly suppressed and subscribers stay
+	 * stuck on B. Call this AFTER emitting so both paths share one last-emitted id.
+	 */
+	noteSessionActivated: (sessionId: string) => void;
+}
+
+/**
  * Register all persistence-related IPC handlers.
  */
-export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies): void {
+export function registerPersistenceHandlers(
+	deps: PersistenceHandlerDependencies
+): PersistenceHandlers {
 	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent, safeSend } =
 		deps;
 
@@ -127,6 +146,55 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 	// Guarantee the last focus is persisted on a normal quit. before-quit fires
 	// before windows close; the write is synchronous so it completes in-line.
 	app.on('before-quit', flushActiveSessionId);
+
+	// Metadata-only `session.activated` for subscribed plugins (events:subscribe).
+	// Its own debounce, deliberately much shorter than the 400ms disk debounce
+	// above: that one exists to avoid re-serializing the sessions store and is too
+	// slow to feel live in a plugin surface, while emitting on every raw call would
+	// spray events as the user arrow-keys down the Left Bar. Trailing-edge, so a
+	// burst of navigation yields one event for the session actually landed on.
+	const SESSION_ACTIVATED_DEBOUNCE_MS = 100;
+	let pendingActivatedSessionId: string | null = null;
+	let lastEmittedActivatedSessionId: string | null = null;
+	let sessionActivatedTimer: NodeJS.Timeout | null = null;
+
+	const flushSessionActivated = (): void => {
+		sessionActivatedTimer = null;
+		const id = pendingActivatedSessionId;
+		pendingActivatedSessionId = null;
+		if (!id || !emitPluginEvent) return;
+		// Re-focusing the session the plugins were last told about is a no-op.
+		if (id === lastEmittedActivatedSessionId) return;
+		lastEmittedActivatedSessionId = id;
+		emitPluginEvent({
+			topic: 'session.activated',
+			at: new Date().toISOString(),
+			// `tabId` is intentionally omitted: the renderer only reports which
+			// SESSION is focused here, and the stored session record's tab state can
+			// lag the live one. The field stays optional for a future caller that
+			// does know the tab.
+			payload: { sessionId: id },
+		});
+	};
+
+	// Shared dedupe hook for the plugin focus path (see PersistenceHandlers).
+	// The plugin verbs emit `session.activated` themselves, bypassing the flush
+	// above, so they must record the id here or the two paths desync.
+	const noteSessionActivated = (sessionId: string): void => {
+		if (!sessionId) return;
+		lastEmittedActivatedSessionId = sessionId;
+		// Supersede any pending debounced flush: a queued activation for a DIFFERENT
+		// session (e.g. the user navigated to A and its 100ms timer is still armed)
+		// would otherwise fire after this direct plugin emit for B and re-announce
+		// A, leaving subscribers on the wrong session - the same desync class this
+		// hook exists to prevent, just via the timer path. Drop the queued id and
+		// cancel the timer so the direct emit is authoritative.
+		pendingActivatedSessionId = null;
+		if (sessionActivatedTimer) {
+			clearTimeout(sessionActivatedTimer);
+			sessionActivatedTimer = null;
+		}
+	};
 
 	// Settings management
 	ipcMain.handle('settings:get', async (_, key: string) => {
@@ -258,6 +326,13 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 		pendingActiveSessionId = id;
 		if (activeSessionIdTimer) clearTimeout(activeSessionIdTimer);
 		activeSessionIdTimer = setTimeout(flushActiveSessionId, ACTIVE_SESSION_ID_DEBOUNCE_MS);
+
+		// Separate, shorter debounce for the plugin event (see flushSessionActivated).
+		if (emitPluginEvent && typeof id === 'string' && id) {
+			pendingActivatedSessionId = id;
+			if (sessionActivatedTimer) clearTimeout(sessionActivatedTimer);
+			sessionActivatedTimer = setTimeout(flushSessionActivated, SESSION_ACTIVATED_DEBOUNCE_MS);
+		}
 	});
 
 	/**
@@ -545,4 +620,6 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 			return [];
 		}
 	});
+
+	return { noteSessionActivated };
 }

@@ -239,6 +239,14 @@ interface MaestroAPI {
 		setMany: (updates: any[], removeIds?: string[]) => Promise<boolean>;
 		getActiveSessionId: () => Promise<string>;
 		setActiveSessionId: (id: string) => Promise<void>;
+		/**
+		 * Listen for main-side focus requests emitted by the plugin `sessions.focus`
+		 * verb. The renderer applies the jump through its canonical helpers because
+		 * the main-side store write is invisible to the live Zustand store.
+		 */
+		onFocusRequest: (
+			handler: (payload: { sessionId: string; tabId?: string }) => void
+		) => () => void;
 	};
 	groups: {
 		getAll: () => Promise<any[]>;
@@ -3989,6 +3997,13 @@ interface MaestroAPI {
 		onGroupingsChanged: (callback: () => void) => () => void;
 		onPanelData: (
 			callback: (payload: { pluginId: string; panelId: string; data: unknown }) => void
+		) => () => void;
+		onPanelVisibility: (
+			callback: (payload: {
+				pluginId: string;
+				panelId: string;
+				action: 'open' | 'close' | 'toggle';
+			}) => void
 		) => () => void;
 		onRunUiCommand: (
 			callback: (commandId: string, args: unknown) => boolean | Promise<boolean>
