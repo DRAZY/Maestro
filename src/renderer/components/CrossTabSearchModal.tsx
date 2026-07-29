@@ -32,20 +32,39 @@ interface CrossTabSearchModalProps {
 	onClose: () => void;
 }
 
-/** Icon + label for the entry's role, so a hit's origin is readable at a glance. */
-const SOURCE_META: Record<
-	LogEntry['source'],
-	{ label: string; Icon: typeof MessageSquare; tone: 'accent' | 'main' | 'dim' | 'error' }
-> = {
-	user: { label: 'You', Icon: MessageSquare, tone: 'accent' },
-	ai: { label: 'Agent', Icon: Bot, tone: 'main' },
-	thinking: { label: 'Thinking', Icon: Brain, tone: 'dim' },
-	tool: { label: 'Tool', Icon: Wrench, tone: 'dim' },
-	system: { label: 'System', Icon: AlertTriangle, tone: 'dim' },
-	error: { label: 'Error', Icon: AlertTriangle, tone: 'error' },
-	stdout: { label: 'Output', Icon: MessageSquare, tone: 'dim' },
-	stderr: { label: 'Output', Icon: AlertTriangle, tone: 'error' },
-};
+interface SourceMeta {
+	label: string;
+	Icon: typeof MessageSquare;
+	tone: 'accent' | 'main' | 'dim' | 'error';
+}
+
+/**
+ * Icon + label for the entry's role, so a hit's origin is readable at a glance.
+ *
+ * Resolved per call rather than held in a module-level map: a map would read
+ * every icon binding at import time, which throws in any test that partially
+ * mocks lucide-react and only transitively imports this module.
+ */
+function getSourceMeta(source: LogEntry['source']): SourceMeta {
+	switch (source) {
+		case 'user':
+			return { label: 'You', Icon: MessageSquare, tone: 'accent' };
+		case 'ai':
+			return { label: 'Agent', Icon: Bot, tone: 'main' };
+		case 'thinking':
+			return { label: 'Thinking', Icon: Brain, tone: 'dim' };
+		case 'tool':
+			return { label: 'Tool', Icon: Wrench, tone: 'dim' };
+		case 'error':
+			return { label: 'Error', Icon: AlertTriangle, tone: 'error' };
+		case 'stderr':
+			return { label: 'Output', Icon: AlertTriangle, tone: 'error' };
+		case 'stdout':
+			return { label: 'Output', Icon: MessageSquare, tone: 'dim' };
+		default:
+			return { label: 'System', Icon: AlertTriangle, tone: 'dim' };
+	}
+}
 
 /** Render a snippet with the matched span highlighted. */
 const Snippet = memo(function Snippet({
@@ -283,7 +302,7 @@ export function CrossTabSearchModal({
 									rowIndex++;
 									const index = rowIndex;
 									const isSelected = index === selectedIndex;
-									const meta = SOURCE_META[match.source] ?? SOURCE_META.system;
+									const meta = getSourceMeta(match.source);
 									const toneColor =
 										meta.tone === 'accent'
 											? theme.colors.accent
