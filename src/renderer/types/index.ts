@@ -381,6 +381,11 @@ export interface BatchRunConfig {
 	taskSelectionMode?: TaskSelectionMode; // 'task' (default) or 'document' - controls {{TASK_SELECTION_BLOCK}}
 	worktree?: WorktreeConfig; // Optional worktree configuration
 	worktreeTarget?: WorktreeRunTarget; // Optional target for dispatching to a worktree agent
+	// Per-run model override. Wins over session.customModel for this run's spawns
+	// only - the session and its interactive tabs are never modified, and the
+	// override dies with the run. Absent means "use the agent default".
+	model?: string;
+	effort?: string; // Per-run reasoning effort override, same run-scoped rules as `model`
 	// Goal-Driven mode. Its presence is the discriminator that selects goal mode
 	// over the document/task-driven spec mode. When set, the run pursues a free-text
 	// goal instead of checking off `- [ ]` tasks. See src/shared/goalDriven/types.ts.
@@ -434,6 +439,11 @@ export interface BatchRunState {
 
 	// Prompt configuration
 	customPrompt?: string; // User's custom prompt if modified
+	// Per-run model override chosen in the launch modal (empty/absent = use the
+	// session's configured model). Scoped to this run only and never persisted to
+	// the session. Read by the exit-path synopsis so per-task synopses spawn under
+	// the same model as the run's tasks, matching the CLI batch processor.
+	runModelOverride?: string;
 	sessionIds: string[]; // Claude session IDs from each iteration
 	startTime?: number; // Timestamp when batch run started
 	cumulativeTaskTimeMs?: number; // Sum of actual task durations (most accurate work time measure)
