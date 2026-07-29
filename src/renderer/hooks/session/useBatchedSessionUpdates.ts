@@ -26,6 +26,49 @@ import { logger } from '../../utils/logger';
 export const DEFAULT_BATCH_FLUSH_INTERVAL = 200;
 
 /**
+ * Merge the context-window half of a usage delta into the existing stats.
+ *
+ * `buildUsageStats` in the main process ALWAYS emits a context window, falling
+ * back to `FALLBACK_CONTEXT_WINDOW` (200k) when it could not resolve the real
+ * one (e.g. an omp model catalog that has not primed yet). Taking that value at
+ * face value downgrades a gauge that already showed an authoritative 1M back to
+ * 200k for the rest of the turn. So an unresolved delta never overwrites an
+ * already-resolved window; a resolved delta always wins, which keeps genuine
+ * model switches (they arrive resolved) propagating normally.
+ *
+ * Preservation is scoped to the SAME model (`contextWindowModel`): a switch to a
+ * different omp model that is absent from the primed catalog arrives unresolved,
+ * and must NOT keep showing the previous model's window. Providers with a single
+ * static window carry no model tag, so both sides are undefined and preservation
+ * applies as before.
+ */
+export function mergeContextWindow(
+	delta: Pick<UsageStats, 'contextWindow' | 'contextWindowResolved' | 'contextWindowModel'>,
+	existing:
+		| Pick<UsageStats, 'contextWindow' | 'contextWindowResolved' | 'contextWindowModel'>
+		| undefined
+): { contextWindow: number; contextWindowResolved?: boolean; contextWindowModel?: string } {
+	const sameModel = delta.contextWindowModel === existing?.contextWindowModel;
+	if (existing?.contextWindowResolved && !delta.contextWindowResolved && sameModel) {
+		return {
+			contextWindow: existing.contextWindow,
+			contextWindowResolved: true,
+			contextWindowModel: existing.contextWindowModel,
+		};
+	}
+	// The winning window's model tag rides along so the next turn's same-model
+	// check compares against the model that actually produced the stored window.
+	const deltaWins = Boolean(delta.contextWindow);
+	return {
+		contextWindow: delta.contextWindow || existing?.contextWindow || 0,
+		contextWindowResolved: deltaWins
+			? delta.contextWindowResolved
+			: existing?.contextWindowResolved,
+		contextWindowModel: deltaWins ? delta.contextWindowModel : existing?.contextWindowModel,
+	};
+}
+
+/**
  * Accumulated log data for efficient string concatenation
  */
 interface LogAccumulator {
@@ -357,23 +400,35 @@ export function useBatchedSessionUpdates(
 					const sessionUsageDelta = acc.usageDeltas.get(null);
 					if (sessionUsageDelta) {
 						const existing = updatedSession.usageStats;
-						updatedSession = {
-							...updatedSession,
-							usageStats: {
-								inputTokens: (existing?.inputTokens || 0) + sessionUsageDelta.inputTokens,
-								outputTokens: (existing?.outputTokens || 0) + sessionUsageDelta.outputTokens,
-								cacheReadInputTokens:
-									(existing?.cacheReadInputTokens || 0) + sessionUsageDelta.cacheReadInputTokens,
-								cacheCreationInputTokens:
-									(existing?.cacheCreationInputTokens || 0) +
-									sessionUsageDelta.cacheCreationInputTokens,
-								totalCostUsd: (existing?.totalCostUsd || 0) + sessionUsageDelta.totalCostUsd,
-								reasoningTokens:
-									(existing?.reasoningTokens || 0) + (sessionUsageDelta.reasoningTokens || 0),
-								contextWindow: sessionUsageDelta.contextWindow,
-								contextWindowResolved: sessionUsageDelta.contextWindowResolved,
-							},
-						};
+						if (sessionUsageDelta.contextWindowCorrectionOnly) {
+							// Window-only correction: its token/cost fields replay an already-counted
+							// turn, so keep every accumulated total and update only the context window.
+							// No prior stats means nothing was counted, so the replay seeds it.
+							updatedSession = {
+								...updatedSession,
+								usageStats: {
+									...(existing ?? sessionUsageDelta),
+									...mergeContextWindow(sessionUsageDelta, existing),
+								},
+							};
+						} else {
+							updatedSession = {
+								...updatedSession,
+								usageStats: {
+									inputTokens: (existing?.inputTokens || 0) + sessionUsageDelta.inputTokens,
+									outputTokens: (existing?.outputTokens || 0) + sessionUsageDelta.outputTokens,
+									cacheReadInputTokens:
+										(existing?.cacheReadInputTokens || 0) + sessionUsageDelta.cacheReadInputTokens,
+									cacheCreationInputTokens:
+										(existing?.cacheCreationInputTokens || 0) +
+										sessionUsageDelta.cacheCreationInputTokens,
+									totalCostUsd: (existing?.totalCostUsd || 0) + sessionUsageDelta.totalCostUsd,
+									reasoningTokens:
+										(existing?.reasoningTokens || 0) + (sessionUsageDelta.reasoningTokens || 0),
+									...mergeContextWindow(sessionUsageDelta, existing),
+								},
+							};
+						}
 					}
 
 					// Tab-level usage
@@ -385,6 +440,17 @@ export function useBatchedSessionUpdates(
 								if (!tabUsageDelta) return tab;
 
 								const existing = tab.usageStats;
+								if (tabUsageDelta.contextWindowCorrectionOnly) {
+									// Window-only correction: preserve this tab's already-counted
+									// tokens/cost and update only the context window.
+									return {
+										...tab,
+										usageStats: {
+											...(existing ?? tabUsageDelta),
+											...mergeContextWindow(tabUsageDelta, existing),
+										},
+									};
+								}
 								// An "output-only" delta carries new output tokens but zero
 								// input/cache. Copilot CLI streams these per-turn (each
 								// assistant.message reports only outputTokens; the real
@@ -413,10 +479,7 @@ export function useBatchedSessionUpdates(
 										cacheCreationInputTokens: isOutputOnlyDelta
 											? (existing?.cacheCreationInputTokens ?? 0)
 											: tabUsageDelta.cacheCreationInputTokens,
-										contextWindow: tabUsageDelta.contextWindow || existing?.contextWindow || 0,
-										contextWindowResolved: tabUsageDelta.contextWindow
-											? tabUsageDelta.contextWindowResolved
-											: existing?.contextWindowResolved,
+										...mergeContextWindow(tabUsageDelta, existing),
 										outputTokens: tabUsageDelta.outputTokens, // Current (not accumulated)
 										totalCostUsd: (existing?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
 										reasoningTokens: tabUsageDelta.reasoningTokens,
@@ -578,6 +641,36 @@ export function useBatchedSessionUpdates(
 			}
 
 			const existing = acc.usageDeltas.get(tabId);
+
+			// A context-window correction replays an already-counted turn, so it must
+			// never add tokens/cost. Fold its corrected window onto a real delta still
+			// pending in this batch (keeping that turn's tokens), or park a zero-token
+			// correction the flush applies as window-only against the committed stats.
+			if (usage.contextWindowCorrectionOnly) {
+				acc.usageDeltas.set(
+					tabId,
+					existing
+						? {
+								...existing,
+								...mergeContextWindow(usage, existing),
+							}
+						: {
+								inputTokens: 0,
+								outputTokens: 0,
+								cacheReadInputTokens: 0,
+								cacheCreationInputTokens: 0,
+								totalCostUsd: 0,
+								reasoningTokens: 0,
+								contextWindow: usage.contextWindow,
+								contextWindowResolved: usage.contextWindowResolved,
+								contextWindowModel: usage.contextWindowModel,
+								contextWindowCorrectionOnly: true,
+							}
+				);
+				hasPendingRef.current = true;
+				return;
+			}
+
 			if (existing) {
 				// For tab-level: inputTokens etc. are current (not accumulated), but outputTokens and cost are accumulated
 				if (tabId !== null) {
@@ -585,8 +678,7 @@ export function useBatchedSessionUpdates(
 						inputTokens: usage.inputTokens,
 						cacheReadInputTokens: usage.cacheReadInputTokens,
 						cacheCreationInputTokens: usage.cacheCreationInputTokens,
-						contextWindow: usage.contextWindow,
-						contextWindowResolved: usage.contextWindowResolved,
+						...mergeContextWindow(usage, existing),
 						outputTokens: usage.outputTokens,
 						totalCostUsd: existing.totalCostUsd + usage.totalCostUsd,
 						reasoningTokens: usage.reasoningTokens,
@@ -601,8 +693,7 @@ export function useBatchedSessionUpdates(
 							existing.cacheCreationInputTokens + usage.cacheCreationInputTokens,
 						totalCostUsd: existing.totalCostUsd + usage.totalCostUsd,
 						reasoningTokens: (existing.reasoningTokens || 0) + (usage.reasoningTokens || 0),
-						contextWindow: usage.contextWindow,
-						contextWindowResolved: usage.contextWindowResolved,
+						...mergeContextWindow(usage, existing),
 					});
 				}
 			} else {
