@@ -19,67 +19,41 @@
  * - open_file_tab: Open a file in a preview tab
  * - refresh_file_tree: Refresh the file tree for a session
  * - get_file_tree: Read directory tree from filesystem for web file explorer
- * - refresh_auto_run_docs: Refresh auto-run documents for a session
- * - configure_auto_run: Configure and optionally launch an auto-run session
- * - get_auto_run_docs: List auto-run documents for a session
- * - get_auto_run_state: Get current auto-run state for a session
- * - get_auto_run_document: Read content of a specific auto-run document
- * - save_auto_run_document: Write content to a specific auto-run document
- * - stop_auto_run: Stop an active auto-run for a session
  * - get_settings: Fetch current web settings
  * - set_setting: Modify a single setting (allowlisted keys only)
  * - list_desktop_sessions: Enumerate open AI tabs across all agents (CLI: `session list`)
  * - get_session_history: Return tab conversation history with --since/--tail filters (CLI: `session show`)
+ *
+ * Auto Run message types (refresh_auto_run_docs, configure_auto_run, get_auto_run_docs,
+ * get_auto_run_state, get_auto_run_document, save_auto_run_document, stop_auto_run, etc.)
+ * are handled by ./autoRun.
  */
 
 import path from 'path';
 import fs from 'fs/promises';
 import { app } from 'electron';
-import { WebSocket } from 'ws';
-import { logger } from '../../utils/logger';
-import { captureException } from '../../utils/sentry';
-import { getCommitHash } from '../../utils/build-info';
+import { logger } from '../../../utils/logger';
+import { captureException } from '../../../utils/sentry';
+import { getCommitHash } from '../../../utils/build-info';
 import {
 	startProfiling,
 	stopProfiling,
 	getProfilingStatus,
 	finalizeCapture,
-} from '../../profiling';
-import { getStatsDB } from '../../stats/singleton';
-import { runReadonlyStatsQuery } from '../../stats/readonly-query';
-import type { StatsTimeRange } from '../../../shared/stats-types';
+} from '../../../profiling';
+import { getStatsDB } from '../../../stats/singleton';
+import { runReadonlyStatsQuery } from '../../../stats/readonly-query';
+import type { StatsTimeRange } from '../../../../shared/stats-types';
 import type {
-	AutoRunDocument,
-	AutoRunState,
-	WebSettings,
 	SettingValue,
-	GroupData,
-	GitStatusResult,
-	GitDiffResult,
-	GitBranchesResult,
-	ListWorktreesResult,
-	GroupChatState,
-	CueSubscriptionInfo,
-	CueActivityEntry,
-	UsageDashboardData,
-	AchievementData,
 	CreateSessionConfig,
-	DirectorNotesSynopsisResult,
-	WebPlaybook,
 	WebPlaybookDocument,
 	NotifyToastClickAction,
-	NotifyToastParams,
-	NotifyCenterFlashParams,
 	NotifyToastKind,
 	NotifyToastColor,
 	NotifyCenterFlashColor,
 	NotifyCenterFlashVariant,
-	MarketplaceManifestResult,
-	MarketplaceImportResult,
-	DesktopSessionEntry,
-	SessionHistoryResult,
-	GetSessionHistoryOptions,
-} from '../types';
+} from '../../types';
 
 /** Canonical Toast / Center Flash color set (shared design language). */
 const NOTIFY_COLORS: readonly NotifyCenterFlashColor[] = [
@@ -121,12 +95,12 @@ const EXTERNAL_FLASH_MAX_DURATION_MS = 5000;
  * that want a sticky toast must opt in explicitly via `dismissible: true`.
  */
 const EXTERNAL_TOAST_MAX_DURATION_SECONDS = 60;
-import { AGENT_IDS } from '../../../shared/agentIds';
+import { AGENT_IDS } from '../../../../shared/agentIds';
 import {
 	getActivePluginManager,
 	isPluginsFeatureEnabled,
-} from '../../plugins/plugin-manager-singleton';
-import { evaluatePluginDispatch } from '../../../shared/plugins/plugin-dispatch-gate';
+} from '../../../plugins/plugin-manager-singleton';
+import { evaluatePluginDispatch } from '../../../../shared/plugins/plugin-dispatch-gate';
 import {
 	CADENZA_OPS,
 	CADENZA_VIEW_TYPES,
@@ -135,7 +109,7 @@ import {
 	type CadenzaOp,
 	type CadenzaViewType,
 	type CadenzaColor,
-} from '../../../shared/cadenza-types';
+} from '../../../../shared/cadenza-types';
 import {
 	CONCERTO_CREATION_PHASES,
 	CONCERTO_PROGRESS_MAX_STEPS,
@@ -149,315 +123,46 @@ import {
 	type MovementPayload,
 	type MovementStateSnapshot,
 	type MovementViewType,
-} from '../../../shared/movement-types';
+} from '../../../../shared/movement-types';
 import type {
 	ConcertoDesignerAction,
 	ConcertoDesignerActionResult,
 	MovementDesignerInspection,
-} from '../../../shared/concerto-html';
-
-// Logger context for all message handler logs
-const LOG_CONTEXT = 'WebServer';
-
-/**
- * Web client message interface
- */
-export interface WebClientMessage {
-	type: string;
-	requestId?: string;
-	sessionId?: string;
-	tabId?: string;
-	command?: string;
-	mode?: 'ai' | 'terminal';
-	inputMode?: 'ai' | 'terminal';
-	newName?: string;
-	filePath?: string;
-	focus?: boolean;
-	force?: boolean;
-	background?: boolean;
-	[key: string]: unknown;
-}
-
-/**
- * Web client connection info
- */
-export interface WebClient {
-	socket: WebSocket;
-	id: string;
-	connectedAt: number;
-	subscribedSessionId?: string;
-}
-
-/**
- * Session detail for command validation
- */
-export interface SessionDetailForHandler {
-	state: string;
-	inputMode: string;
-	agentSessionId?: string;
-	cwd?: string;
-	/** Currently active AI tab id; surfaced in send_command responses so callers
-	 *  (`maestro-cli dispatch`) can address the same tab on follow-up calls. */
-	activeTabId?: string;
-}
-
-/**
- * Live session info for enriching sessions
- */
-export interface LiveSessionInfo {
-	sessionId: string;
-	agentSessionId?: string;
-	enabledAt: number;
-}
-
-/**
- * Callbacks required by the message handler
- */
-export interface MessageHandlerCallbacks {
-	getSessionDetail: (sessionId: string) => SessionDetailForHandler | null;
-	executeCommand: (
-		sessionId: string,
-		command: string,
-		inputMode?: 'ai' | 'terminal',
-		tabId?: string,
-		force?: boolean,
-		images?: string[],
-		background?: boolean
-	) => Promise<boolean>;
-	switchMode: (sessionId: string, mode: 'ai' | 'terminal') => Promise<boolean>;
-	selectSession: (sessionId: string, tabId?: string, focus?: boolean) => Promise<boolean>;
-	selectTab: (sessionId: string, tabId: string) => Promise<boolean>;
-	newTab: (sessionId: string) => Promise<{ tabId: string } | null>;
-	closeTab: (sessionId: string, tabId: string) => Promise<boolean>;
-	renameTab: (sessionId: string, tabId: string, newName: string) => Promise<boolean>;
-	starTab: (sessionId: string, tabId: string, starred: boolean) => Promise<boolean>;
-	reorderTab: (sessionId: string, fromIndex: number, toIndex: number) => Promise<boolean>;
-	toggleBookmark: (sessionId: string) => Promise<boolean>;
-	openFileTab: (sessionId: string, filePath: string, switchToAgent: boolean) => Promise<boolean>;
-	refreshFileTree: (sessionId: string) => Promise<boolean>;
-	openBrowserTab: (sessionId: string, url: string) => Promise<boolean>;
-	openTerminalTab: (
-		sessionId: string,
-		config: { cwd?: string; shell?: string; name?: string | null }
-	) => Promise<boolean>;
-	newAITabWithPrompt: (
-		sessionId: string,
-		prompt: string,
-		background?: boolean
-	) => Promise<{ success: boolean; tabId?: string }>;
-	enqueueCommand: (
-		sessionId: string,
-		command: string,
-		inputMode?: 'ai' | 'terminal',
-		tabId?: string,
-		images?: string[],
-		background?: boolean
-	) => Promise<{
-		success: boolean;
-		tabId?: string;
-		queued?: boolean;
-		queuePosition?: number;
-		queueLength?: number;
-		itemId?: string;
-		error?: string;
-	}>;
-	listQueue: (sessionId?: string) => Promise<{
-		success: boolean;
-		queues: unknown[];
-		error?: string;
-	}>;
-	removeQueueItem: (
-		sessionId: string,
-		itemId: string
-	) => Promise<{ success: boolean; removed: boolean; error?: string }>;
-	refreshAutoRunDocs: (sessionId: string) => Promise<boolean>;
-	configureAutoRun: (
-		sessionId: string,
-		config: {
-			documents: Array<{ filename: string; resetOnCompletion?: boolean }>;
-			prompt?: string;
-			loopEnabled?: boolean;
-			maxLoops?: number;
-			saveAsPlaybook?: string;
-			launch?: boolean;
-			worktree?: {
-				enabled: boolean;
-				path: string;
-				branchName: string;
-				baseBranch: string;
-				createPROnCompletion: boolean;
-				prTargetBranch: string;
-			};
-		}
-	) => Promise<{ success: boolean; playbookId?: string; error?: string }>;
-	setSessionAutoRunFolder: (
-		sessionId: string,
-		folderPath: string
-	) => Promise<{ success: boolean; error?: string }>;
-	getSessions: () => Array<{
-		id: string;
-		name: string;
-		toolType: string;
-		state: string;
-		inputMode: string;
-		cwd: string;
-		agentSessionId?: string | null;
-	}>;
-	getLiveSessionInfo: (sessionId: string) => LiveSessionInfo | undefined;
-	isSessionLive: (sessionId: string) => boolean;
-	getAutoRunDocs: (sessionId: string) => Promise<AutoRunDocument[]>;
-	getAutoRunDocContent: (sessionId: string, filename: string) => Promise<string>;
-	saveAutoRunDoc: (sessionId: string, filename: string, content: string) => Promise<boolean>;
-	stopAutoRun: (sessionId: string) => Promise<boolean>;
-	resetAutoRunDocTasks: (sessionId: string, filename: string) => Promise<boolean>;
-	resumeAutoRunError: (sessionId: string) => Promise<boolean>;
-	skipAutoRunDocument: (sessionId: string) => Promise<boolean>;
-	abortAutoRunError: (sessionId: string) => Promise<boolean>;
-	listPlaybooks: (sessionId: string) => Promise<WebPlaybook[]>;
-	createPlaybook: (
-		sessionId: string,
-		playbook: {
-			name: string;
-			documents: WebPlaybookDocument[];
-			loopEnabled: boolean;
-			maxLoops?: number | null;
-			prompt: string;
-		}
-	) => Promise<WebPlaybook | null>;
-	updatePlaybook: (
-		sessionId: string,
-		playbookId: string,
-		updates: Partial<{
-			name: string;
-			documents: WebPlaybookDocument[];
-			loopEnabled: boolean;
-			maxLoops?: number | null;
-			prompt: string;
-		}>
-	) => Promise<WebPlaybook | null>;
-	deletePlaybook: (sessionId: string, playbookId: string) => Promise<boolean>;
-	getSettings: () => WebSettings;
-	setSetting: (key: string, value: SettingValue) => Promise<boolean>;
-	getGroups: () => GroupData[];
-	createGroup: (
-		name: string,
-		emoji?: string,
-		parentGroupId?: string
-	) => Promise<{ id: string } | null>;
-	renameGroup: (groupId: string, name: string) => Promise<boolean>;
-	deleteGroup: (groupId: string) => Promise<boolean>;
-	moveSessionToGroup: (sessionId: string, groupId: string | null) => Promise<boolean>;
-	createSession: (
-		name: string,
-		toolType: string,
-		cwd: string,
-		groupId?: string,
-		config?: CreateSessionConfig
-	) => Promise<{ sessionId: string } | null>;
-	createWorktreeSession: (
-		parentSessionId: string,
-		config: {
-			branchName: string;
-			baseBranch?: string;
-		}
-	) => Promise<{ success: boolean; sessionId?: string; error?: string }>;
-	deleteSession: (sessionId: string) => Promise<boolean>;
-	renameSession: (sessionId: string, newName: string) => Promise<boolean>;
-	updateSessionCwd: (
-		sessionId: string,
-		newCwd: string
-	) => Promise<{ success: boolean; error?: string }>;
-	updateSessionSsh: (
-		sessionId: string,
-		sshPatch: Record<string, unknown>
-	) => Promise<{ success: boolean; error?: string }>;
-	updateSessionConfig: (
-		sessionId: string,
-		configPatch: Record<string, unknown>
-	) => Promise<{ success: boolean; error?: string }>;
-	getGitStatus: (sessionId: string) => Promise<GitStatusResult>;
-	getGitDiff: (sessionId: string, filePath?: string) => Promise<GitDiffResult>;
-	getGitBranchesForSession: (sessionId: string) => Promise<GitBranchesResult>;
-	listWorktreesForSession: (sessionId: string) => Promise<ListWorktreesResult>;
-	getGroupChats: () => Promise<GroupChatState[]>;
-	startGroupChat: (topic: string, participantIds: string[]) => Promise<{ chatId: string } | null>;
-	getGroupChatState: (chatId: string) => Promise<GroupChatState | null>;
-	stopGroupChat: (chatId: string) => Promise<boolean>;
-	sendGroupChatMessage: (chatId: string, message: string) => Promise<boolean>;
-	mergeContext: (sourceSessionId: string, targetSessionId: string) => Promise<boolean>;
-	transferContext: (sourceSessionId: string, targetSessionId: string) => Promise<boolean>;
-	summarizeContext: (sessionId: string) => Promise<boolean>;
-	createGist: (
-		sessionId: string,
-		description: string,
-		isPublic: boolean
-	) => Promise<{ success: boolean; gistUrl?: string; error?: string }>;
-	getCueSubscriptions: (sessionId?: string) => Promise<CueSubscriptionInfo[]>;
-	toggleCueSubscription: (subscriptionId: string, enabled: boolean) => Promise<boolean>;
-	getCueActivity: (sessionId?: string, limit?: number) => Promise<CueActivityEntry[]>;
-	triggerCueSubscription: (
-		subscriptionName: string,
-		prompt?: string,
-		sourceAgentId?: string
-	) => Promise<boolean>;
-	listCuePipelines: () => Promise<{ pipelines: unknown[] }>;
-	getCuePipeline: (identifier: string) => Promise<unknown | null>;
-	setCuePipeline: (
-		identifier: string,
-		pipeline: unknown,
-		policy: 'add' | 'replace'
-	) => Promise<{ ok: true } | { ok: false; code: string; message: string }>;
-	removeCuePipeline: (
-		identifier: string
-	) => Promise<{ ok: true } | { ok: false; code: string; message: string }>;
-	getUsageDashboard: (timeRange: 'day' | 'week' | 'month' | 'all') => Promise<UsageDashboardData>;
-	getAchievements: () => Promise<AchievementData[]>;
-	generateDirectorNotesSynopsis: (
-		lookbackDays: number,
-		provider: string
-	) => Promise<DirectorNotesSynopsisResult>;
-	writeToTerminal: (sessionId: string, data: string) => boolean;
-	resizeTerminal: (sessionId: string, cols: number, rows: number) => boolean;
-	spawnTerminalForWeb: (
-		sessionId: string,
-		config: { cwd: string; cols?: number; rows?: number }
-	) => Promise<{ success: boolean; pid: number }>;
-	killTerminalForWeb: (sessionId: string) => boolean;
-	notifyToast: (params: NotifyToastParams) => Promise<boolean>;
-	cadenzaView: (params: CadenzaPayload) => Promise<boolean>;
-	movementView: (params: MovementPayload) => Promise<boolean>;
-	getMovementState: () => Promise<MovementStateSnapshot | null>;
-	getMovementDesignerInspection: (id: string) => Promise<MovementDesignerInspection | null>;
-	interactMovementDesigner: (
-		id: string,
-		action: ConcertoDesignerAction
-	) => Promise<ConcertoDesignerActionResult>;
-	notifyCenterFlash: (params: NotifyCenterFlashParams) => Promise<boolean>;
-	getMarketplaceManifest: (options?: {
-		refresh?: boolean;
-	}) => Promise<MarketplaceManifestResult | null>;
-	getMarketplaceDocument: (
-		playbookPath: string,
-		filename: string
-	) => Promise<{ content: string } | null>;
-	getMarketplaceReadme: (playbookPath: string) => Promise<{ content: string | null } | null>;
-	importMarketplacePlaybook: (
-		sessionId: string,
-		playbookId: string,
-		targetFolderName: string
-	) => Promise<MarketplaceImportResult>;
-	/** External-pickup primitive used by `maestro-cli session list`. Surfaces every
-	 *  open AI tab across all desktop agents so consumers (Maestro-Discord, Cue)
-	 *  can address tabs by id without owning a persistent channel. */
-	listDesktopSessions: () => DesktopSessionEntry[];
-	/** Read-only conversation history fetch used by `maestro-cli session show
-	 *  <tabId>`. Filters (`sinceMs`, `tail`) live alongside the read so we don't
-	 *  ship the full transcript over the wire on every poll. */
-	getSessionHistory: (
-		tabId: string,
-		options?: GetSessionHistoryOptions
-	) => SessionHistoryResult | null;
-}
+} from '../../../../shared/concerto-html';
+import { LOG_CONTEXT } from './shared';
+import type {
+	WebClientMessage,
+	WebClient,
+	MessageHandlerCallbacks,
+	MessageHandlerContext,
+} from './types';
+import {
+	handleRefreshAutoRunDocs,
+	handleConfigureAutoRun,
+	handleSetAutoRunFolder,
+	handleGetAutoRunDocs,
+	handleGetAutoRunState,
+	handleGetAutoRunDocument,
+	handleSaveAutoRunDocument,
+	handleStopAutoRun,
+	handleResetAutoRunDocTasks,
+	handleResumeAutoRunError,
+	handleSkipAutoRunDocument,
+	handleAbortAutoRunError,
+} from './autoRun';
+import {
+	handleSelectTab,
+	handleNewTab,
+	handleCloseTab,
+	handleRenameTab,
+	handleStarTab,
+	handleReorderTab,
+	handleToggleBookmark,
+	handleOpenFileTab,
+	handleOpenBrowserTab,
+	handleOpenTerminalTab,
+	handleNewAITabWithPrompt,
+} from './tabs';
 
 /**
  * WebSocket Message Handler Class
@@ -508,6 +213,19 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
+	 * Bundles callbacks and the response-sending helpers for domain handler
+	 * modules extracted out of this class (e.g. `./autoRun`).
+	 */
+	private get ctx(): MessageHandlerContext {
+		return {
+			callbacks: this.callbacks,
+			send: this.send.bind(this),
+			sendError: this.sendError.bind(this),
+			reportHandlerError: this.reportHandlerError.bind(this),
+		};
+	}
+
+	/**
 	 * Handle incoming WebSocket message from a web client
 	 *
 	 * @param client - The web client connection info
@@ -550,47 +268,47 @@ export class WebSocketMessageHandler {
 				break;
 
 			case 'select_tab':
-				this.handleSelectTab(client, message);
+				handleSelectTab(this.ctx, client, message);
 				break;
 
 			case 'new_tab':
-				this.handleNewTab(client, message);
+				handleNewTab(this.ctx, client, message);
 				break;
 
 			case 'close_tab':
-				this.handleCloseTab(client, message);
+				handleCloseTab(this.ctx, client, message);
 				break;
 
 			case 'rename_tab':
-				this.handleRenameTab(client, message);
+				handleRenameTab(this.ctx, client, message);
 				break;
 
 			case 'star_tab':
-				this.handleStarTab(client, message);
+				handleStarTab(this.ctx, client, message);
 				break;
 
 			case 'reorder_tab':
-				this.handleReorderTab(client, message);
+				handleReorderTab(this.ctx, client, message);
 				break;
 
 			case 'toggle_bookmark':
-				this.handleToggleBookmark(client, message);
+				handleToggleBookmark(this.ctx, client, message);
 				break;
 
 			case 'open_file_tab':
-				this.handleOpenFileTab(client, message);
+				handleOpenFileTab(this.ctx, client, message);
 				break;
 
 			case 'open_browser_tab':
-				this.handleOpenBrowserTab(client, message);
+				handleOpenBrowserTab(this.ctx, client, message);
 				break;
 
 			case 'open_terminal_tab':
-				this.handleOpenTerminalTab(client, message);
+				handleOpenTerminalTab(this.ctx, client, message);
 				break;
 
 			case 'new_ai_tab_with_prompt':
-				this.handleNewAITabWithPrompt(client, message);
+				handleNewAITabWithPrompt(this.ctx, client, message);
 				break;
 
 			case 'enqueue_command':
@@ -614,11 +332,11 @@ export class WebSocketMessageHandler {
 				break;
 
 			case 'refresh_auto_run_docs':
-				this.handleRefreshAutoRunDocs(client, message);
+				handleRefreshAutoRunDocs(this.ctx, client, message);
 				break;
 
 			case 'configure_auto_run':
-				this.handleConfigureAutoRun(client, message);
+				handleConfigureAutoRun(this.ctx, client, message);
 				break;
 
 			case 'create_worktree_session':
@@ -626,43 +344,43 @@ export class WebSocketMessageHandler {
 				break;
 
 			case 'set_auto_run_folder':
-				this.handleSetAutoRunFolder(client, message);
+				handleSetAutoRunFolder(this.ctx, client, message);
 				break;
 
 			case 'get_auto_run_docs':
-				this.handleGetAutoRunDocs(client, message);
+				handleGetAutoRunDocs(this.ctx, client, message);
 				break;
 
 			case 'get_auto_run_state':
-				this.handleGetAutoRunState(client, message);
+				handleGetAutoRunState(this.ctx, client, message);
 				break;
 
 			case 'get_auto_run_document':
-				this.handleGetAutoRunDocument(client, message);
+				handleGetAutoRunDocument(this.ctx, client, message);
 				break;
 
 			case 'save_auto_run_document':
-				this.handleSaveAutoRunDocument(client, message);
+				handleSaveAutoRunDocument(this.ctx, client, message);
 				break;
 
 			case 'stop_auto_run':
-				this.handleStopAutoRun(client, message);
+				handleStopAutoRun(this.ctx, client, message);
 				break;
 
 			case 'reset_auto_run_doc_tasks':
-				this.handleResetAutoRunDocTasks(client, message);
+				handleResetAutoRunDocTasks(this.ctx, client, message);
 				break;
 
 			case 'resume_auto_run_error':
-				this.handleResumeAutoRunError(client, message);
+				handleResumeAutoRunError(this.ctx, client, message);
 				break;
 
 			case 'skip_auto_run_document':
-				this.handleSkipAutoRunDocument(client, message);
+				handleSkipAutoRunDocument(this.ctx, client, message);
 				break;
 
 			case 'abort_auto_run_error':
-				this.handleAbortAutoRunError(client, message);
+				handleAbortAutoRunError(this.ctx, client, message);
 				break;
 
 			case 'list_playbooks':
@@ -928,7 +646,7 @@ export class WebSocketMessageHandler {
 	 * backs the web-desktop bundle, the default browser interface.
 	 */
 	private async handleBridgeInvoke(client: WebClient, message: WebClientMessage): Promise<void> {
-		const { handleBridgeInvoke } = await import('./bridgeHandlers');
+		const { handleBridgeInvoke } = await import('../bridgeHandlers');
 		await handleBridgeInvoke(
 			client,
 			message as unknown as Parameters<typeof handleBridgeInvoke>[1],
@@ -1279,263 +997,6 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
-	 * Handle select_tab message - select a tab within a session
-	 */
-	private handleSelectTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const tabId = message.tabId as string;
-		logger.info(
-			`[Web] Received select_tab message: session=${sessionId}, tab=${tabId}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !tabId) {
-			this.sendError(client, 'Missing sessionId or tabId');
-			return;
-		}
-
-		if (!this.callbacks.selectTab) {
-			this.sendError(client, 'Tab selection not configured');
-			return;
-		}
-
-		this.callbacks
-			.selectTab(sessionId, tabId)
-			.then((success) => {
-				this.send(client, {
-					type: 'select_tab_result',
-					success,
-					sessionId,
-					tabId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to select tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle new_tab message - create a new tab within a session
-	 */
-	private handleNewTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received new_tab message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.newTab) {
-			this.sendError(client, 'Tab creation not configured');
-			return;
-		}
-
-		this.callbacks
-			.newTab(sessionId)
-			.then((result) => {
-				this.send(client, {
-					type: 'new_tab_result',
-					success: !!result,
-					sessionId,
-					tabId: result?.tabId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to create tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle close_tab message - close a tab within a session
-	 */
-	private handleCloseTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const tabId = message.tabId as string;
-		logger.info(
-			`[Web] Received close_tab message: session=${sessionId}, tab=${tabId}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !tabId) {
-			this.sendError(client, 'Missing sessionId or tabId');
-			return;
-		}
-
-		if (!this.callbacks.closeTab) {
-			this.sendError(client, 'Tab closing not configured');
-			return;
-		}
-
-		this.callbacks
-			.closeTab(sessionId, tabId)
-			.then((success) => {
-				this.send(client, {
-					type: 'close_tab_result',
-					success,
-					sessionId,
-					tabId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to close tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle rename_tab message - rename a tab within a session
-	 */
-	private handleRenameTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const tabId = message.tabId as string;
-		const newName = message.newName as string;
-		logger.info(
-			`[Web] Received rename_tab message: session=${sessionId}, tab=${tabId}, newName=${newName}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !tabId) {
-			this.sendError(client, 'Missing sessionId or tabId');
-			return;
-		}
-
-		if (!this.callbacks.renameTab) {
-			this.sendError(client, 'Tab renaming not configured');
-			return;
-		}
-
-		// newName can be empty string to clear the name
-		this.callbacks
-			.renameTab(sessionId, tabId, newName || '')
-			.then((success) => {
-				this.send(client, {
-					type: 'rename_tab_result',
-					success,
-					sessionId,
-					tabId,
-					newName: newName || '',
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to rename tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle star_tab message - star/unstar a tab within a session
-	 */
-	private handleStarTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const tabId = message.tabId as string;
-		const starred = message.starred as boolean;
-		logger.info(
-			`[Web] Received star_tab message: session=${sessionId}, tab=${tabId}, starred=${starred}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !tabId) {
-			this.sendError(client, 'Missing sessionId or tabId');
-			return;
-		}
-
-		if (!this.callbacks.starTab) {
-			this.sendError(client, 'Tab starring not configured');
-			return;
-		}
-
-		this.callbacks
-			.starTab(sessionId, tabId, !!starred)
-			.then((success) => {
-				this.send(client, {
-					type: 'star_tab_result',
-					success,
-					sessionId,
-					tabId,
-					starred,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to star tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle reorder_tab message - move a tab to a new position within a session
-	 */
-	private handleReorderTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const fromIndex = message.fromIndex as number;
-		const toIndex = message.toIndex as number;
-		logger.info(
-			`[Web] Received reorder_tab message: session=${sessionId}, from=${fromIndex}, to=${toIndex}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || fromIndex == null || toIndex == null) {
-			this.sendError(client, 'Missing sessionId, fromIndex, or toIndex');
-			return;
-		}
-
-		if (!this.callbacks.reorderTab) {
-			this.sendError(client, 'Tab reordering not configured');
-			return;
-		}
-
-		this.callbacks
-			.reorderTab(sessionId, fromIndex, toIndex)
-			.then((success) => {
-				this.send(client, {
-					type: 'reorder_tab_result',
-					success,
-					sessionId,
-					fromIndex,
-					toIndex,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to reorder tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle toggle_bookmark message - toggle bookmark state on a session
-	 */
-	private handleToggleBookmark(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received toggle_bookmark message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.toggleBookmark) {
-			this.sendError(client, 'Bookmark toggling not configured');
-			return;
-		}
-
-		this.callbacks
-			.toggleBookmark(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'toggle_bookmark_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to toggle bookmark: ${error.message}`);
-			});
-	}
-
-	/**
 	 * Handle refresh_file_tree message - refresh the file tree for a session
 	 */
 	private handleRefreshFileTree(client: WebClient, message: WebClientMessage): void {
@@ -1707,552 +1168,6 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
-	 * Handle refresh_auto_run_docs message - refresh auto-run documents for a session
-	 */
-	private handleRefreshAutoRunDocs(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received refresh_auto_run_docs message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.refreshAutoRunDocs) {
-			this.sendError(client, 'Auto-run docs refresh not configured');
-			return;
-		}
-
-		this.callbacks
-			.refreshAutoRunDocs(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'refresh_auto_run_docs_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to refresh auto-run docs: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle configure_auto_run message - configure and optionally launch an auto-run
-	 */
-	private handleConfigureAutoRun(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const documents = message.documents as
-			| Array<{ filename: string; resetOnCompletion?: boolean }>
-			| undefined;
-		logger.info(
-			`[Web] Received configure_auto_run message: session=${sessionId}, documents=${documents?.length || 0}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!documents || !Array.isArray(documents) || documents.length === 0) {
-			this.sendError(client, 'Missing or empty documents array');
-			return;
-		}
-
-		// Validate each document entry
-		for (const doc of documents) {
-			if (typeof doc !== 'object' || doc === null) {
-				this.sendError(client, 'Each document must be an object');
-				return;
-			}
-			if (typeof doc.filename !== 'string' || doc.filename.trim() === '') {
-				this.sendError(client, 'Each document must have a non-empty string filename');
-				return;
-			}
-			if (doc.resetOnCompletion !== undefined && typeof doc.resetOnCompletion !== 'boolean') {
-				this.sendError(client, 'resetOnCompletion must be a boolean if provided');
-				return;
-			}
-		}
-
-		if (!this.callbacks.configureAutoRun) {
-			this.sendError(client, 'Auto-run configuration not configured');
-			return;
-		}
-
-		// Validate and coerce optional config fields at the WebSocket boundary
-		if (message.loopEnabled !== undefined && typeof message.loopEnabled !== 'boolean') {
-			this.sendError(client, 'loopEnabled must be a boolean');
-			return;
-		}
-		if (message.maxLoops !== undefined) {
-			const maxLoops = Number(message.maxLoops);
-			if (!Number.isFinite(maxLoops) || maxLoops < 0) {
-				this.sendError(client, 'maxLoops must be a finite non-negative number');
-				return;
-			}
-		}
-		if (message.launch !== undefined && typeof message.launch !== 'boolean') {
-			this.sendError(client, 'launch must be a boolean');
-			return;
-		}
-		if (
-			message.saveAsPlaybook !== undefined &&
-			(typeof message.saveAsPlaybook !== 'string' || message.saveAsPlaybook.trim() === '')
-		) {
-			this.sendError(client, 'saveAsPlaybook must be a non-empty string');
-			return;
-		}
-
-		// Validate optional worktree config - desktop app uses this to create a
-		// git worktree, checkout the branch, and optionally open a PR on completion.
-		let worktree:
-			| {
-					enabled: boolean;
-					path: string;
-					branchName: string;
-					baseBranch: string;
-					createPROnCompletion: boolean;
-					prTargetBranch: string;
-			  }
-			| undefined;
-		if (message.worktree !== undefined) {
-			const w = message.worktree as Record<string, unknown> | null;
-			if (typeof w !== 'object' || w === null) {
-				this.sendError(client, 'worktree must be an object');
-				return;
-			}
-			if (typeof w.enabled !== 'boolean') {
-				this.sendError(client, 'worktree.enabled must be a boolean');
-				return;
-			}
-			if (typeof w.path !== 'string' || w.path.trim() === '') {
-				this.sendError(client, 'worktree.path must be a non-empty string');
-				return;
-			}
-			if (typeof w.branchName !== 'string' || w.branchName.trim() === '') {
-				this.sendError(client, 'worktree.branchName must be a non-empty string');
-				return;
-			}
-			if (w.baseBranch !== undefined && typeof w.baseBranch !== 'string') {
-				this.sendError(client, 'worktree.baseBranch must be a string');
-				return;
-			}
-			if (w.createPROnCompletion !== undefined && typeof w.createPROnCompletion !== 'boolean') {
-				this.sendError(client, 'worktree.createPROnCompletion must be a boolean');
-				return;
-			}
-			if (w.prTargetBranch !== undefined && typeof w.prTargetBranch !== 'string') {
-				this.sendError(client, 'worktree.prTargetBranch must be a string');
-				return;
-			}
-			worktree = {
-				enabled: w.enabled,
-				path: w.path,
-				branchName: w.branchName,
-				baseBranch: (w.baseBranch as string | undefined) ?? '',
-				createPROnCompletion: Boolean(w.createPROnCompletion),
-				prTargetBranch: (w.prTargetBranch as string | undefined) ?? '',
-			};
-		}
-
-		const config = {
-			documents,
-			prompt: message.prompt as string | undefined,
-			loopEnabled: message.loopEnabled as boolean | undefined,
-			maxLoops: message.maxLoops !== undefined ? Number(message.maxLoops) : undefined,
-			saveAsPlaybook: message.saveAsPlaybook as string | undefined,
-			launch: message.launch as boolean | undefined,
-			worktree,
-		};
-
-		this.callbacks
-			.configureAutoRun(sessionId, config)
-			.then((result) => {
-				this.send(client, {
-					type: 'configure_auto_run_result',
-					success: result.success,
-					playbookId: result.playbookId,
-					error: result.error,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to configure auto-run: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle set_auto_run_folder message - update the Auto Run folder for an
-	 * existing session. Mirrors desktop's `dialog.selectFolder` flow: the renderer
-	 * lists docs from the new path, persists the choice to session storage, and
-	 * broadcasts the updated session.
-	 */
-	private handleSetAutoRunFolder(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const folderPath = message.folderPath as string;
-		// Avoid logging the raw folder path: it can contain user/home/project
-		// identifiers that count as PII in production logs. The basename is
-		// usually enough for debugging without leaking the full path.
-		const folderPathHint = typeof folderPath === 'string' ? path.basename(folderPath) : '<invalid>';
-		logger.info(
-			`[Web] Received set_auto_run_folder message: session=${sessionId}, folderBasename=${folderPathHint}, folderPathLength=${folderPath?.length ?? 0}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (typeof folderPath !== 'string' || folderPath.trim() === '') {
-			this.sendError(client, 'Missing or invalid folderPath');
-			return;
-		}
-
-		if (!this.callbacks.setSessionAutoRunFolder) {
-			this.sendError(client, 'Auto Run folder updates not configured');
-			return;
-		}
-
-		this.callbacks
-			.setSessionAutoRunFolder(sessionId, folderPath)
-			.then((result) => {
-				this.send(client, {
-					type: 'set_auto_run_folder_result',
-					success: result.success,
-					error: result.error,
-					sessionId,
-					folderPath,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				const err = error instanceof Error ? error : new Error(String(error));
-				captureException(err, {
-					extra: {
-						area: 'web-server',
-						handler: 'set_auto_run_folder',
-						sessionId,
-						requestId: message.requestId,
-					},
-				});
-				this.sendError(client, `Failed to set Auto Run folder: ${err.message}`);
-			});
-	}
-
-	/**
-	 * Handle open_file_tab message - open a file in a preview tab
-	 */
-	private handleOpenFileTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const filePath = message.filePath as string;
-		// `switchToAgent` defaults to true so older clients keep the existing UX.
-		const switchToAgent = message.switchToAgent !== false;
-		logger.info(
-			`[Web] Received open_file_tab message: session=${sessionId}, filePath=${filePath}, switchToAgent=${switchToAgent}`,
-			LOG_CONTEXT
-		);
-
-		// Helper to send typed error responses with requestId (prevents client timeouts)
-		const sendErrorResult = (error: string) => {
-			this.send(client, {
-				type: 'open_file_tab_result',
-				success: false,
-				error,
-				sessionId,
-				requestId: message.requestId,
-			});
-		};
-
-		if (!sessionId || !filePath) {
-			sendErrorResult('Missing sessionId or filePath');
-			return;
-		}
-
-		const sessions = this.callbacks.getSessions?.();
-		const session = sessions?.find((s) => s.id === sessionId);
-		if (!session?.cwd) {
-			sendErrorResult('Session not found or has no working directory');
-			return;
-		}
-		// Relative paths resolve against the agent's working directory; absolute
-		// paths are honored as-is. Opening files outside the worktree is
-		// intentionally allowed - a paired client already has shell-level access
-		// (execute_command), so confining preview tabs to the worktree gated
-		// nothing the connection token doesn't already gate.
-		const sessionRoot = path.resolve(session.cwd);
-		const resolved = path.resolve(sessionRoot, filePath);
-
-		if (!this.callbacks.openFileTab) {
-			sendErrorResult('File tab opening not configured');
-			return;
-		}
-
-		this.callbacks
-			.openFileTab(sessionId, resolved, switchToAgent)
-			.then((success) => {
-				this.send(client, {
-					type: 'open_file_tab_result',
-					success,
-					sessionId,
-					filePath,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				sendErrorResult(`Failed to open file tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle open_browser_tab message - open a URL in a browser tab
-	 */
-	private handleOpenBrowserTab(client: WebClient, message: WebClientMessage): void {
-		const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
-		const url = typeof message.url === 'string' ? message.url : '';
-		// URLs can embed bearer tokens or session IDs - log length only.
-		logger.info(
-			`[Web] Received open_browser_tab message: session=${sessionId}, urlLength=${url.length}`,
-			LOG_CONTEXT
-		);
-
-		const sendErrorResult = (error: string) => {
-			this.send(client, {
-				type: 'open_browser_tab_result',
-				success: false,
-				error,
-				sessionId,
-				requestId: message.requestId,
-			});
-		};
-
-		if (!sessionId || !url) {
-			sendErrorResult('Missing sessionId or url');
-			return;
-		}
-
-		const session = this.callbacks.getSessions?.().find((s) => s.id === sessionId);
-		if (!session) {
-			sendErrorResult('Session not found');
-			return;
-		}
-
-		// Only http(s) URLs are allowed in browser tabs; everything else is rejected
-		// (mailto:, file:, javascript:, etc. would be unsafe or nonsensical here).
-		// Normalize bare host:port inputs (e.g. `localhost:3000`) to http:// so
-		// WHATWG URL parsing doesn't mistake the host for a protocol.
-		const trimmedUrl = url.trim();
-		const hasExplicitScheme = trimmedUrl.includes('://');
-		const candidate = hasExplicitScheme ? trimmedUrl : `http://${trimmedUrl}`;
-		let parsed: URL;
-		try {
-			parsed = new URL(candidate);
-		} catch {
-			sendErrorResult('Invalid URL');
-			return;
-		}
-		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-			sendErrorResult(`Unsupported URL protocol: ${parsed.protocol}`);
-			return;
-		}
-		// A bare input that parses with userinfo is almost certainly malformed
-		// (e.g. `foo:bar@baz` accidentally looking like `user:pass@host`).
-		if (!hasExplicitScheme && (parsed.username || parsed.password)) {
-			sendErrorResult('Invalid URL');
-			return;
-		}
-
-		if (!this.callbacks.openBrowserTab) {
-			sendErrorResult('Browser tab opening not configured');
-			return;
-		}
-
-		this.callbacks
-			.openBrowserTab(sessionId, parsed.toString())
-			.then((success) => {
-				this.send(client, {
-					type: 'open_browser_tab_result',
-					success,
-					sessionId,
-					url: parsed.toString(),
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				sendErrorResult(`Failed to open browser tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle open_terminal_tab message - open a new terminal tab
-	 */
-	private async handleOpenTerminalTab(client: WebClient, message: WebClientMessage): Promise<void> {
-		const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
-		const rawCwd = message.cwd;
-		const rawShell = message.shell;
-		const rawName = message.name;
-		// cwd/shell/name can leak local usernames or project names - log
-		// presence flags only.
-		logger.info(
-			`[Web] Received open_terminal_tab message: session=${sessionId}, cwdProvided=${
-				typeof rawCwd === 'string' && rawCwd.length > 0
-			}, shellProvided=${
-				typeof rawShell === 'string' && rawShell.length > 0
-			}, nameProvided=${rawName !== undefined}`,
-			LOG_CONTEXT
-		);
-
-		const sendErrorResult = (error: string) => {
-			this.send(client, {
-				type: 'open_terminal_tab_result',
-				success: false,
-				error,
-				sessionId,
-				requestId: message.requestId,
-			});
-		};
-
-		if (!sessionId) {
-			sendErrorResult('Missing sessionId');
-			return;
-		}
-
-		// Reject malformed optional fields rather than silently defaulting them,
-		// which could spawn a terminal in the wrong cwd or with the wrong shell.
-		if (rawCwd !== undefined && typeof rawCwd !== 'string') {
-			sendErrorResult('Invalid cwd: must be a string');
-			return;
-		}
-		if (rawShell !== undefined && typeof rawShell !== 'string') {
-			sendErrorResult('Invalid shell: must be a string');
-			return;
-		}
-		if (rawName !== undefined && rawName !== null && typeof rawName !== 'string') {
-			sendErrorResult('Invalid name: must be a string or null');
-			return;
-		}
-		const cwd = typeof rawCwd === 'string' ? rawCwd : undefined;
-		const shell = typeof rawShell === 'string' ? rawShell : undefined;
-		const name = typeof rawName === 'string' ? rawName : rawName === null ? null : undefined;
-
-		const session = this.callbacks.getSessions?.().find((s) => s.id === sessionId);
-		if (!session) {
-			sendErrorResult('Session not found');
-			return;
-		}
-
-		// If a cwd is provided, confine it to the agent working directory
-		// (same rule as open_file_tab - prevents spawning a shell outside scope).
-		// Resolve symlinks via fs.realpath so a `link-to-outside` inside the
-		// session root can't slip past the lexical prefix check.
-		let resolvedCwd: string | undefined;
-		if (cwd) {
-			if (!session.cwd) {
-				sendErrorResult('Session has no working directory');
-				return;
-			}
-			let sessionRoot: string;
-			let resolved: string;
-			try {
-				sessionRoot = await fs.realpath(path.resolve(session.cwd));
-				resolved = await fs.realpath(path.resolve(sessionRoot, cwd));
-			} catch {
-				sendErrorResult('Invalid cwd');
-				return;
-			}
-			if (!resolved.startsWith(sessionRoot + path.sep) && resolved !== sessionRoot) {
-				sendErrorResult('Invalid cwd: path is outside the agent working directory');
-				return;
-			}
-			resolvedCwd = resolved;
-		}
-
-		if (!this.callbacks.openTerminalTab) {
-			sendErrorResult('Terminal tab opening not configured');
-			return;
-		}
-
-		this.callbacks
-			.openTerminalTab(sessionId, { cwd: resolvedCwd, shell, name })
-			.then((success) => {
-				this.send(client, {
-					type: 'open_terminal_tab_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				sendErrorResult(`Failed to open terminal tab: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle new_ai_tab_with_prompt message - atomically create a new AI tab
-	 * and dispatch an initial prompt into it. Used by `send --live --new-tab`
-	 * to guarantee a fresh conversation rather than writing into whichever tab
-	 * happens to be active.
-	 */
-	private handleNewAITabWithPrompt(client: WebClient, message: WebClientMessage): void {
-		const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
-		const prompt = typeof message.prompt === 'string' ? message.prompt : '';
-		// background=true creates the tab without switching to/focusing it.
-		// `maestro-cli dispatch --new-tab` sets this by default; `--focus` clears it.
-		const background = message.background === true;
-		// Prompts can contain user-authored content with secrets or PII -
-		// log length only rather than a raw preview.
-		logger.info(
-			`[Web] Received new_ai_tab_with_prompt message: session=${sessionId}, promptLength=${prompt.length}`,
-			LOG_CONTEXT
-		);
-
-		const sendErrorResult = (error: string) => {
-			this.send(client, {
-				type: 'new_ai_tab_with_prompt_result',
-				success: false,
-				error,
-				sessionId,
-				requestId: message.requestId,
-			});
-		};
-
-		if (!sessionId || !prompt) {
-			sendErrorResult('Missing sessionId or prompt');
-			return;
-		}
-
-		const session = this.callbacks.getSessions?.().find((s) => s.id === sessionId);
-		if (!session) {
-			sendErrorResult('Session not found');
-			return;
-		}
-
-		if (!this.callbacks.newAITabWithPrompt) {
-			sendErrorResult('New AI tab with prompt not configured');
-			return;
-		}
-
-		this.callbacks
-			.newAITabWithPrompt(sessionId, prompt, background)
-			.then((result) => {
-				this.send(client, {
-					type: 'new_ai_tab_with_prompt_result',
-					success: result.success,
-					sessionId,
-					...(result.tabId ? { tabId: result.tabId } : {}),
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				sendErrorResult(`Failed to create AI tab with prompt: ${error.message}`);
-			});
-	}
-
-	/**
 	 * Handle enqueue_command message - hand a CLI prompt to the renderer's
 	 * authoritative execution queue. When the target session is busy the prompt
 	 * is appended to `session.executionQueue` (FIFO); when idle it is dispatched
@@ -2416,379 +1331,6 @@ export class WebSocketMessageHandler {
 					error: `Failed to remove queue item: ${error.message}`,
 					requestId: message.requestId,
 				});
-			});
-	}
-
-	/**
-	 * Validate that a filename is safe for Auto Run read/save operations.
-	 *
-	 * Allows relative forward-slash subpaths (e.g. `loop/step-1`) so documents
-	 * in subfolders can be opened and saved, but rejects:
-	 *   - `..` traversal segments
-	 *   - backslash separators (we only persist POSIX)
-	 *   - absolute POSIX paths (leading `/`)
-	 *   - absolute Windows paths (drive-letter prefix)
-	 */
-	private isValidFilename(filename: string): boolean {
-		return (
-			typeof filename === 'string' &&
-			filename.length > 0 &&
-			!filename.includes('..') &&
-			!filename.includes('\\') &&
-			!filename.startsWith('/') &&
-			!/^[A-Za-z]:[\\/]/.test(filename)
-		);
-	}
-
-	/**
-	 * Handle get_auto_run_docs message - list Auto Run documents for a session
-	 */
-	private handleGetAutoRunDocs(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received get_auto_run_docs message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.getAutoRunDocs) {
-			this.sendError(client, 'Auto-run docs listing not configured');
-			return;
-		}
-
-		this.callbacks
-			.getAutoRunDocs(sessionId)
-			.then((documents) => {
-				this.send(client, {
-					type: 'auto_run_docs',
-					sessionId,
-					documents,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to get auto-run docs: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle get_auto_run_state message - get current Auto Run state for a session
-	 */
-	private handleGetAutoRunState(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received get_auto_run_state message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.getSessionDetail) {
-			this.sendError(client, 'Session detail not configured');
-			return;
-		}
-
-		const detail = this.callbacks.getSessionDetail(sessionId);
-		const state: AutoRunState | null =
-			((detail as any)?.autoRunState as AutoRunState | null) ?? null;
-
-		this.send(client, {
-			type: 'auto_run_state',
-			sessionId,
-			state,
-			requestId: message.requestId,
-		});
-	}
-
-	/**
-	 * Handle get_auto_run_document message - read content of a specific Auto Run document
-	 */
-	private handleGetAutoRunDocument(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const filename = message.filename as string;
-		logger.info(
-			`[Web] Received get_auto_run_document message: session=${sessionId}, filename=${filename}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !filename) {
-			this.sendError(client, 'Missing sessionId or filename');
-			return;
-		}
-
-		if (!this.isValidFilename(filename)) {
-			this.sendError(
-				client,
-				'Invalid filename: must not contain `..` traversal segments, backslashes, or absolute paths (POSIX `/` or Windows drive-letter). Forward-slash subpaths are allowed.'
-			);
-			return;
-		}
-
-		if (!this.callbacks.getAutoRunDocContent) {
-			this.sendError(client, 'Auto-run document reading not configured');
-			return;
-		}
-
-		this.callbacks
-			.getAutoRunDocContent(sessionId, filename)
-			.then((content) => {
-				this.send(client, {
-					type: 'auto_run_document_content',
-					sessionId,
-					filename,
-					content,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to read auto-run document: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle save_auto_run_document message - write content to a specific Auto Run document
-	 */
-	private handleSaveAutoRunDocument(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const filename = message.filename as string;
-		const content = message.content as string;
-		logger.info(
-			`[Web] Received save_auto_run_document message: session=${sessionId}, filename=${filename}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !filename) {
-			this.sendError(client, 'Missing sessionId or filename');
-			return;
-		}
-
-		if (typeof content !== 'string') {
-			this.sendError(client, 'Missing or invalid content');
-			return;
-		}
-
-		if (!this.isValidFilename(filename)) {
-			this.sendError(
-				client,
-				'Invalid filename: must not contain `..` traversal segments, backslashes, or absolute paths (POSIX `/` or Windows drive-letter). Forward-slash subpaths are allowed.'
-			);
-			return;
-		}
-
-		if (!this.callbacks.saveAutoRunDoc) {
-			this.sendError(client, 'Auto-run document saving not configured');
-			return;
-		}
-
-		this.callbacks
-			.saveAutoRunDoc(sessionId, filename, content)
-			.then((success) => {
-				this.send(client, {
-					type: 'save_auto_run_document_result',
-					success,
-					sessionId,
-					filename,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to save auto-run document: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle stop_auto_run message - stop an active Auto Run for a session
-	 */
-	private handleStopAutoRun(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		logger.info(`[Web] Received stop_auto_run message: session=${sessionId}`, LOG_CONTEXT);
-
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-
-		if (!this.callbacks.stopAutoRun) {
-			this.sendError(client, 'Auto-run stopping not configured');
-			return;
-		}
-
-		this.callbacks
-			.stopAutoRun(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'stop_auto_run_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.sendError(client, `Failed to stop auto-run: ${error.message}`);
-			});
-	}
-
-	/**
-	 * Handle reset_auto_run_doc_tasks message - revert all completed `[x]`
-	 * checkboxes back to `[ ]` for a single document. Mirrors the desktop's
-	 * "Reset Tasks" action so a playbook can be re-run from scratch.
-	 */
-	private handleResetAutoRunDocTasks(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		const filename = message.filename as string;
-		logger.info(
-			`[Web] Received reset_auto_run_doc_tasks message: session=${sessionId}, filename=${filename}`,
-			LOG_CONTEXT
-		);
-
-		if (!sessionId || !filename) {
-			this.sendError(client, 'Missing sessionId or filename');
-			return;
-		}
-
-		// Allow relative subdirectory paths (forward slashes) but reject traversal and
-		// absolute paths (POSIX `/foo.md` and Windows `C:/foo.md` / `C:\foo.md`) so the
-		// target always resolves under the Auto Run root.
-		if (
-			typeof filename !== 'string' ||
-			filename.length === 0 ||
-			filename.includes('..') ||
-			filename.includes('\\') ||
-			filename.startsWith('/') ||
-			/^[A-Za-z]:[\\/]/.test(filename)
-		) {
-			this.sendError(client, 'Invalid filename');
-			return;
-		}
-
-		if (!this.callbacks.resetAutoRunDocTasks) {
-			this.sendError(client, 'Auto-run task reset not configured');
-			return;
-		}
-
-		this.callbacks
-			.resetAutoRunDocTasks(sessionId, filename)
-			.then((success) => {
-				this.send(client, {
-					type: 'reset_auto_run_doc_tasks_result',
-					success,
-					sessionId,
-					filename,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.reportHandlerError(
-					client,
-					error,
-					'reset_auto_run_doc_tasks',
-					{ sessionId, filename, requestId: message.requestId },
-					'Failed to reset auto-run doc tasks'
-				);
-			});
-	}
-
-	/**
-	 * Handle resume_auto_run_error message - clear the error pause and continue.
-	 */
-	private handleResumeAutoRunError(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-		if (!this.callbacks.resumeAutoRunError) {
-			this.sendError(client, 'Auto-run resume not configured');
-			return;
-		}
-		this.callbacks
-			.resumeAutoRunError(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'resume_auto_run_error_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.reportHandlerError(
-					client,
-					error,
-					'resume_auto_run_error',
-					{ sessionId, requestId: message.requestId },
-					'Failed to resume auto-run'
-				);
-			});
-	}
-
-	/**
-	 * Handle skip_auto_run_document message - skip the failing document and
-	 * continue with the next one in the queue.
-	 */
-	private handleSkipAutoRunDocument(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-		if (!this.callbacks.skipAutoRunDocument) {
-			this.sendError(client, 'Auto-run skip not configured');
-			return;
-		}
-		this.callbacks
-			.skipAutoRunDocument(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'skip_auto_run_document_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.reportHandlerError(
-					client,
-					error,
-					'skip_auto_run_document',
-					{ sessionId, requestId: message.requestId },
-					'Failed to skip auto-run document'
-				);
-			});
-	}
-
-	/**
-	 * Handle abort_auto_run_error message - fully stop the run after an error.
-	 */
-	private handleAbortAutoRunError(client: WebClient, message: WebClientMessage): void {
-		const sessionId = message.sessionId as string;
-		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
-			return;
-		}
-		if (!this.callbacks.abortAutoRunError) {
-			this.sendError(client, 'Auto-run abort not configured');
-			return;
-		}
-		this.callbacks
-			.abortAutoRunError(sessionId)
-			.then((success) => {
-				this.send(client, {
-					type: 'abort_auto_run_error_result',
-					success,
-					sessionId,
-					requestId: message.requestId,
-				});
-			})
-			.catch((error) => {
-				this.reportHandlerError(
-					client,
-					error,
-					'abort_auto_run_error',
-					{ sessionId, requestId: message.requestId },
-					'Failed to abort auto-run'
-				);
 			});
 	}
 
