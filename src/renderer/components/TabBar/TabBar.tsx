@@ -61,6 +61,7 @@ function TabBarInner({
 	onToggleUnreadFilter,
 	onOpenTabSearch,
 	onOpenOutputSearch,
+	onOpenCrossTabSearch,
 	onCloseAllTabs,
 	onCloseOtherTabs,
 	onCloseTabsLeft,
@@ -621,8 +622,10 @@ function TabBarInner({
 						theme={theme}
 						onSearchTabs={onOpenTabSearch}
 						onSearchMessages={onOpenOutputSearch ?? onOpenTabSearch}
+						onSearchAllTabs={onOpenCrossTabSearch}
 						tabSwitcherKeys={tabShortcuts.tabSwitcher?.keys ?? ['Alt', 'Meta', 't']}
 						searchOutputKeys={shortcuts.searchOutput?.keys ?? ['Meta', 'f']}
+						searchAllTabsKeys={shortcuts.searchAllTabs?.keys ?? ['Alt', 'Meta', 'f']}
 						openTabCount={unifiedTabs?.length ?? tabs.length}
 					/>
 				)}

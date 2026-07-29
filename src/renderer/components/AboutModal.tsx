@@ -120,6 +120,10 @@ export function AboutModal({
 			width={560}
 			customHeader={customHeader}
 			showHeader={true}
+			resizeKey="about"
+			// Below these the achievement tiles and the two-column stats grid start
+			// wrapping into an unreadable mess, so they are the floor.
+			minSize={{ width: 460, height: 420 }}
 		>
 			<div className="space-y-4">
 				{/* Logo and Title */}

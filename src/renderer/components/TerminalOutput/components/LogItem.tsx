@@ -228,6 +228,7 @@ export const LogItem = memo(
 					ref={logItemRef}
 					className="flex gap-4 px-3 sm:px-6 py-2"
 					data-log-index={index}
+					data-log-id={log.id}
 					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
 				>
 					<div className="hidden sm:block w-20 shrink-0" />
@@ -266,6 +267,9 @@ export const LogItem = memo(
 				// side-by-side layout with the w-20 timestamp column.
 				className={`flex flex-col gap-1 sm:gap-4 group ${isReversed ? 'sm:flex-row-reverse' : 'sm:flex-row'} px-3 sm:px-6 py-2`}
 				data-log-index={index}
+				// Jump anchor for cross-tab message search. For a collapsed response
+				// group this is the FIRST entry's id (see buildRenderedIdMap).
+				data-log-id={log.id}
 				// PERF: the transcript is not virtualized, so every message stays in the
 				// DOM. content-visibility:auto lets the browser skip style/layout/paint for
 				// off-screen rows (the dominant scroll cost - a huge static layer tree the

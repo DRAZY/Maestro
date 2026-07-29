@@ -1204,6 +1204,7 @@ function MaestroConsoleInner() {
 		handleClearAgentError,
 		handleOpenQueueBrowser,
 		handleOpenTabSearch,
+		handleOpenCrossTabSearch,
 		handleOpenPromptComposer,
 		handleOpenFuzzySearch,
 		handleOpenCreatePR,
@@ -1223,6 +1224,7 @@ function MaestroConsoleInner() {
 		handleCloseAutoRunSetup,
 		handleCloseBatchRunner,
 		handleCloseTabSwitcher,
+		handleCloseCrossTabSearch,
 		handleCloseFileSearch,
 		handleClosePromptComposer,
 		handleCloseCreatePRModal,
@@ -1579,6 +1581,7 @@ function MaestroConsoleInner() {
 		handleUtilityTabSelect,
 		handleUtilityFileTabSelect,
 		handleFileSearchSelect,
+		handleCrossTabSearchJump,
 	} = useSessionSwitchCallbacks({
 		setActiveSessionId,
 		handleResumeSession,
@@ -2501,6 +2504,7 @@ function MaestroConsoleInner() {
 		handleNavForward,
 		toggleUnreadFilter,
 		setTabSwitcherOpen,
+		handleOpenCrossTabSearch,
 		showUnreadOnly,
 		stagedImages,
 		handleSetLightboxImage,
@@ -2747,6 +2751,7 @@ function MaestroConsoleInner() {
 		toggleUnreadFilter,
 		handleOpenTabSearch,
 		handleOpenOutputSearch,
+		handleOpenCrossTabSearch,
 		handleCloseAllTabs,
 		handleCloseOtherTabs,
 		handleCloseTabsLeft,
@@ -3366,6 +3371,8 @@ function MaestroConsoleInner() {
 						onOpenPianola={encoreFeatures.pianola ? () => setPianolaModalOpen(true) : undefined}
 						onConfigureCue={encoreFeatures.maestroCue ? handleConfigureCue : undefined}
 						onCloseTabSwitcher={handleCloseTabSwitcher}
+						onCloseCrossTabSearch={handleCloseCrossTabSearch}
+						onCrossTabSearchJump={handleCrossTabSearchJump}
 						onTabSelect={handleUtilityTabSelect}
 						onFileTabSelect={handleUtilityFileTabSelect}
 						onTerminalTabSelect={handleSelectTerminalTab}

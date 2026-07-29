@@ -122,6 +122,9 @@ export const MODAL_PRIORITIES = {
 	/** Tab switcher modal (Opt+Cmd+T) */
 	TAB_SWITCHER: 710,
 
+	/** Cross-tab message search modal (Opt+Cmd+F) */
+	CROSS_TAB_SEARCH: 709,
+
 	/** Tab context menu (right-click on tab) */
 	TAB_CONTEXT_MENU: 708,
 

@@ -1637,17 +1637,12 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			const buttons = screen.getAllByRole('button');
-			// Extract just the action label text (remove number badges and shortcut hints)
-			const labels = buttons
-				.map((b) => {
-					const text = b.textContent || '';
-					// Remove leading number badge (single digit)
-					const withoutNumber = text.replace(/^[0-9]/, '');
-					// Get just the main label (first part before subtext or shortcuts)
-					return withoutNumber.split(/Cmd\+|Currently/)[0].trim();
-				})
-				.filter(Boolean);
+			// Read labels off the dedicated attribute rather than parsing textContent:
+			// the old heuristic broke as soon as one label was a prefix of another
+			// ("Search: Message History" vs "Search: Message History (All Open Tabs)").
+			const labels = Array.from(document.querySelectorAll<HTMLElement>('[data-action-label]')).map(
+				(el) => el.getAttribute('data-action-label') || ''
+			);
 
 			// All labels should be sorted (allowing for the number badge offset which affects visual order)
 			// The component sorts actions by localeCompare before rendering

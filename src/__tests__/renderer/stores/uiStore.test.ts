@@ -232,6 +232,38 @@ describe('uiStore', () => {
 		});
 	});
 
+	describe('pending log jump (cross-tab search)', () => {
+		const JUMP = { sessionId: 'agent-1', tabId: 'tab-2', logId: 'log-9' };
+
+		it('starts empty', () => {
+			expect(useUIStore.getState().pendingLogJump).toBeNull();
+		});
+
+		it('stores a jump request', () => {
+			useUIStore.getState().setPendingLogJump(JUMP);
+			expect(useUIStore.getState().pendingLogJump).toEqual(JUMP);
+		});
+
+		it('clears the request once the target entry consumes it', () => {
+			useUIStore.getState().setPendingLogJump(JUMP);
+			useUIStore.getState().clearPendingLogJump('log-9');
+			expect(useUIStore.getState().pendingLogJump).toBeNull();
+		});
+
+		it('does not clear a newer request queued for a different entry', () => {
+			useUIStore.getState().setPendingLogJump(JUMP);
+			useUIStore.getState().clearPendingLogJump('some-older-log');
+			expect(useUIStore.getState().pendingLogJump).toEqual(JUMP);
+		});
+
+		it('replaces an unconsumed request', () => {
+			useUIStore.getState().setPendingLogJump(JUMP);
+			const next = { sessionId: 'agent-1', tabId: 'tab-3', logId: 'log-10' };
+			useUIStore.getState().setPendingLogJump(next);
+			expect(useUIStore.getState().pendingLogJump).toEqual(next);
+		});
+	});
+
 	describe('session filter state', () => {
 		it('sets session filter open', () => {
 			useUIStore.getState().setSessionFilterOpen(true);

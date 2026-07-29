@@ -120,7 +120,10 @@ export function useInputKeyDown(deps: InputKeyDownDeps): InputKeyDownReturn {
 
 			// Cmd+F opens output search from input field. Search is scoped per
 			// agent+AI-tab, so target the active window's slot.
-			if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+			// Alt must be excluded: Opt+Cmd+F is cross-tab search, and on
+			// Windows/Linux it still reports e.key === 'f' (macOS rewrites it to 'ƒ'),
+			// so without this guard that combo silently opens the in-tab Find bar.
+			if (e.key === 'f' && (e.metaKey || e.ctrlKey) && !e.altKey) {
 				e.preventDefault();
 				if (activeSession) {
 					const key = outputSearchKeyFor(activeSession.id, activeSession.activeTabId);

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Clock } from 'lucide-react';
+import { Search, Clock, Layers } from 'lucide-react';
 import type { Theme } from '../../types';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 
@@ -8,10 +8,14 @@ interface SearchPopoverProps {
 	theme: Theme;
 	onSearchTabs: () => void;
 	onSearchMessages: () => void;
+	/** Search message history across every open tab of this agent (Opt+Cmd+F) */
+	onSearchAllTabs?: () => void;
 	/** Shortcut keys for tab switcher */
 	tabSwitcherKeys: string[];
 	/** Shortcut keys for message search (Cmd+F) */
 	searchOutputKeys: string[];
+	/** Shortcut keys for cross-tab message search (Opt+Cmd+F) */
+	searchAllTabsKeys?: string[];
 	/** Number of open tabs in the current session, shown as a pill next to "Search Tabs" */
 	openTabCount?: number;
 }
@@ -24,8 +28,10 @@ export const SearchPopover = memo(function SearchPopover({
 	theme,
 	onSearchTabs,
 	onSearchMessages,
+	onSearchAllTabs,
 	tabSwitcherKeys,
 	searchOutputKeys,
+	searchAllTabsKeys,
 	openTabCount,
 }: SearchPopoverProps) {
 	const [popoverOpen, setPopoverOpen] = useState(false);
@@ -135,6 +141,21 @@ export const SearchPopover = memo(function SearchPopover({
 								{formatShortcutKeys(searchOutputKeys)}
 							</span>
 						</button>
+						{onSearchAllTabs && (
+							<button
+								className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors"
+								style={{ color: theme.colors.textMain }}
+								onClick={() => closeAndDo(onSearchAllTabs)}
+							>
+								<Layers className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+								Search Message History Across All Open Tabs
+								{searchAllTabsKeys && (
+									<span className="ml-auto text-xs" style={{ color: theme.colors.textDim }}>
+										{formatShortcutKeys(searchAllTabsKeys)}
+									</span>
+								)}
+							</button>
+						)}
 					</div>,
 					document.body
 				)}

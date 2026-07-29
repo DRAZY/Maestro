@@ -54,6 +54,7 @@ export interface MaestroSettings {
 	fontSize: number;
 	fontFamily: string;
 	customFonts: string[];
+	mediaPlaybackRate: number;
 	logLevel: 'debug' | 'info' | 'warn' | 'error';
 	defaultShell: string;
 	// Web interface authentication

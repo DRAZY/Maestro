@@ -142,6 +142,11 @@ export const DEFAULT_SHORTCUTS = {
 	focusActiveTab: {
 		id: 'focusActiveTab',
 		label: 'Focus Active Tab',
+		keys: ['Alt', 'Meta', 'ArrowUp'],
+	},
+	searchAllTabs: {
+		id: 'searchAllTabs',
+		label: 'Search Messages Across All Tabs',
 		keys: ['Alt', 'Meta', 'f'],
 	},
 	editClipboardImage: {

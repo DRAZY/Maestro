@@ -1138,6 +1138,49 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().autoRunStats.cumulativeTimeMs).toBe(60000);
 		});
 
+		it('updateAutoRunProgress keeps Auto Run time out of the Cue subtotal', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 50000, cueTimeMs: 5000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000);
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(5000);
+		});
+
+		it('updateAutoRunProgress accrues Cue credit into both cumulative and Cue time', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 50000, cueTimeMs: 5000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000, 'cue');
+			const stats = useSettingsStore.getState().autoRunStats;
+			expect(stats.cumulativeTimeMs).toBe(60000);
+			expect(stats.cueTimeMs).toBe(15000);
+		});
+
+		it('updateAutoRunProgress treats legacy stats without cueTimeMs as all Auto Run', () => {
+			const { cueTimeMs: _dropped, ...legacy } = DEFAULT_AUTO_RUN_STATS;
+			useSettingsStore.setState({
+				autoRunStats: { ...legacy, cumulativeTimeMs: 50000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().updateAutoRunProgress(10000, 'cue');
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(10000);
+		});
+
+		it('recordAutoRunComplete preserves the Cue subtotal', () => {
+			useSettingsStore.setState({
+				autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 60000, cueTimeMs: 15000 },
+			});
+			vi.clearAllMocks();
+
+			useSettingsStore.getState().recordAutoRunComplete(30000);
+			expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(15000);
+		});
+
 		it('updateAutoRunProgress detects new badge level', () => {
 			// Just below 15min threshold
 			const justBelow15Min = 15 * 60 * 1000 - 1000;
@@ -1843,6 +1886,45 @@ describe('settingsStore', () => {
 			expect(
 				vi.mocked(window.maestro.settings.set).mock.calls.some(([k]) => k === 'shortcuts')
 			).toBe(false);
+		});
+
+		it('moves focusActiveTab off Opt+Cmd+F so cross-tab search can claim it', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: {
+					focusActiveTab: {
+						id: 'focusActiveTab',
+						label: 'Focus Active Tab',
+						keys: ['Alt', 'Meta', 'f'],
+					},
+				},
+			});
+
+			await loadAllSettings();
+
+			const shortcuts = useSettingsStore.getState().shortcuts;
+			expect(shortcuts.focusActiveTab.keys).toEqual(['Alt', 'Meta', 'ArrowUp']);
+			// The freed combo now belongs to cross-tab message search.
+			expect(shortcuts.searchAllTabs.keys).toEqual(['Alt', 'Meta', 'f']);
+		});
+
+		it('leaves a user-customized focusActiveTab binding alone', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: {
+					focusActiveTab: {
+						id: 'focusActiveTab',
+						label: 'Focus Active Tab',
+						keys: ['Meta', 'Shift', 'j'],
+					},
+				},
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().shortcuts.focusActiveTab.keys).toEqual([
+				'Meta',
+				'Shift',
+				'j',
+			]);
 		});
 
 		it('merges shortcuts: preserves user keys but updates labels from defaults', async () => {

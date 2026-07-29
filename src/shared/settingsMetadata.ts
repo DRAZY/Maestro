@@ -116,6 +116,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: [],
 		category: 'appearance',
 	},
+	mediaPlaybackRate: {
+		description:
+			'Playback speed for audio and video files opened in the file preview. Persists across files and restarts. Range 0.25 to 4.',
+		type: 'number',
+		default: 1,
+		category: 'editor',
+	},
 	colorBlindMode: {
 		description: 'Enable colorblind-friendly palettes for status indicators and charts.',
 		type: 'boolean',

@@ -48,6 +48,8 @@ export interface TabBarProps {
 	onOpenTabSearch?: () => void;
 	/** Handler to open message search (Cmd+F) */
 	onOpenOutputSearch?: () => void;
+	/** Handler to open cross-tab message search (Opt+Cmd+F) */
+	onOpenCrossTabSearch?: () => void;
 	/** Handler to close all tabs */
 	onCloseAllTabs?: () => void;
 	/** Handler to close all tabs except the pivot (clicked) tab, or the active tab when no id is given */

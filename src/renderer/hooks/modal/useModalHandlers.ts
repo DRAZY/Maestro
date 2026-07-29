@@ -105,6 +105,7 @@ export interface ModalHandlersReturn {
 	// Open handlers
 	handleOpenQueueBrowser: () => void;
 	handleOpenTabSearch: () => void;
+	handleOpenCrossTabSearch: () => void;
 	handleOpenPromptComposer: () => void;
 	handleOpenFuzzySearch: () => void;
 	handleOpenCreatePR: () => void;
@@ -136,6 +137,7 @@ export interface ModalHandlersReturn {
 	handleCloseAutoRunSetup: () => void;
 	handleCloseBatchRunner: () => void;
 	handleCloseTabSwitcher: () => void;
+	handleCloseCrossTabSearch: () => void;
 	handleCloseFileSearch: () => void;
 	handleClosePromptComposer: () => void;
 	handleCloseCreatePRModal: () => void;
@@ -482,6 +484,10 @@ export function useModalHandlers(
 		getModalActions().setTabSwitcherOpen(true);
 	}, []);
 
+	const handleOpenCrossTabSearch = useCallback(() => {
+		getModalActions().setCrossTabSearchOpen(true);
+	}, []);
+
 	const handleOpenPromptComposer = useCallback(() => {
 		getModalActions().setPromptComposerOpen(true);
 	}, []);
@@ -675,6 +681,10 @@ export function useModalHandlers(
 
 	const handleCloseTabSwitcher = useCallback(() => {
 		getModalActions().setTabSwitcherOpen(false);
+	}, []);
+
+	const handleCloseCrossTabSearch = useCallback(() => {
+		getModalActions().setCrossTabSearchOpen(false);
 	}, []);
 
 	const handleCloseFileSearch = useCallback(() => {
@@ -1062,6 +1072,7 @@ export function useModalHandlers(
 		// Open handlers
 		handleOpenQueueBrowser,
 		handleOpenTabSearch,
+		handleOpenCrossTabSearch,
 		handleOpenPromptComposer,
 		handleOpenFuzzySearch,
 		handleOpenCreatePR,
@@ -1089,6 +1100,7 @@ export function useModalHandlers(
 		handleCloseAutoRunSetup,
 		handleCloseBatchRunner,
 		handleCloseTabSwitcher,
+		handleCloseCrossTabSearch,
 		handleCloseFileSearch,
 		handleClosePromptComposer,
 		handleCloseCreatePRModal,

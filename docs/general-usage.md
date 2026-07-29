@@ -38,8 +38,38 @@ The **File Explorer** (Right Panel → Files tab) lets you browse project files.
 - **Syntax highlighting** for code files
 - **Markdown rendering** with toggle between raw/preview (`Cmd+E` / `Ctrl+E`)
 - **Image viewing** for common image formats
+- **Audio and video playback** with a speed control that sticks (see below)
 - **Line numbers** for easy reference
 - **Search within file** (`Cmd+F` / `Ctrl+F`)
+
+### Audio and Video Playback
+
+Click an audio or video file and it opens in a player right inside the File
+Preview. Supported formats are the ones Chromium can decode: `mp3`, `wav`,
+`m4a`, `aac`, `flac`, `ogg`, `oga`, `opus`, `weba` for audio, and `mp4`, `m4v`,
+`webm`, `mov`, `ogv` for video. Anything else (`mkv`, `avi`) still gets the
+"Open in Default App" fallback.
+
+Files stream from disk with range requests, so scrubbing a multi-gigabyte
+screen recording is instant and does not load the file into memory.
+
+**Playback speed persists.** Whatever rate you pick (anywhere from 0.25x to 4x)
+carries over to the next file you open and survives a restart. Pitch is
+preserved, so a 2x podcast still sounds like a person.
+
+| Shortcut               | Action                         |
+| ---------------------- | ------------------------------ |
+| `Space` or `K`         | Play / pause                   |
+| `Left` / `Right`       | Skip back / forward 10 seconds |
+| `Shift+Left` / `Right` | Skip back / forward 5 seconds  |
+| `Up` / `Down`          | Volume up / down               |
+| `,` / `.`              | Step playback speed down / up  |
+| `M`                    | Mute                           |
+| `L`                    | Loop                           |
+| `F`                    | Fullscreen (video only)        |
+
+You can also set the speed outside the app with
+`maestro-cli settings set mediaPlaybackRate 1.5`.
 
 ### File Explorer Keyboard Shortcuts
 
@@ -299,6 +329,36 @@ The placeholder text updates to reflect the current mode:
 - Enable **Regex** mode
 - Use patterns like `\berror\b` for word boundaries
 - Or `^\s*#` to match comment lines
+
+## Searching Message History
+
+Two searches share the magnifying-glass menu in the tab bar, and both accept
+plain text or a regular expression (toggle the `Aa` / `.*` chip).
+
+### In the current tab
+
+`Cmd+F` / `Ctrl+F` opens the Find bar over the conversation you're looking at.
+Every match is highlighted inline; `Enter` and `Shift+Enter` step forward and
+backward through them.
+
+### Across every open tab
+
+`Opt+Cmd+F` / `Alt+Ctrl+F` opens a modal that searches the message history of
+**all** open tabs in the current agent at once. It's also in the command palette
+as "Search: Message History (All Open Tabs)".
+
+Results are grouped by tab, each row showing who said it, when, a preview of the
+hit with the match highlighted, and a pill when that message contains several
+matches. The tab you're currently on is labeled "current".
+
+Pick a result with `Enter` or a click and Maestro:
+
+1. Switches to that tab
+2. Scrolls to the message and flashes it so you can see where you landed
+3. Seeds that tab's Find bar with the same query, positioned on the match you
+   picked, so `Enter` / `Shift+Enter` continues from there
+
+Navigate the list with the arrow keys, `PageUp` / `PageDown`, and `Home` / `End`.
 
 ## Command Interpreter
 

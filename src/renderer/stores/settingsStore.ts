@@ -23,6 +23,7 @@ import type {
 	ThemeColors,
 	Shortcut,
 	CustomAICommand,
+	AchievementTimeSource,
 	AutoRunStats,
 	MaestroUsageStats,
 	OnboardingStats,
@@ -41,6 +42,7 @@ import type { FileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
+import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
 import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
@@ -164,6 +166,7 @@ const DEFAULT_CONTEXT_MANAGEMENT_SETTINGS: ContextManagementSettings = {
 
 const DEFAULT_AUTO_RUN_STATS: AutoRunStats = {
 	cumulativeTimeMs: 0,
+	cueTimeMs: 0,
 	longestRunMs: 0,
 	longestRunTimestamp: 0,
 	totalRuns: 0,
@@ -327,6 +330,8 @@ export interface SettingsStoreState {
 	fontFamily: string;
 	terminalFontFamily: string;
 	fontSize: number;
+	/** Playback speed for audio/video in the file preview. Sticky across files. */
+	mediaPlaybackRate: number;
 	activeThemeId: ThemeId;
 	customThemeColors: ThemeColors;
 	customThemeBaseId: ThemeId;
@@ -494,6 +499,7 @@ export interface SettingsStoreActions {
 	setFontFamily: (value: string) => void;
 	setTerminalFontFamily: (value: string) => void;
 	setFontSize: (value: number) => void;
+	setMediaPlaybackRate: (value: number) => void;
 	setActiveThemeId: (value: ThemeId) => void;
 	setCustomThemeColors: (value: ThemeColors) => void;
 	setCustomThemeBaseId: (value: ThemeId) => void;
@@ -653,7 +659,15 @@ export interface SettingsStoreActions {
 		newBadgeLevel: number | null;
 		isNewRecord: boolean;
 	};
-	updateAutoRunProgress: (deltaMs: number) => {
+	/**
+	 * Credit a block of autonomous time toward the Conductor level. `source`
+	 * defaults to 'autoRun'; pass 'cue' so the block also lands in the Cue
+	 * subtotal shown on the About card.
+	 */
+	updateAutoRunProgress: (
+		deltaMs: number,
+		source?: AchievementTimeSource
+	) => {
 		newBadgeLevel: number | null;
 		isNewRecord: boolean;
 	};
@@ -774,6 +788,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		fontFamily: 'Roboto Mono, Menlo, "Courier New", monospace',
 		terminalFontFamily: '',
 		fontSize: 14,
+		mediaPlaybackRate: 1,
 		activeThemeId: 'dracula',
 		customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 		customThemeBaseId: 'dracula',
@@ -990,6 +1005,12 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setFontSize: (value) => {
 			set({ fontSize: value });
 			window.maestro.settings.set('fontSize', value);
+		},
+
+		setMediaPlaybackRate: (value) => {
+			const rate = normalizePlaybackRate(value);
+			set({ mediaPlaybackRate: rate });
+			window.maestro.settings.set('mediaPlaybackRate', rate);
 		},
 
 		setActiveThemeId: (value) => {
@@ -1941,6 +1962,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 
 			const updated: AutoRunStats = {
 				cumulativeTimeMs: prev.cumulativeTimeMs, // Already updated incrementally
+				cueTimeMs: prev.cueTimeMs ?? 0, // Also accrued incrementally
 				longestRunMs: isNewRecord ? elapsedTimeMs : prev.longestRunMs,
 				longestRunTimestamp: isNewRecord ? Date.now() : prev.longestRunTimestamp,
 				totalRuns: prev.totalRuns + 1,
@@ -1957,7 +1979,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			return { newBadgeLevel, isNewRecord };
 		},
 
-		updateAutoRunProgress: (deltaMs) => {
+		updateAutoRunProgress: (deltaMs, source = 'autoRun') => {
 			const prev = get().autoRunStats;
 
 			// Add the delta to cumulative time
@@ -1981,6 +2003,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 
 			const updated: AutoRunStats = {
 				cumulativeTimeMs: newCumulativeTime,
+				// Cue credit is a subset of cumulative time, not an addition to it
+				cueTimeMs: (prev.cueTimeMs ?? 0) + (source === 'cue' ? deltaMs : 0),
 				longestRunMs: prev.longestRunMs, // Don't update until run completes
 				longestRunTimestamp: prev.longestRunTimestamp,
 				totalRuns: prev.totalRuns, // Don't increment - run not complete yet
@@ -2289,6 +2313,12 @@ const SHORTCUT_DEFAULT_REMAPS: Record<string, { fromKeys: string[]; toKeys: stri
 		fromKeys: ['Meta', 'Shift', '2'],
 		toKeys: ['Meta', 'Shift', 'e'],
 	},
+	// focusActiveTab moved off Opt+Cmd+F to free that combo for searchAllTabs
+	// (cross-tab message search), which reads as an escalation of Cmd+F.
+	focusActiveTab: {
+		fromKeys: ['Alt', 'Meta', 'f'],
+		toKeys: ['Alt', 'Meta', 'ArrowUp'],
+	},
 };
 
 function keysEqual(a: string[], b: string[]): boolean {
@@ -2407,6 +2437,9 @@ export async function loadAllSettings(): Promise<void> {
 			patch.terminalFontFamily = allSettings['terminalFontFamily'] as string;
 
 		if (allSettings['fontSize'] !== undefined) patch.fontSize = allSettings['fontSize'] as number;
+
+		if (allSettings['mediaPlaybackRate'] !== undefined)
+			patch.mediaPlaybackRate = normalizePlaybackRate(allSettings['mediaPlaybackRate']);
 
 		if (allSettings['activeThemeId'] !== undefined)
 			patch.activeThemeId = allSettings['activeThemeId'] as ThemeId;
@@ -3198,6 +3231,7 @@ export function getSettingsActions() {
 		setFontFamily: state.setFontFamily,
 		setTerminalFontFamily: state.setTerminalFontFamily,
 		setFontSize: state.setFontSize,
+		setMediaPlaybackRate: state.setMediaPlaybackRate,
 		setActiveThemeId: state.setActiveThemeId,
 		setCustomThemeColors: state.setCustomThemeColors,
 		setCustomThemeBaseId: state.setCustomThemeBaseId,

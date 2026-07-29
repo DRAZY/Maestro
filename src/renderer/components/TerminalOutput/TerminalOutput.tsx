@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, forwardRef, useCallback, memo } from 'react';
+import React, { useRef, useMemo, useEffect, forwardRef, useCallback, memo } from 'react';
 import type { LogEntry } from '../../types';
 import type { TerminalOutputProps } from './types';
 import Convert from 'ansi-to-html';
@@ -15,6 +15,9 @@ import { useMessageGistStore } from '../../stores/messageGistStore';
 import { getClaudeTokenMode } from '../../../shared/claudeTokenMode';
 import { collapseAiResponseLogs } from './utils/collapseAiResponseLogs';
 import { groupSubagentToolLogs } from './utils/groupSubagentToolLogs';
+import { buildRenderedIdMap } from './utils/renderedLogIds';
+import { useUIStore } from '../../stores/uiStore';
+import { jumpToElement } from '../../utils/jumpHighlight';
 import { LogItem } from './components/LogItem';
 import { OutputSearchBar } from './components/OutputSearchBar';
 import { ScrollToBottomButton } from './components/ScrollToBottomButton';
@@ -158,6 +161,48 @@ export const TerminalOutput = memo(
 		);
 		const debouncedSearchQuery = useDebouncedValue(outputSearchQuery, 150);
 
+		// ============================================================================
+		// Cross-tab search jump (Opt+Cmd+F -> pick a hit in another tab)
+		// ============================================================================
+		// The modal switches the active tab, seeds this tab's Find bar with the same
+		// query, and leaves a pendingLogJump behind. Here we scroll that entry into
+		// view, flash it, and hand the match index to the Find bar so next/prev
+		// continues from the hit the user actually clicked.
+		//
+		// Raw log ids have to be resolved to the row that survived collapsing (see
+		// buildRenderedIdMap) - the transcript renders far fewer rows than tab.logs.
+		const renderedIdByLogId = useMemo(
+			() => buildRenderedIdMap(filteredLogs, activeLogs),
+			[filteredLogs, activeLogs]
+		);
+		const pendingLogJump = useUIStore((s) => s.pendingLogJump);
+		const pendingJumpMatchIdRef = useRef<string | null>(null);
+		const cancelJumpRef = useRef<(() => void) | null>(null);
+		// Only cancel an in-flight jump when the transcript goes away; clearing the
+		// store entry inside the effect must NOT tear down the flash we just started.
+		useEffect(() => () => cancelJumpRef.current?.(), []);
+
+		useEffect(() => {
+			if (!pendingLogJump) return;
+			if (pendingLogJump.sessionId !== session.id) return;
+			// Wait for the tab switch to land before hunting for the entry.
+			if (!activeTab || pendingLogJump.tabId !== activeTab.id) return;
+
+			const { logId } = pendingLogJump;
+			const renderedId = renderedIdByLogId.get(logId) ?? logId;
+			pendingJumpMatchIdRef.current = renderedId;
+			cancelJumpRef.current?.();
+			cancelJumpRef.current = jumpToElement(
+				() =>
+					Array.from(
+						scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-log-id]') ?? []
+					).find((el) => el.getAttribute('data-log-id') === renderedId),
+				{ color: theme.colors.accent }
+			);
+			// Consume it: the jump is a one-shot request, not persistent state.
+			useUIStore.getState().clearPendingLogJump(logId);
+		}, [pendingLogJump, session.id, activeTab, renderedIdByLogId, theme.colors.accent]);
+
 		const {
 			expandedLogs,
 			toggleExpanded,
@@ -186,6 +231,7 @@ export const TerminalOutput = memo(
 				filteredLogsLength: filteredLogs.length,
 				setOutputSearchOpen,
 				setOutputSearchQuery,
+				pendingJumpMatchIdRef,
 			});
 
 		const {

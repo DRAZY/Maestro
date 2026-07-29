@@ -27,6 +27,7 @@ import type { WizardStep } from '../Wizard/WizardContext';
 import type { GroomingProgress, MergeResult } from '../../types/contextMerge';
 import type { PRDetails } from '../CreatePRModal';
 import type { FlatFileItem } from '../FileSearchModal';
+import type { CrossTabSearchJumpTarget } from '../CrossTabSearchModal';
 import type { RecoveryAction } from '../AgentErrorModal';
 import type { MergeOptions } from '../MergeSessionModal';
 import type { SendToAgentOptions } from '../SendToAgentModal';
@@ -326,6 +327,8 @@ export interface AppModalsProps {
 	onOpenPianola?: () => void;
 	onConfigureCue?: (session: Session) => void;
 	onCloseTabSwitcher: () => void;
+	onCloseCrossTabSearch: () => void;
+	onCrossTabSearchJump: (target: CrossTabSearchJumpTarget) => void;
 	onTabSelect: (tabId: string) => void;
 	onFileTabSelect?: (tabId: string) => void;
 	onTerminalTabSelect?: (tabId: string) => void;
@@ -508,6 +511,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		deleteWorktreeModalOpen,
 		quickActionOpen,
 		tabSwitcherOpen,
+		crossTabSearchOpen,
 		fuzzyFileSearchOpen,
 		promptComposerOpen,
 		queueBrowserOpen,
@@ -583,6 +587,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 			deleteWorktreeModalOpen: s.modals.get('deleteWorktree')?.open ?? false,
 			quickActionOpen: s.modals.get('quickAction')?.open ?? false,
 			tabSwitcherOpen: s.modals.get('tabSwitcher')?.open ?? false,
+			crossTabSearchOpen: s.modals.get('crossTabSearch')?.open ?? false,
 			fuzzyFileSearchOpen: s.modals.get('fuzzyFileSearch')?.open ?? false,
 			promptComposerOpen: s.modals.get('promptComposer')?.open ?? false,
 			queueBrowserOpen: s.modals.get('queueBrowser')?.open ?? false,
@@ -809,6 +814,8 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onOpenPianola,
 		onConfigureCue,
 		onCloseTabSwitcher,
+		onCloseCrossTabSearch,
+		onCrossTabSearchJump,
 		onTabSelect,
 		onFileTabSelect,
 		onTerminalTabSelect,
@@ -1173,6 +1180,9 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onOpenMarketplace={onOpenMarketplace}
 				tabSwitcherOpen={tabSwitcherOpen}
 				onCloseTabSwitcher={onCloseTabSwitcher}
+				crossTabSearchOpen={crossTabSearchOpen}
+				onCloseCrossTabSearch={onCloseCrossTabSearch}
+				onCrossTabSearchJump={onCrossTabSearchJump}
 				onTabSelect={onTabSelect}
 				onFileTabSelect={onFileTabSelect}
 				onTerminalTabSelect={onTerminalTabSelect}

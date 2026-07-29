@@ -326,6 +326,9 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	);
 
 	const activeTabInfo = getActiveTabInfo(activeSession, isAiMode);
+
+	// Cross-tab search needs AI tabs to search; group chats have none.
+	const canSearchAllTabs = !activeGroupChatId && (activeSession?.aiTabs?.length ?? 0) > 0;
 	const activeTabType = activeTabInfo.activeTabType;
 
 	// Dismissal shared by the Escape layer handler and the touch X button in
@@ -709,6 +712,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setOutputSearchOpen: openActiveOutputSearch,
 			setFileTreeFilterOpen: storeSetFileTreeFilterOpen,
 			setHistorySearchFilterOpen: storeSetHistorySearchFilterOpen,
+			openCrossTabSearch: canSearchAllTabs ? () => openModal('crossTabSearch') : undefined,
+			searchAllTabsShortcut: shortcuts.searchAllTabs,
 		}),
 		...buildGroupChatCommands({
 			sessions,
