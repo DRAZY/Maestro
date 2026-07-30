@@ -6,6 +6,8 @@
  */
 
 import { logger } from '../../../utils/logger';
+import { getDispatchCallbackRegistry } from '../../../dispatch-callbacks';
+import { armDispatchCallback } from './dispatchCallbacks';
 import { LOG_CONTEXT } from './shared';
 import type { WebClient, WebClientMessage, MessageHandlerContext } from './types';
 
@@ -102,6 +104,34 @@ export function handleSendCommand(
 	// the caller-supplied authoritative tabId).
 	const resolvedTabId = requestedTabId;
 
+	// Arm a `--notify-on-complete` callback BEFORE handing the prompt to the
+	// renderer: the renderer can spawn the agent process before this handler's
+	// promise resolves, and an entry registered after that spawn would sit
+	// unarmed until it timed out. Cancelled below if the dispatch is rejected.
+	let sendCallbackId: string | undefined;
+	if (typeof message.notifyOnComplete === 'string' && message.notifyOnComplete) {
+		if (!requestedTabId) {
+			ctx.sendError(client, '--notify-on-complete requires an explicit target tab', {
+				sessionId,
+			});
+			return;
+		}
+		const armed = armDispatchCallback(ctx, message, {
+			agentId: sessionId,
+			tabId: requestedTabId,
+			prompt: effectiveCommand,
+			isNewTab: false,
+		});
+		if (armed.error) {
+			ctx.sendError(client, armed.error, { sessionId });
+			return;
+		}
+		sendCallbackId = armed.callbackId;
+	}
+	const cancelArmedCallback = () => {
+		if (sendCallbackId) getDispatchCallbackRegistry()?.cancel(sendCallbackId);
+	};
+
 	// Route ALL commands through the renderer for consistent handling
 	// The renderer handles both AI and terminal modes, updating UI and state
 	// Pass clientInputMode so renderer uses the web's intended mode
@@ -117,11 +147,13 @@ export function handleSendCommand(
 				background
 			)
 			.then((success) => {
+				if (!success) cancelArmedCallback();
 				ctx.send(client, {
 					type: 'command_result',
 					success,
 					sessionId,
 					...(resolvedTabId ? { tabId: resolvedTabId } : {}),
+					...(success && sendCallbackId ? { callbackId: sendCallbackId } : {}),
 					requestId: message.requestId,
 				});
 				if (!success) {
@@ -132,13 +164,17 @@ export function handleSendCommand(
 				}
 			})
 			.catch((error) => {
-				logger.error(
-					`[Web Command] ${mode} command failed for session ${sessionId}: ${error.message}`,
-					LOG_CONTEXT
+				cancelArmedCallback();
+				ctx.reportHandlerError(
+					client,
+					error,
+					'send_command',
+					{ sessionId, mode, requestId: message.requestId },
+					'Failed to execute command'
 				);
-				ctx.sendError(client, `Failed to execute command: ${error.message}`);
 			});
 	} else {
+		cancelArmedCallback();
 		ctx.sendError(client, 'Command execution not configured');
 	}
 }

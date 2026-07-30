@@ -7,6 +7,8 @@
 
 import { logger } from '../../../utils/logger';
 import { captureException } from '../../../utils/sentry';
+import { getDispatchCallbackRegistry } from '../../../dispatch-callbacks';
+import { armDispatchCallback } from './dispatchCallbacks';
 import { LOG_CONTEXT } from './shared';
 import type { WebClient, WebClientMessage, MessageHandlerContext } from './types';
 
@@ -63,13 +65,40 @@ export function handleEnqueueCommand(
 		return;
 	}
 
+	// Same pre-arm rationale as send_command. A queued prompt can sit behind a
+	// predecessor turn for minutes; the entry stays `pending` until OUR
+	// process spawns, so the predecessor's exit cannot fire it.
+	let enqueueCallbackId: string | undefined;
+	if (typeof message.notifyOnComplete === 'string' && message.notifyOnComplete) {
+		if (!requestedTabId) {
+			sendErrorResult('--notify-on-complete requires an explicit target tab');
+			return;
+		}
+		const armed = armDispatchCallback(ctx, message, {
+			agentId: sessionId,
+			tabId: requestedTabId,
+			prompt: command ?? '',
+			isNewTab: false,
+		});
+		if (armed.error) {
+			sendErrorResult(armed.error);
+			return;
+		}
+		enqueueCallbackId = armed.callbackId;
+	}
+	const cancelArmedCallback = () => {
+		if (enqueueCallbackId) getDispatchCallbackRegistry()?.cancel(enqueueCallbackId);
+	};
+
 	ctx.callbacks
 		.enqueueCommand(sessionId, command ?? '', clientInputMode, requestedTabId, images, background)
 		.then((result) => {
+			if (!result.success) cancelArmedCallback();
 			ctx.send(client, {
 				type: 'enqueue_command_result',
 				success: result.success,
 				sessionId,
+				...(result.success && enqueueCallbackId ? { callbackId: enqueueCallbackId } : {}),
 				...(result.tabId ? { tabId: result.tabId } : {}),
 				...(result.queued !== undefined ? { queued: result.queued } : {}),
 				...(result.queuePosition !== undefined ? { queuePosition: result.queuePosition } : {}),
@@ -80,6 +109,7 @@ export function handleEnqueueCommand(
 			});
 		})
 		.catch((error) => {
+			cancelArmedCallback();
 			captureException(error instanceof Error ? error : new Error(String(error)), {
 				extra: { area: 'web-server', handler: 'enqueue_command', sessionId },
 			});

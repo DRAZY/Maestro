@@ -9,6 +9,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { logger } from '../../../utils/logger';
+import { validateCallbackRequest, armDispatchCallback } from './dispatchCallbacks';
 import { LOG_CONTEXT } from './shared';
 import type { WebClient, WebClientMessage, MessageHandlerContext } from './types';
 
@@ -599,14 +600,43 @@ export function handleNewAITabWithPrompt(
 		return;
 	}
 
+	// Reject impossible callback requests BEFORE the tab exists. Arming needs
+	// the fresh tab id, but every tab-independent rejection (no registry,
+	// unknown caller, self-target) would otherwise surface only after the tab
+	// was created and its prompt was already running - leaving the caller a
+	// `success: false` plus a live turn in an orphaned tab.
+	const callbackPrecheck = validateCallbackRequest(ctx, message, { agentId: sessionId });
+	if (callbackPrecheck.error) {
+		sendErrorResult(callbackPrecheck.error);
+		return;
+	}
+
 	ctx.callbacks
 		.newAITabWithPrompt(sessionId, prompt, background)
 		.then((result) => {
+			// Arm the callback only once the fresh tab id is known - that id is
+			// the correlation key. `isNewTab` lets the registry adopt a spawn the
+			// renderer may already have emitted while this ack was in flight.
+			let callbackId: string | undefined;
+			if (result.success && result.tabId) {
+				const armed = armDispatchCallback(ctx, message, {
+					agentId: sessionId,
+					tabId: result.tabId,
+					prompt,
+					isNewTab: true,
+				});
+				if (armed.error) {
+					sendErrorResult(armed.error);
+					return;
+				}
+				callbackId = armed.callbackId;
+			}
 			ctx.send(client, {
 				type: 'new_ai_tab_with_prompt_result',
 				success: result.success,
 				sessionId,
 				...(result.tabId ? { tabId: result.tabId } : {}),
+				...(callbackId ? { callbackId } : {}),
 				requestId: message.requestId,
 			});
 		})
