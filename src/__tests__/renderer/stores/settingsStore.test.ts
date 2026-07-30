@@ -838,6 +838,32 @@ describe('settingsStore', () => {
 			expect(window.maestro.settings.set).toHaveBeenCalledWith('modalSizes', {});
 		});
 
+		it('resetModalSize drops one key and leaves the rest', () => {
+			useSettingsStore.setState({
+				modalSizes: {
+					settings: { width: 812, height: 621 },
+					about: { width: 560, height: 420 },
+				},
+			});
+
+			useSettingsStore.getState().resetModalSize('settings');
+
+			expect(useSettingsStore.getState().modalSizes).toEqual({
+				about: { width: 560, height: 420 },
+			});
+			expect(window.maestro.settings.set).toHaveBeenCalledWith('modalSizes', {
+				about: { width: 560, height: 420 },
+			});
+		});
+
+		it('resetModalSize does not persist for a modal that was never resized', () => {
+			useSettingsStore.setState({ modalSizes: {} });
+
+			useSettingsStore.getState().resetModalSize('never-resized');
+
+			expect(window.maestro.settings.set).not.toHaveBeenCalledWith('modalSizes', expect.anything());
+		});
+
 		it('setWebInterfaceCustomPort persists only valid 1024-65535', () => {
 			// Valid port
 			useSettingsStore.getState().setWebInterfaceCustomPort(3000);

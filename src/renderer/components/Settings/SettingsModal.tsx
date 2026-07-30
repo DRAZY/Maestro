@@ -550,6 +550,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 				<ResizeHandles
 					onResizeStart={resizableModal.onResizeStart}
 					accentColor={theme.colors.accent}
+					onResetSize={resizableModal.onResetSize}
+					canReset={resizableModal.canReset}
 				/>
 
 				{/* Search Bar + Close Button */}

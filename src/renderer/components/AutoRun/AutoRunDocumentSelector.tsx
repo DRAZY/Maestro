@@ -680,6 +680,8 @@ export const AutoRunDocumentSelector = forwardRef<
 						<ResizeHandles
 							onResizeStart={createDocumentModal.onResizeStart}
 							accentColor={theme.colors.accent}
+							onResetSize={createDocumentModal.onResetSize}
+							canReset={createDocumentModal.canReset}
 						/>
 
 						{/* Header */}

@@ -929,6 +929,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 				<ResizeHandles
 					onResizeStart={resizableModal.onResizeStart}
 					accentColor={theme.colors.accent}
+					onResetSize={resizableModal.onResetSize}
+					canReset={resizableModal.canReset}
 				/>
 
 				<QuickActionsSearchBar

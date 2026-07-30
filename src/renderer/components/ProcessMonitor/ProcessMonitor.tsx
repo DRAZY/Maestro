@@ -156,6 +156,8 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 				<ResizeHandles
 					onResizeStart={resizableModal.onResizeStart}
 					accentColor={theme.colors.accent}
+					onResetSize={resizableModal.onResetSize}
+					canReset={resizableModal.canReset}
 				/>
 
 				{detailView ? (

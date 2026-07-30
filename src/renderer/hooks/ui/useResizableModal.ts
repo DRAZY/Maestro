@@ -25,6 +25,10 @@ export interface UseResizableModalReturn {
 	size: ModalSize;
 	isResizing: boolean;
 	onResizeStart: (direction: ModalResizeDirection, event: ReactMouseEvent) => void;
+	/** Forget this modal's remembered size and snap back to its declared default. */
+	onResetSize: () => void;
+	/** True when a size is actually remembered, so a reset would change something. */
+	canReset: boolean;
 	style: CSSProperties;
 }
 
@@ -63,6 +67,7 @@ export function useResizableModal({
 	const modalRef = externalRef ?? internalRef;
 	const savedSize = useSettingsStore((state) => state.modalSizes[resizeKey]);
 	const setModalSize = useSettingsStore((state) => state.setModalSize);
+	const resetModalSize = useSettingsStore((state) => state.resetModalSize);
 	const [size, setSize] = useState<ModalSize>(() =>
 		resolveModalSize({ savedSize, defaultSize, minSize, maxSize, viewportPadding })
 	);
@@ -216,11 +221,23 @@ export function useResizableModal({
 		[applySize, cancelPersistResizedSize, clamp, enabled, resizeKey, setModalSize, size]
 	);
 
+	// Clearing the saved size re-runs the resolve effect above, which recomputes
+	// from defaultSize and rewrites the inline width/height - so this only has to
+	// drop the stored entry. The debounced viewport write is cancelled first, or a
+	// size it captured pre-reset could land afterwards and undo the reset.
+	const onResetSize = useCallback(() => {
+		if (!enabled) return;
+		cancelPersistResizedSize();
+		resetModalSize(resizeKey);
+	}, [cancelPersistResizedSize, enabled, resetModalSize, resizeKey]);
+
 	return {
 		modalRef,
 		size,
 		isResizing,
 		onResizeStart,
+		onResetSize,
+		canReset: enabled && savedSize !== undefined,
 		style: {
 			width: `${size.width}px`,
 			height: `${size.height}px`,

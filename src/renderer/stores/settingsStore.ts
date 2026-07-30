@@ -516,6 +516,8 @@ export interface SettingsStoreActions {
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
 	setModalSize: (key: ModalResizeKey, value: ModalSize) => void;
+	/** Forget ONE modal's remembered size, so it reopens at its declared default. */
+	resetModalSize: (key: ModalResizeKey) => void;
 	resetModalSizes: () => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
@@ -1098,6 +1100,18 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 				...get().modalSizes,
 				[key]: normalized,
 			};
+			set({ modalSizes: next });
+			window.maestro.settings.set('modalSizes', next);
+		},
+
+		// Single-key counterpart to resetModalSizes, backing the double-click-to-reset
+		// gesture on a modal's resize handles. Bails without a settings write when the
+		// modal was never resized, so an idle double-click costs nothing.
+		resetModalSize: (key) => {
+			const current = get().modalSizes;
+			if (current[key] === undefined) return;
+			const next = { ...current };
+			delete next[key];
 			set({ modalSizes: next });
 			window.maestro.settings.set('modalSizes', next);
 		},
@@ -3243,6 +3257,7 @@ export function getSettingsActions() {
 		setLeftSidebarWidth: state.setLeftSidebarWidth,
 		setRightPanelWidth: state.setRightPanelWidth,
 		setModalSize: state.setModalSize,
+		resetModalSize: state.resetModalSize,
 		resetModalSizes: state.resetModalSizes,
 		setMarkdownEditMode: state.setMarkdownEditMode,
 		setChatRawTextMode: state.setChatRawTextMode,
