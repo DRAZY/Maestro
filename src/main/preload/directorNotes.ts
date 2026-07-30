@@ -106,10 +106,12 @@ export interface SynopsisResult {
 	generatedAt?: number; // Unix ms timestamp of when the synopsis was generated
 	stats?: SynopsisStats;
 	error?: string;
-	/** Parsed structured narrative for Rich Mode (present only on clean parse). */
+	/** Parsed structured narrative, from a clean parse or a salvage. */
 	narrative?: DirectorNotesNarrative;
 	/** Set when the raw synopsis could not be parsed into a structured narrative. */
 	narrativeError?: string;
+	/** Set when `narrative` was salvaged; explains what had to be recovered. */
+	narrativeRecovery?: string;
 }
 
 /**

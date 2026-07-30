@@ -67,6 +67,8 @@ interface RichOverviewProps {
 	narrative?: DirectorNotesNarrative | null;
 	/** Set when the structured output failed to parse; renders the overt error banner. */
 	narrativeError?: string | null;
+	/** Set when `narrative` was salvaged from unparseable output; renders the banner alongside it. */
+	narrativeRecovery?: string | null;
 	/** Lookback window in days; drives the IPC query. */
 	lookbackDays: number;
 	/** Forwarded to the narrative MarkdownRenderer (matches Plain-mode behavior). */
@@ -81,6 +83,7 @@ export function RichOverview({
 	synopsis,
 	narrative,
 	narrativeError,
+	narrativeRecovery,
 	lookbackDays,
 	enableBionifyReadingMode = false,
 	chatMath = false,
@@ -244,9 +247,20 @@ export function RichOverview({
 			{/* AI narrative slot. Priority: structured narrative -> overt parse
 			    failure -> legacy markdown fallback (e.g. a cached result that only
 			    has markdown). A parse failure surfaces loudly here while the
-			    deterministic widgets above keep rendering normally. */}
+			    deterministic widgets above keep rendering normally. A salvaged
+			    narrative renders with the banner above it, never silently. */}
 			{narrative ? (
-				<NarrativeSections theme={theme} narrative={narrative} />
+				<>
+					{narrativeError && (
+						<NarrativeParseError
+							theme={theme}
+							error={narrativeError}
+							rawOutput={synopsis}
+							recovery={narrativeRecovery}
+						/>
+					)}
+					<NarrativeSections theme={theme} narrative={narrative} />
+				</>
 			) : narrativeError ? (
 				<NarrativeParseError theme={theme} error={narrativeError} rawOutput={synopsis} />
 			) : (

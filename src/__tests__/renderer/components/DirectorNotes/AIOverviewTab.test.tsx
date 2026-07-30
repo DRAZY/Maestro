@@ -803,4 +803,114 @@ describe('AIOverviewTab', () => {
 			expect(content).not.toContain('"version"');
 		});
 	});
+
+	// When the structured output cannot be parsed at all, Plain Mode used to feed
+	// the raw string straight to the markdown renderer - which meant a wall of raw
+	// JSON where the report should be. It must fail as loudly as Rich Mode does.
+	describe('Plain Mode with an unparseable narrative', () => {
+		const rawJson = '{"version":1,"sections":[{"kind":"accomplishments","title":"Accomp';
+
+		beforeEach(() => {
+			mockGenerateSynopsis.mockResolvedValue({
+				success: true,
+				synopsis: rawJson,
+				narrativeError: 'No JSON object found in the response.',
+				stats: { agentCount: 2, entryCount: 9, durationMs: 5000 },
+			});
+		});
+
+		it('shows the parse-failure banner instead of dumping the raw output', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				/could not parse the AI's structured output/i
+			);
+			expect(screen.getByText('No JSON object found in the response.')).toBeInTheDocument();
+			// The raw output is reachable behind the disclosure, never rendered as
+			// if it were the report.
+			expect(screen.queryByTestId('markdown-renderer')).not.toBeInTheDocument();
+		});
+
+		it('keeps the raw output reachable behind the disclosure', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+			fireEvent.click(screen.getByText('View raw output'));
+
+			expect(screen.getByText(rawJson)).toBeInTheDocument();
+		});
+	});
+
+	// A salvaged narrative is still shown - a run costs minutes - but never
+	// silently: the banner says what had to be recovered.
+	describe('Plain Mode with a salvaged narrative', () => {
+		beforeEach(() => {
+			mockGenerateSynopsis.mockResolvedValue({
+				success: true,
+				synopsis:
+					'{"version":1,"sections":[{"kind":"challenges","title":"Challenges","items":[{"tex',
+				narrative: {
+					version: 1 as const,
+					sections: [
+						{
+							kind: 'accomplishments' as const,
+							title: 'Accomplishments',
+							items: [{ text: 'Recovered bullet', severity: 'info' as const }],
+						},
+					],
+				},
+				narrativeError: 'No JSON object found in the response.',
+				narrativeRecovery:
+					'Recovered what could be read: the response was cut off before it finished.',
+				stats: { agentCount: 2, entryCount: 9, durationMs: 5000 },
+			});
+		});
+
+		it('renders the recovered prose alongside the partial-recovery banner', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+
+			expect(screen.getByRole('alert')).toHaveTextContent(/cut off before it finished/i);
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				/Part of the AI's structured output could not be parsed/i
+			);
+
+			const md = screen.getByTestId('markdown-renderer');
+			expect(md.textContent).toContain('## Accomplishments');
+			expect(md.textContent).toContain('- Recovered bullet');
+			expect(md.textContent).not.toContain('"version"');
+		});
+
+		it('Copy exports the recovered prose rather than the unparseable raw output', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByText('Copy'));
+
+			await waitFor(() => {
+				expect(mockWriteText).toHaveBeenCalled();
+			});
+			const copied = mockWriteText.mock.calls[0][0] as string;
+			expect(copied).toContain('- Recovered bullet');
+			expect(copied).not.toContain('"version"');
+		});
+	});
 });

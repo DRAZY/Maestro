@@ -3853,10 +3853,12 @@ interface MaestroAPI {
 				durationMs: number;
 			};
 			error?: string;
-			/** Parsed structured narrative for Rich Mode (present only on clean parse). */
+			/** Parsed structured narrative, from a clean parse or a salvage. */
 			narrative?: import('../shared/directorNotesNarrative').DirectorNotesNarrative;
 			/** Set when the raw synopsis could not be parsed into a structured narrative. */
 			narrativeError?: string;
+			/** Set when `narrative` was salvaged; explains what had to be recovered. */
+			narrativeRecovery?: string;
 		}>;
 		/** Subscribe to synopsis generation progress updates. Returns cleanup function. */
 		onSynopsisProgress: (

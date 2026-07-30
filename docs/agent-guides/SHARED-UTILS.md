@@ -265,6 +265,20 @@ UI: use `<AdditionalDirectoriesSection>` (`src/renderer/components/shared/`) - d
 
 ---
 
+## Director's Notes Narrative (`src/shared/directorNotesNarrative.ts` - Both)
+
+The Director's Notes synopsis agent emits a structured JSON narrative. This module is the ONLY place that turns that raw string into a `DirectorNotesNarrative` or back into prose. Do not hand-roll JSON extraction, repair, or markdown conversion at a call site.
+
+| Function / Constant                  | Signature                            | Purpose                                                                                                                                                                         |
+| ------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parseDirectorNotesNarrative(raw)`   | `(string) => ParseNarrativeResult`   | Strict parse. Tolerates a code fence or stray prose around the object; rejects any structural deviation with a precise error. Never throws.                                     |
+| `recoverDirectorNotesNarrative(raw)` | `(string) => RecoverNarrativeResult` | Best-effort salvage, called ONLY after a strict failure: repairs a cut-off response and raw control characters, drops malformed items, and returns a `reason` the UI must show. |
+| `narrativeToMarkdown(narrative)`     | `(DirectorNotesNarrative) => string` | Render the narrative as markdown prose (`##` section headings + bullets). Used by Plain Mode, Copy, Save, and the CLI's markdown/text output.                                   |
+
+Rendering rule: no surface may display the raw structured output as if it were the report. Show the narrative (or the salvaged one plus `NarrativeParseError`'s recovery banner); on total failure show the banner with the raw text behind its disclosure.
+
+---
+
 ## History Utilities (`src/shared/history.ts` - Both)
 
 | Function / Constant                  | Signature                                            | Purpose                                                      |
