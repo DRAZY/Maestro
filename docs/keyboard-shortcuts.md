@@ -40,7 +40,8 @@ Tips and gotchas:
 | New Agent Wizard            | `Cmd+Shift+N`         | `Ctrl+Shift+N`         |
 | New Group Chat              | `Opt+Cmd+C`           | `Alt+Ctrl+C`           |
 | Remove Agent                | `Cmd+Shift+Backspace` | `Ctrl+Shift+Backspace` |
-| Move Agent to Group         | `Cmd+Shift+M`         | `Ctrl+Shift+M`         |
+| Move Agent to Group         | `Opt+Cmd+M`           | `Alt+Ctrl+M`           |
+| Open Memory Viewer          | `Cmd+Shift+M`         | `Ctrl+Shift+M`         |
 | Previous Agent              | `Cmd+[`               | `Ctrl+[`               |
 | Next Agent                  | `Cmd+]`               | `Ctrl+]`               |
 | Navigate Back               | `Cmd+Shift+,`         | `Ctrl+Shift+,`         |
@@ -290,11 +291,11 @@ Most shortcuts can be remapped to fit your workflow:
 
 When a default binding has to move to free a combo for a new action, Maestro migrates it for you on the next launch - but only if you were still on the old default. If you had personally rebound that action, your binding is left untouched and you may need to move it yourself.
 
-| Action           | Was           | Now           | Freed for                       |
-| ---------------- | ------------- | ------------- | ------------------------------- |
-| Focus Active Tab | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages Across All Tabs |
-| Move to Group    | `Cmd+Shift+M` | `Opt+Cmd+M`   | Memory Viewer                   |
-| Expand Auto Run  | `Cmd+Shift+2` | `Cmd+Shift+E` | Batch Runner                    |
+| Action                    | Was           | Now           | Freed for                       |
+| ------------------------- | ------------- | ------------- | ------------------------------- |
+| Focus Active Tab          | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages Across All Tabs |
+| Move Session to Group     | `Cmd+Shift+M` | `Opt+Cmd+M`   | Open Memory Viewer              |
+| Auto Run Expanded Preview | `Cmd+Shift+2` | `Cmd+Shift+E` | Run Auto Run                    |
 
 If `Opt+Cmd+F` still focuses the active tab instead of opening cross-tab search, you had a custom binding on it: open **Settings** → **Shortcuts**, clear it from **Focus Active Tab**, and the new default takes over.
 
