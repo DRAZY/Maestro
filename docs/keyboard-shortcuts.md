@@ -150,6 +150,7 @@ The bulk close operations (Close All, Close Others, Close Left, Close Right) are
 | Focus Output             | `Esc` while in input                              |
 | Focus Input              | `Esc` while in output                             |
 | Open Output Search       | `Cmd+F` while in output                           |
+| Search All Open Tabs     | `Opt+Cmd+F` / `Alt+Ctrl+F`                        |
 | Scroll Output            | `Up/Down Arrow` while in output                   |
 | Prev/Next Message        | `Shift+Up/Down Arrow` while in output             |
 | Page Up/Down             | `Alt+Up/Down Arrow` while in output               |
@@ -223,6 +224,25 @@ In AI mode, use `@` to reference files in your prompts:
 | Open File Preview               | `Enter` on selected file           | `Enter` on selected file           |
 | Close Preview/Filter/Modal      | `Esc`                              | `Esc`                              |
 
+### Searching Message History
+
+Two searches cover your conversations, both reachable from the magnifying-glass
+menu in the tab bar and both supporting plain text or regex:
+
+| Search           | Shortcut                   | Scope                               |
+| ---------------- | -------------------------- | ----------------------------------- |
+| Find bar         | `Cmd+F` / `Ctrl+F`         | The tab you're currently viewing    |
+| Cross-tab search | `Opt+Cmd+F` / `Alt+Ctrl+F` | Every open tab in the current agent |
+
+The Find bar highlights matches inline; `Enter` and `Shift+Enter` step through
+them. Cross-tab search opens a modal listing hits grouped by tab. Choosing one
+switches to that tab, scrolls to the message, flashes it, and seeds that tab's
+Find bar with the same query positioned on the match you picked. It is also in
+the command palette as "Search: Message History (All Open Tabs)".
+
+See [Searching Message History](./general-usage#searching-message-history) for
+the full walkthrough.
+
 ## File Preview
 
 | Action                              | macOS           | Windows/Linux   |
@@ -265,6 +285,18 @@ Most shortcuts can be remapped to fit your workflow:
 - Conflicting shortcuts will override the previous binding
 
 **Resetting shortcuts:** There's currently no "reset to default" button - if you need to restore defaults, you can find the original bindings in this documentation or delete the shortcuts from your settings file.
+
+### Changed Default Bindings
+
+When a default binding has to move to free a combo for a new action, Maestro migrates it for you on the next launch - but only if you were still on the old default. If you had personally rebound that action, your binding is left untouched and you may need to move it yourself.
+
+| Action           | Was           | Now           | Freed for                       |
+| ---------------- | ------------- | ------------- | ------------------------------- |
+| Focus Active Tab | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages Across All Tabs |
+| Move to Group    | `Cmd+Shift+M` | `Opt+Cmd+M`   | Memory Viewer                   |
+| Expand Auto Run  | `Cmd+Shift+2` | `Cmd+Shift+E` | Batch Runner                    |
+
+If `Opt+Cmd+F` still focuses the active tab instead of opening cross-tab search, you had a custom binding on it: open **Settings** → **Shortcuts**, clear it from **Focus Active Tab**, and the new default takes over.
 
 ## Keyboard Mastery
 
