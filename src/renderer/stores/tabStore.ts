@@ -31,7 +31,6 @@ import {
 	createTab as createTabHelper,
 	closeTab as closeTabHelper,
 	closeFileTab as closeFileTabHelper,
-	reopenUnifiedClosedTab as reopenUnifiedClosedTabHelper,
 	setActiveTab as setActiveTabHelper,
 	navigateToNextUnifiedTab as navigateToNextHelper,
 	navigateToPrevUnifiedTab as navigateToPrevHelper,
@@ -61,6 +60,7 @@ import { useSessionStore, selectActiveSession, updateSessionWith } from './sessi
 import {
 	renameGroup as renameGroupHelper,
 	setGroupEmoji as setGroupEmojiHelper,
+	reopenClosedTabWithTiling as reopenUnifiedClosedTabHelper,
 } from '../utils/panelLayout';
 import { logger } from '../utils/logger';
 

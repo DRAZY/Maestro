@@ -1812,6 +1812,13 @@ export function reopenClosedAiTabById(
  *   }
  * }
  */
+/**
+ * Reopen the most recently closed tab into the standalone tab strip.
+ *
+ * Tiling-aware callers should use `reopenClosedTabWithTiling` in panelLayout.ts,
+ * which layers the tile restore on top of this (the dependency only works that
+ * way round - panelLayout imports from this module, never the reverse).
+ */
 export function reopenUnifiedClosedTab(session: Session): ReopenUnifiedClosedTabResult | null {
 	// Check if there's anything in the unified history
 	if (!session.unifiedClosedTabHistory || session.unifiedClosedTabHistory.length === 0) {

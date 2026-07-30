@@ -810,15 +810,49 @@ export interface TabGroup {
 }
 
 /**
+ * Where a closed tab sat inside a tiled group, captured at close time so
+ * Cmd+Shift+T can put the pane back in its tile instead of appending a
+ * standalone chip to the end of the strip.
+ *
+ * The pane is described relative to an ANCHOR (its nearest sibling leaf's tab
+ * ref) rather than by leaf id or index: leaf ids are regenerated whenever the
+ * tree is rebuilt, and a bare index goes stale as soon as another pane moves.
+ * An anchor survives both, and is what the restore re-splits against.
+ *
+ * `groupName`/`groupEmoji` are kept so a group that AUTO-DISSOLVED on the way
+ * down to one pane can be recreated with its original identity intact.
+ */
+export interface ClosedTabTilePlacement {
+	/** Group the pane belonged to at close time (reused when recreating it). */
+	groupId: string;
+	groupName: string;
+	groupEmoji?: string;
+	/** Nearest sibling leaf's tab ref - the pane the restore splits against. */
+	anchorRef: UnifiedTabRef;
+	/** Direction of the split that held the closed pane and its anchor. */
+	direction: 'row' | 'column';
+	/** True when the closed pane sat before (left of / above) the anchor. */
+	before: boolean;
+}
+
+/**
  * Unified closed tab entry for undo functionality (Cmd+Shift+T).
  * Can hold an AITab, FilePreviewTab, or TerminalTab with type discrimination.
- * Uses unifiedIndex for restoring position in the unified tab order.
+ * Uses unifiedIndex for restoring position in the unified tab order, or
+ * `tilePlacement` when the tab was a pane in a tiled group.
  */
+type ClosedTabEntryBase = {
+	unifiedIndex: number;
+	closedAt: number;
+	/** Set only when the tab was tiled at close time; undefined for standalone tabs. */
+	tilePlacement?: ClosedTabTilePlacement;
+};
+
 export type ClosedTabEntry =
-	| { type: 'ai'; tab: AITab; unifiedIndex: number; closedAt: number }
-	| { type: 'file'; tab: FilePreviewTab; unifiedIndex: number; closedAt: number }
-	| { type: 'terminal'; tab: TerminalTab; unifiedIndex: number; closedAt: number }
-	| { type: 'browser'; tab: BrowserTab; unifiedIndex: number; closedAt: number };
+	| ({ type: 'ai'; tab: AITab } & ClosedTabEntryBase)
+	| ({ type: 'file'; tab: FilePreviewTab } & ClosedTabEntryBase)
+	| ({ type: 'terminal'; tab: TerminalTab } & ClosedTabEntryBase)
+	| ({ type: 'browser'; tab: BrowserTab } & ClosedTabEntryBase);
 
 export interface Session {
 	id: string;

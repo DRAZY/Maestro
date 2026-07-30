@@ -186,10 +186,12 @@ import { getActiveOutputSearchKey } from './utils/outputSearch';
 import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
 // safeClipboardWrite moved to AppStandaloneModals (GistPublishModal handler)
+// Tiling-aware Cmd+Shift+T: restores a pane back into its tiled group when the
+// closed tab was tiled, else falls back to the plain standalone-strip restore.
+import { reopenClosedTabWithTiling as reopenUnifiedClosedTab } from './utils/panelLayout';
 import {
 	createTab,
 	closeTab,
-	reopenUnifiedClosedTab,
 	getActiveTab,
 	navigateToNextTab,
 	navigateToPrevTab,
