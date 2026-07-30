@@ -36,6 +36,11 @@ import { QuickActionsSearchBar } from './components/QuickActionsSearchBar';
 import { ResizeHandles } from '../ui/ResizeHandles';
 import { buildAgentPanelCommands } from './commands/agentPanelCommands';
 import { buildAgentSwitcherCommands } from './commands/agentSwitcherCommands';
+import { buildMediaPlayerCommands } from './commands/mediaPlayerCommands';
+import {
+	selectCanRestoreFloatingPlayer,
+	useMediaPlaybackStore,
+} from '../../stores/mediaPlaybackStore';
 import { buildActiveTabContextCommands } from './commands/contextCommands';
 import { buildDebugCommands } from './commands/debugCommands';
 import { buildFeatureCommands } from './commands/featureCommands';
@@ -217,6 +222,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const setGroupChatsExpanded = useSettingsStore((s) => s.setGroupChatsExpanded);
 	const isLeaderboardRegistered = useSettingsStore(selectIsLeaderboardRegistered);
 	const activeBatchSessionIds = useBatchStore(useShallow(selectActiveBatchSessionIds));
+	const canRestoreFloatingPlayer = useMediaPlaybackStore(selectCanRestoreFloatingPlayer);
+	const restoreFloatingPlayer = useMediaPlaybackStore((s) => s.restore);
 
 	const [search, setSearch] = useState('');
 	const [mode, setMode] = useState<'main' | 'move-to-group' | 'agents'>(initialMode);
@@ -433,6 +440,11 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const mainActions: QuickAction[] = [
 		...sessionActions,
 		...groupChatActions,
+		...buildMediaPlayerCommands({
+			canRestoreFloatingPlayer,
+			restoreFloatingPlayer,
+			setQuickActionOpen,
+		}),
 		...buildNavigationCommands({
 			activeSession,
 			activeSessionId,

@@ -43,6 +43,7 @@ import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { normalizePlaybackRate } from '../../shared/mediaTypes';
+import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
 import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
@@ -2774,6 +2775,20 @@ export async function loadAllSettings(): Promise<void> {
 				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
 			});
 
+		// Floating media player geometry lives in mediaPlaybackStore so the
+		// drag/resize handlers can read and write it without a settings
+		// round-trip. (Per-modal `modalSizes` is NOT hydrated here: rc keeps it in
+		// settingsStore behind sanitizeModalSizes, hydrated above with the other
+		// settings-owned keys.)
+		if (
+			allSettings['mediaPlayerFloatRect'] !== undefined &&
+			allSettings['mediaPlayerFloatRect'] !== null &&
+			typeof allSettings['mediaPlayerFloatRect'] === 'object'
+		)
+			useMediaPlaybackStore.setState({
+				floatRect: allSettings['mediaPlayerFloatRect'] as MediaFloatRect,
+			});
+
 		if (allSettings['tourCompleted'] !== undefined)
 			patch.tourCompleted = allSettings['tourCompleted'] as boolean;
 
@@ -3214,10 +3229,60 @@ export async function loadAllSettings(): Promise<void> {
 		// Apply the entire patch in one setState call
 		patch.settingsLoaded = true;
 		useSettingsStore.setState(patch);
+
+		// Deliberately not awaited: it reads the Cue database over IPC and only
+		// refines a display subtotal, so it must not hold up settings load.
+		void backfillCueTimeIfNeeded(allSettings['cueTimeBackfillApplied'] === true);
 	} catch (error) {
 		logger.error('[Settings] Failed to load settings:', undefined, error);
 		// Mark settings as loaded even if there was an error (use defaults)
 		useSettingsStore.setState({ settingsLoaded: true });
+	}
+}
+
+/**
+ * One-time backfill of `autoRunStats.cueTimeMs`.
+ *
+ * Cue and Auto Run time were credited through one identical code path before
+ * the split existed, so the Cue share of the already-accrued `cumulativeTimeMs`
+ * cannot be recovered from settings alone. The Cue database still holds per-run
+ * durations for its retention window, so this reconstructs the Cue share from
+ * there using the engine's own crediting rule.
+ *
+ * This only re-attributes time already inside `cumulativeTimeMs` - it never adds
+ * to the total, and is clamped so the subtotal can't exceed it. History older
+ * than the Cue retention window is unrecoverable and stays attributed to Auto
+ * Run, so the result is a floor, not an exact split.
+ */
+async function backfillCueTimeIfNeeded(alreadyApplied: boolean): Promise<void> {
+	if (alreadyApplied) return;
+	try {
+		const historicalCreditMs = await window.maestro.cueStats.getHistoricalConductorCredit();
+		// Mark applied regardless of the amount: a user with no retained Cue
+		// history should not re-query the database on every launch.
+		window.maestro.settings.set('cueTimeBackfillApplied', true);
+		if (!Number.isFinite(historicalCreditMs) || historicalCreditMs <= 0) return;
+
+		const prev = useSettingsStore.getState().autoRunStats;
+		// Take the larger of the two: live Cue credit may already have accrued
+		// between app launch and this call, and that time is also represented in
+		// the historical total once its run completed.
+		const cueTimeMs = Math.min(
+			Math.max(prev.cueTimeMs ?? 0, historicalCreditMs),
+			prev.cumulativeTimeMs
+		);
+		if (cueTimeMs === (prev.cueTimeMs ?? 0)) return;
+
+		const updated: AutoRunStats = { ...prev, cueTimeMs };
+		useSettingsStore.setState({ autoRunStats: updated });
+		window.maestro.settings.set('autoRunStats', updated);
+		logger.info(
+			`[Settings] Backfilled Cue Conductor time from cue.db: ${Math.round(cueTimeMs / 60000)} minutes`
+		);
+	} catch (error) {
+		// A missing/failed Cue database just means no historical split is
+		// available. Leave the flag unset so a later launch can retry.
+		logger.warn('[Settings] Cue time backfill skipped', undefined, error);
 	}
 }
 

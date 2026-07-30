@@ -117,7 +117,12 @@ export function AboutModal({
 			title="About Maestro"
 			priority={MODAL_PRIORITIES.ABOUT}
 			onClose={handleEscape}
-			width={560}
+			// Sized to fit the whole card without scrolling at the default font
+			// scale: 640px keeps the four stat tiles and the two-column statistics
+			// grid on one line each, and 95vh gives the content every pixel the
+			// viewport allows before the scrollbar has to appear.
+			width={640}
+			maxHeight="95vh"
 			customHeader={customHeader}
 			showHeader={true}
 			resizeKey="about"

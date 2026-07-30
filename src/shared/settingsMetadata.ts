@@ -116,6 +116,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: [],
 		category: 'appearance',
 	},
+	mediaPlayerFloatRect: {
+		description:
+			'Position and size of the floating media player, remembered across restarts. Null until the user moves or resizes it.',
+		type: 'object',
+		default: null,
+		category: 'appearance',
+	},
 	mediaPlaybackRate: {
 		description:
 			'Playback speed for audio and video files opened in the file preview. Persists across files and restarts. Range 0.25 to 4.',

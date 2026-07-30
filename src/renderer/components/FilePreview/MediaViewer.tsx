@@ -7,6 +7,8 @@ import {
 	Repeat,
 	RotateCcw,
 	RotateCw,
+	SkipBack,
+	SkipForward,
 	Volume2,
 	VolumeX,
 	ExternalLink,
@@ -16,19 +18,42 @@ import {
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { Spinner } from '../ui/Spinner';
 import { formatElapsedTimeColon } from '../../../shared/formatters';
-import { MEDIA_PLAYBACK_RATES, type MediaKind } from '../../../shared/mediaTypes';
+import { MEDIA_PLAYBACK_RATES, isMediaStreamUrl, type MediaKind } from '../../../shared/mediaTypes';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useEventListener } from '../../hooks/utils/useEventListener';
 
 interface MediaViewerProps {
-	/** `maestro-media://` stream URL produced by the main process. */
-	src: string;
 	/** Whether to mount an <audio> or a <video> element. */
 	kind: MediaKind;
 	/** File name, used for the audio placeholder label. */
 	name: string;
-	/** Absolute path, used by the "open externally" fallback. */
+	/** Absolute path. Re-resolved into a fresh stream URL, and the "open externally" target. */
 	path: string;
+	/** Start playing as soon as the file is ready. Set for tabs the user just opened. */
+	autoplay?: boolean;
+	/**
+	 * Seconds to resume from, remembered when the widget last navigated away from
+	 * this file. Applied once, on load.
+	 */
+	resumeTime?: number;
+	/**
+	 * Drop the big stage so the whole player fits a small floating frame: audio
+	 * loses its icon block and video keeps only the picture.
+	 */
+	compact?: boolean;
+	/** Report position so the store can resume this file if the user comes back. */
+	onTimeUpdate?: (seconds: number) => void;
+	/** Mirror play/pause outward, for the floating widget's own state. */
+	onPlayingChange?: (playing: boolean) => void;
+	/** Widget navigation. Rendered inside the transport when provided. */
+	onPrev?: () => void;
+	onNext?: () => void;
+	/**
+	 * Nonce from the playback store. Every increment toggles play/pause, which is
+	 * how the floating frame's minimized pill drives the element without holding
+	 * a ref across the component boundary.
+	 */
+	toggleRequest?: number;
 	theme: any;
 }
 
@@ -52,12 +77,22 @@ const formatTime = (seconds: number): string =>
  *
  * Playback speed is read from and written back to the global settings store,
  * so the rate the user picks sticks across files and across restarts.
+ *
+ * This is mounted by MediaPlaybackHost, not by FilePreview - see that file for
+ * why the element has to outlive the tab's render tree.
  */
 export const MediaViewer = memo(function MediaViewer({
-	src,
 	kind,
 	name,
 	path,
+	autoplay = false,
+	resumeTime = 0,
+	compact = false,
+	onTimeUpdate,
+	onPlayingChange,
+	onPrev,
+	onNext,
+	toggleRequest = 0,
 	theme,
 }: MediaViewerProps) {
 	const mediaRef = useRef<HTMLMediaElement | null>(null);
@@ -67,6 +102,7 @@ export const MediaViewer = memo(function MediaViewer({
 	const playbackRate = useSettingsStore((s) => s.mediaPlaybackRate);
 	const setPlaybackRate = useSettingsStore((s) => s.setMediaPlaybackRate);
 
+	const [src, setSrc] = useState<string | null>(null);
 	const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
 	const [playing, setPlaying] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
@@ -77,14 +113,69 @@ export const MediaViewer = memo(function MediaViewer({
 	const [rateMenuOpen, setRateMenuOpen] = useState(false);
 
 	const isVideo = kind === 'video';
+	// Armed per resolved file, consumed once it becomes playable. Keeping this in
+	// a ref (rather than reading the prop at play time) is what stops a return
+	// visit to the tab from restarting something the user deliberately paused.
+	const autoplayPendingRef = useRef(false);
+	// Read inside the path effect without making the effect depend on it: the
+	// request is only ever relevant at the moment a new file starts loading.
+	const autoplayRequestedRef = useRef(autoplay);
+	autoplayRequestedRef.current = autoplay;
+	// Same for the resume position: latched when a file starts loading, consumed
+	// on 'loadedmetadata', and never re-applied (so a manual seek back to 0 sticks).
+	const resumeRef = useRef(resumeTime);
+	const resumeRequestedRef = useRef(resumeTime);
+	resumeRequestedRef.current = resumeTime;
 
-	// Reset transport state when the tab switches to a different file.
+	// Resolve a fresh stream URL rather than trusting the tab's stored content.
+	// Stream URLs carry a per-boot capability token, and file preview tabs are
+	// persisted verbatim - so a media tab restored from disk holds a URL the
+	// protocol handler will (correctly) reject. Re-reading the path mints a URL
+	// valid for this boot, which makes restored media tabs just work.
 	useEffect(() => {
+		let cancelled = false;
+		setSrc(null);
 		setLoadState('loading');
 		setPlaying(false);
 		setCurrentTime(0);
 		setDuration(0);
-	}, [src]);
+		// Re-arm per file, so repurposing this tab onto a new media file plays it.
+		autoplayPendingRef.current = autoplayRequestedRef.current;
+		resumeRef.current = resumeRequestedRef.current;
+
+		void (async () => {
+			try {
+				const resolved = await window.maestro.fs.readFile(path);
+				if (cancelled) return;
+				if (!isMediaStreamUrl(resolved)) {
+					// Deleted, moved, or no longer servable as media.
+					setLoadState('error');
+					return;
+				}
+				setSrc(resolved);
+			} catch {
+				if (!cancelled) setLoadState('error');
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [path]);
+
+	// Mirror playback outward so the floating widget and the palette can tell
+	// whether anything is audible.
+	useEffect(() => {
+		onPlayingChange?.(playing);
+	}, [playing, onPlayingChange]);
+
+	// Report position continuously rather than only on unmount: React gives no
+	// "about to unmount with fresh DOM state" hook, and the element is gone by
+	// cleanup time on a fast switch.
+	useEffect(() => {
+		if (!onTimeUpdate || currentTime <= 0) return;
+		onTimeUpdate(currentTime);
+	}, [currentTime, onTimeUpdate]);
 
 	// Apply the persisted rate to the element on mount and on every change. The
 	// element resets playbackRate to 1 whenever a new source loads, so this also
@@ -104,6 +195,20 @@ export const MediaViewer = memo(function MediaViewer({
 		setDuration(Number.isFinite(el.duration) ? el.duration : 0);
 		el.playbackRate = playbackRate;
 		setLoadState('ready');
+		// Pick up where the widget left this file. Guarded against a stale position
+		// past the end (file replaced on disk since), which would strand playback.
+		if (resumeRef.current > 0 && Number.isFinite(el.duration) && resumeRef.current < el.duration) {
+			el.currentTime = resumeRef.current;
+			setCurrentTime(resumeRef.current);
+		}
+		resumeRef.current = 0;
+		if (autoplayPendingRef.current) {
+			autoplayPendingRef.current = false;
+			// Local files with no gesture requirement: Electron's default autoplay
+			// policy allows this. A rejection (policy change, torn-down element)
+			// just leaves the file paused, which the transport already shows.
+			void el.play().catch(() => undefined);
+		}
 	}, [playbackRate]);
 
 	const handleTimeUpdate = useCallback(() => {
@@ -122,6 +227,15 @@ export const MediaViewer = memo(function MediaViewer({
 			el.pause();
 		}
 	}, []);
+
+	// Honor toggle requests from the floating frame. The initial value is skipped
+	// so mounting never counts as a request.
+	const lastToggleRef = useRef(toggleRequest);
+	useEffect(() => {
+		if (toggleRequest === lastToggleRef.current) return;
+		lastToggleRef.current = toggleRequest;
+		togglePlay();
+	}, [toggleRequest, togglePlay]);
 
 	const seekBy = useCallback((delta: number) => {
 		const el = mediaRef.current;
@@ -263,7 +377,9 @@ export const MediaViewer = memo(function MediaViewer({
 
 	const mediaProps = useMemo(
 		() => ({
-			src,
+			// Omitted until the stream URL resolves; an empty src would make the
+			// element fire a spurious 'error' and flip us to the unplayable card.
+			...(src ? { src } : {}),
 			preload: 'metadata' as const,
 			onLoadedMetadata: handleLoadedMetadata,
 			onTimeUpdate: handleTimeUpdate,
@@ -288,7 +404,7 @@ export const MediaViewer = memo(function MediaViewer({
 						Cannot Play This File
 					</p>
 					<p className="text-sm mt-1" style={{ color: theme.colors.textDim }}>
-						The codec inside this container is not supported.
+						The codec inside this container is not supported, or the file is no longer there.
 					</p>
 					<button
 						onClick={openExternally}
@@ -311,9 +427,10 @@ export const MediaViewer = memo(function MediaViewer({
 			onKeyDown={handleKeyDown}
 			onClick={() => containerRef.current?.focus()}
 		>
-			{/* Stage */}
+			{/* Stage. Audio in compact mode contributes no height, so the transport
+			    alone is the whole widget. */}
 			<div
-				className="flex-1 min-h-0 flex items-center justify-center relative"
+				className={`${compact && !isVideo ? '' : 'flex-1 min-h-0'} flex items-center justify-center relative`}
 				style={{ backgroundColor: isVideo ? '#000' : 'transparent' }}
 			>
 				{isVideo ? (
@@ -326,15 +443,20 @@ export const MediaViewer = memo(function MediaViewer({
 				) : (
 					<>
 						<audio ref={mediaRef as React.RefObject<HTMLAudioElement>} {...mediaProps} />
-						<div className="flex flex-col items-center gap-3">
-							<FileAudio className="w-16 h-16" style={{ color: theme.colors.accent }} />
-							<span
-								className="text-sm max-w-md truncate px-4"
-								style={{ color: theme.colors.textDim }}
-							>
-								{name}
-							</span>
-						</div>
+						{/* Audio has no picture. Docked, fill the stage with an icon and the
+						    filename; floating, the frame's own title bar already names the
+						    file, so the stage collapses away entirely. */}
+						{!compact && (
+							<div className="flex flex-col items-center gap-3">
+								<FileAudio className="w-16 h-16" style={{ color: theme.colors.accent }} />
+								<span
+									className="text-sm max-w-md truncate px-4"
+									style={{ color: theme.colors.textDim }}
+								>
+									{name}
+								</span>
+							</div>
+						)}
 					</>
 				)}
 
@@ -380,6 +502,16 @@ export const MediaViewer = memo(function MediaViewer({
 
 				{/* Controls */}
 				<div className="flex items-center gap-1">
+					{onPrev && (
+						<GhostIconButton
+							onClick={onPrev}
+							title="Previous media file"
+							ariaLabel="Previous media file"
+							color={theme.colors.textDim}
+						>
+							<SkipBack className="w-4 h-4" />
+						</GhostIconButton>
+					)}
 					<GhostIconButton
 						onClick={() => seekBy(-SKIP_SECONDS)}
 						title={`Back ${SKIP_SECONDS}s (Left arrow)`}
@@ -407,6 +539,17 @@ export const MediaViewer = memo(function MediaViewer({
 					>
 						<RotateCw className="w-4 h-4" />
 					</GhostIconButton>
+
+					{onNext && (
+						<GhostIconButton
+							onClick={onNext}
+							title="Next media file"
+							ariaLabel="Next media file"
+							color={theme.colors.textDim}
+						>
+							<SkipForward className="w-4 h-4" />
+						</GhostIconButton>
+					)}
 
 					<div className="flex items-center gap-1 ml-2">
 						<GhostIconButton

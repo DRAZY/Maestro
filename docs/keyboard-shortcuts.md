@@ -208,22 +208,22 @@ In AI mode, use `@` to reference files in your prompts:
 
 ## Navigation & Search
 
-| Action                          | macOS                              | Windows/Linux                      |
-| ------------------------------- | ---------------------------------- | ---------------------------------- |
-| Navigate Agents                 | `Up/Down Arrow` while in sidebar   | `Up/Down Arrow` while in sidebar   |
-| Select Agent                    | `Enter` while in sidebar           | `Enter` while in sidebar           |
-| Filter Sessions (in Left Panel) | `Cmd+F`                            | `Ctrl+F`                           |
-| Navigate Files                  | `Up/Down Arrow` while in file tree | `Up/Down Arrow` while in file tree |
-| Extend File Selection           | `Shift+Up/Down Arrow` in file tree | `Shift+Up/Down Arrow` in file tree |
-| Multi-select Files              | `Cmd+Click` / `Shift+Click`        | `Ctrl+Click` / `Shift+Click`       |
-| Filter Files (in Files tab)     | `Cmd+F`                            | `Ctrl+F`                           |
-| Filter History (in History tab) | `Cmd+F`                            | `Ctrl+F`                           |
-| Search Output (in Main Window)  | `Cmd+F`                            | `Ctrl+F`                           |
-| Search Messages Across All Tabs | `Opt+Cmd+F`                        | `Alt+Ctrl+F`                       |
-| Search System Logs              | `Cmd+F`                            | `Ctrl+F`                           |
-| Search Director's Notes         | `Cmd+F`                            | `Ctrl+F`                           |
-| Open File Preview               | `Enter` on selected file           | `Enter` on selected file           |
-| Close Preview/Filter/Modal      | `Esc`                              | `Esc`                              |
+| Action                           | macOS                              | Windows/Linux                      |
+| -------------------------------- | ---------------------------------- | ---------------------------------- |
+| Navigate Agents                  | `Up/Down Arrow` while in sidebar   | `Up/Down Arrow` while in sidebar   |
+| Select Agent                     | `Enter` while in sidebar           | `Enter` while in sidebar           |
+| Filter Sessions (in Left Panel)  | `Cmd+F`                            | `Ctrl+F`                           |
+| Navigate Files                   | `Up/Down Arrow` while in file tree | `Up/Down Arrow` while in file tree |
+| Extend File Selection            | `Shift+Up/Down Arrow` in file tree | `Shift+Up/Down Arrow` in file tree |
+| Multi-select Files               | `Cmd+Click` / `Shift+Click`        | `Ctrl+Click` / `Shift+Click`       |
+| Filter Files (in Files tab)      | `Cmd+F`                            | `Ctrl+F`                           |
+| Filter History (in History tab)  | `Cmd+F`                            | `Ctrl+F`                           |
+| Search Output (in Main Window)   | `Cmd+F`                            | `Ctrl+F`                           |
+| Search Messages (All Agent Tabs) | `Opt+Cmd+F`                        | `Alt+Ctrl+F`                       |
+| Search System Logs               | `Cmd+F`                            | `Ctrl+F`                           |
+| Search Director's Notes          | `Cmd+F`                            | `Ctrl+F`                           |
+| Open File Preview                | `Enter` on selected file           | `Enter` on selected file           |
+| Close Preview/Filter/Modal       | `Esc`                              | `Esc`                              |
 
 ### Searching Message History
 
@@ -239,7 +239,7 @@ The Find bar highlights matches inline; `Enter` and `Shift+Enter` step through
 them. Cross-tab search opens a modal listing hits grouped by tab. Choosing one
 switches to that tab, scrolls to the message, flashes it, and seeds that tab's
 Find bar with the same query positioned on the match you picked. It is also in
-the command palette as "Search: Message History (All Open Tabs)".
+the command palette as "Search: Messages (All Agent Tabs)".
 
 See [Searching Message History](./general-usage#searching-message-history) for
 the full walkthrough.
@@ -291,11 +291,11 @@ Most shortcuts can be remapped to fit your workflow:
 
 When a default binding has to move to free a combo for a new action, Maestro migrates it for you on the next launch - but only if you were still on the old default. If you had personally rebound that action, your binding is left untouched and you may need to move it yourself.
 
-| Action                    | Was           | Now           | Freed for                       |
-| ------------------------- | ------------- | ------------- | ------------------------------- |
-| Focus Active Tab          | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages Across All Tabs |
-| Move Session to Group     | `Cmd+Shift+M` | `Opt+Cmd+M`   | Open Memory Viewer              |
-| Auto Run Expanded Preview | `Cmd+Shift+2` | `Cmd+Shift+E` | Run Auto Run                    |
+| Action                    | Was           | Now           | Freed for                        |
+| ------------------------- | ------------- | ------------- | -------------------------------- |
+| Focus Active Tab          | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages (All Agent Tabs) |
+| Move Session to Group     | `Cmd+Shift+M` | `Opt+Cmd+M`   | Open Memory Viewer               |
+| Auto Run Expanded Preview | `Cmd+Shift+2` | `Cmd+Shift+E` | Run Auto Run                     |
 
 If `Opt+Cmd+F` still focuses the active tab instead of opening cross-tab search, you had a custom binding on it: open **Settings** → **Shortcuts**, clear it from **Focus Active Tab**, and the new default takes over.
 

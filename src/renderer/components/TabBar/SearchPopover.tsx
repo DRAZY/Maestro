@@ -136,7 +136,7 @@ export const SearchPopover = memo(function SearchPopover({
 							onClick={() => closeAndDo(onSearchMessages)}
 						>
 							<Clock className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-							Search Message History
+							Search Messages (this tab)
 							<span className="ml-auto text-xs" style={{ color: theme.colors.textDim }}>
 								{formatShortcutKeys(searchOutputKeys)}
 							</span>
@@ -148,7 +148,7 @@ export const SearchPopover = memo(function SearchPopover({
 								onClick={() => closeAndDo(onSearchAllTabs)}
 							>
 								<Layers className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-								Search Message History Across All Open Tabs
+								Search Messages (all agent tabs)
 								{searchAllTabsKeys && (
 									<span className="ml-auto text-xs" style={{ color: theme.colors.textDim }}>
 										{formatShortcutKeys(searchAllTabsKeys)}

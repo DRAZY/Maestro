@@ -43,7 +43,7 @@ export function buildSearchCommands({
 		},
 		{
 			id: 'searchMessages',
-			label: 'Search: Message History',
+			label: 'Search: Messages (This Tab)',
 			subtext: 'Search messages in the current conversation',
 			action: () => {
 				setQuickActionOpen(false);
@@ -55,7 +55,7 @@ export function buildSearchCommands({
 			? [
 					{
 						id: 'searchAllTabs',
-						label: 'Search: Message History (All Open Tabs)',
+						label: 'Search: Messages (All Agent Tabs)',
 						subtext: 'Search every open tab in this agent and jump to the hit',
 						shortcut: searchAllTabsShortcut,
 						action: () => {

@@ -3357,6 +3357,9 @@ interface MaestroAPI {
 	// the "feature off" state.
 	cueStats: {
 		getAggregation: (range: CueStatsTimeRange) => Promise<CueStatsAggregation>;
+		// Conductor time (ms) the retained Cue run history would have credited.
+		// Ungated, unlike getAggregation; resolves 0 when there is no history.
+		getHistoricalConductorCredit: () => Promise<number>;
 	};
 	// Document Graph API (file watching for graph visualization)
 	documentGraph: {
