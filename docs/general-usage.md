@@ -360,6 +360,15 @@ Pick a result with `Enter` or a click and Maestro:
 
 Navigate the list with the arrow keys, `PageUp` / `PageDown`, and `Home` / `End`.
 
+Very broad queries are capped so a single character can't stall the UI: 100 matches
+per tab and 500 overall. When a search hits either limit the modal says so, and
+narrowing the query brings the rest into view.
+
+<Note>
+	This search covers the AI tabs of the agent you're currently on, not your whole
+	fleet. Group chats have no AI tabs to search, so the menu entry is hidden there.
+</Note>
+
 ## Command Interpreter
 
 The command interpreter can be focused for a clean, terminal-only experience when you collapse the left panel.

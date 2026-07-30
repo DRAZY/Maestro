@@ -29,6 +29,7 @@ icon: sparkles
 - ✏️ **[Image Annotator](./image-annotator)** - Mark up screenshots before sending them. Freehand strokes, rectangles, ellipses, arrows, and inline text labels with pressure-aware perfect-freehand rendering. Save in place, copy to clipboard, or annotate Auto Run attachments directly.
 - 🕸️ **[Document Graph](./document-graph)** - Visualize markdown file relationships and wiki-link connections in an interactive graph. Navigate with keyboard shortcuts, adjust depth, and see how your documentation connects.
 - 🔍 **[Powerful Output Filtering](./general-usage)** - Search and filter AI output with include/exclude modes, regex support, and per-response local filters.
+- 🗂️ **[Cross-Tab Message Search](./general-usage#searching-message-history)** - Search message history across every open tab in an agent at once with `Opt+Cmd+F` / `Alt+Ctrl+F`. Results are grouped by tab with previews; pick one to jump straight to that message, highlighted in place.
 - ⚡ **[Slash Commands](./slash-commands)** - Extensible command system with autocomplete. Create custom commands with template variables for your workflows. Includes bundled [Spec-Kit](./speckit-commands) for feature specifications and [OpenSpec](./openspec-commands) for change proposals.
 - 💾 **Draft Auto-Save** - Never lose work. Drafts are automatically saved and restored per session.
 - 🏷️ **[Automatic Tab Naming](./general-usage#automatic-tab-naming)** - Tabs are automatically named based on your first message. No more "New Session" clutter - each tab gets a descriptive, relevant name.
