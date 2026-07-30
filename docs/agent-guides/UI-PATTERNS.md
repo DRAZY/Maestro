@@ -1112,6 +1112,33 @@ Each tab has an `AITab` type with:
 
 The hook also returns selectors: `activeTab`, `unifiedTabs`, `activeFileTab`, `activeBrowserTab`, and the file-tab history state (`fileTabBackHistory`, `fileTabForwardHistory`, `fileTabCanGoBack`, `fileTabCanGoForward`).
 
+### Tiled pane focus - move the caret, not just the ring
+
+A tab group's `focusedPaneId` drives the focus RING and input routing. It does **not**
+move DOM focus, so a keyboard pane switch alone leaves the caret in the previous
+pane and the user's next keystroke goes to the wrong place.
+
+The keyboard pane commands in `useTilingShortcuts` therefore publish a one-shot
+`paneFocusRequest` (the destination leaf id) on `uiStore` whenever they move pane
+focus - `focusPane`, `cyclePane`, `splitFocusedPane`, and `closeFocusedPane` when
+the group survives. `MainPanelContent` consumes it (clearing it immediately so a
+stale request can't re-steal focus on a later remount) and routes focus by pane
+kind: terminal panes go to that tab's xterm via `TerminalViewHandle.focusTerminal(tabId)`,
+AI panes to the shared chat textarea. Browser panes are skipped - the webview already
+takes Chromium input off `groupFocusedBrowserTabId` - and file panes have no text
+input to land in. It also resets `activeFocus` to `'main'`, because the pane
+shortcuts are not gated on it and can fire while the Left/Right Bar owns it.
+
+Two things to preserve when touching this:
+
+- **Use `focusTerminal(tabId)`, never `focusActiveTerminal()`.** A tiled terminal pane
+  does not set `activeTerminalTabId` (`focusPaneInSession` only syncs `activeTabId`,
+  and only for AI panes), so the "active" variant lands on the wrong terminal or none.
+- **Keep it a request, not an effect keyed on `focusedPaneId`.** A mouse press anywhere
+  in a pane also moves `focusedPaneId`, so a derived effect would yank the caret into
+  the AI input mid-drag and break text selection in the conversation. Keyboard-only
+  keeps the focus steal tied to explicit user intent.
+
 ---
 
 ## Encore Features

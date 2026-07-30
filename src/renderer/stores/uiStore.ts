@@ -75,6 +75,17 @@ export interface UIStoreState {
 		hover: { leafId: string; zone: import('../utils/panelLayout').DropZone } | null;
 	} | null;
 
+	// Tab tiling: one-shot request to move DOM FOCUS into the pane with this leaf
+	// id (the caret into its terminal / chat input), consumed and cleared by
+	// MainPanelContent. Fired ONLY by the keyboard pane commands - moving the focus
+	// ring alone leaves the user typing into whatever had focus before.
+	//
+	// Deliberately a request rather than an effect keyed on `focusedPaneId`: a mouse
+	// press anywhere in a pane also moves `focusedPaneId`, so a derived effect would
+	// yank the caret into the AI input mid-drag and break text selection in the
+	// conversation. Keyboard-only keeps the steal tied to explicit user intent.
+	paneFocusRequest: string | null;
+
 	// Sidebar collapse/expand
 	bookmarksCollapsed: boolean;
 
@@ -180,6 +191,11 @@ export interface UIStoreActions {
 
 	// Tab tiling: set/clear the transient pane-rearrange drag state.
 	setPaneDrag: (drag: UIStore['paneDrag']) => void;
+
+	// Tab tiling: ask the panel to put DOM focus inside the pane with this leaf id,
+	// and clear that request once it has been acted on.
+	requestPaneFocus: (leafId: string) => void;
+	clearPaneFocusRequest: () => void;
 
 	// Sidebar collapse/expand
 	setBookmarksCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
@@ -344,6 +360,7 @@ export const useUIStore = create<UIStore>()((set) => ({
 	activeRightTab: 'files',
 	zoomedPaneId: null,
 	paneDrag: null,
+	paneFocusRequest: null,
 	bookmarksCollapsed: false,
 	showUnreadOnly: false,
 	showUnreadAgentsOnly: false,
@@ -388,6 +405,9 @@ export const useUIStore = create<UIStore>()((set) => ({
 
 	setZoomedPaneId: (id) => set({ zoomedPaneId: id }),
 	setPaneDrag: (drag) => set({ paneDrag: drag }),
+
+	requestPaneFocus: (leafId) => set({ paneFocusRequest: leafId }),
+	clearPaneFocusRequest: () => set({ paneFocusRequest: null }),
 
 	setBookmarksCollapsed: (v) =>
 		set((s) => {
