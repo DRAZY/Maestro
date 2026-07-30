@@ -1,95 +1,206 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-	selectHasPlayingMedia,
+	selectCanRestoreFloatingPlayer,
 	useMediaPlaybackStore,
 } from '../../../renderer/stores/mediaPlaybackStore';
 
 const RECT = { top: 10, left: 20, width: 300, height: 200 };
+const FLOAT = { top: 40, left: 50, width: 400, height: 240 };
+
+const initial = useMediaPlaybackStore.getState();
+
+function reset() {
+	useMediaPlaybackStore.setState({
+		activeTabId: null,
+		playing: false,
+		dismissed: false,
+		minimized: false,
+		pendingAutoplay: false,
+		toggleRequest: 0,
+		slots: {},
+		resumeTimes: {},
+		floatRect: null,
+	});
+}
 
 describe('mediaPlaybackStore', () => {
 	beforeEach(() => {
-		useMediaPlaybackStore.setState({ playing: {}, slots: {} });
+		reset();
+		(window as unknown as { maestro?: unknown }).maestro = { settings: { set: vi.fn() } };
 	});
 
-	it('tracks playback per tab', () => {
-		useMediaPlaybackStore.getState().setPlaying('a', true);
-		useMediaPlaybackStore.getState().setPlaying('b', true);
-		useMediaPlaybackStore.getState().setPlaying('a', false);
-		expect(useMediaPlaybackStore.getState().playing).toEqual({ a: false, b: true });
+	describe('setActiveTab', () => {
+		it('loads a tab and arms autoplay when asked', () => {
+			initial.setActiveTab('a', { autoplay: true });
+			expect(useMediaPlaybackStore.getState().activeTabId).toBe('a');
+			expect(useMediaPlaybackStore.getState().pendingAutoplay).toBe(true);
+		});
+
+		it('does not autoplay by default, so merely viewing a tab stays quiet', () => {
+			initial.setActiveTab('a');
+			expect(useMediaPlaybackStore.getState().pendingAutoplay).toBe(false);
+		});
+
+		it('switching files clears playing, since only one element is ever mounted', () => {
+			initial.setActiveTab('a', { autoplay: true });
+			initial.setPlaying(true);
+			initial.setActiveTab('b');
+			expect(useMediaPlaybackStore.getState().activeTabId).toBe('b');
+			expect(useMediaPlaybackStore.getState().playing).toBe(false);
+		});
+
+		it('un-dismisses the widget, so opening a file brings it back', () => {
+			initial.setActiveTab('a');
+			initial.dismiss();
+			initial.setActiveTab('b');
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
+		});
+
+		it('re-activating the same tab is a no-op when nothing would change', () => {
+			initial.setActiveTab('a');
+			const before = useMediaPlaybackStore.getState();
+			initial.setActiveTab('a');
+			expect(useMediaPlaybackStore.getState()).toBe(before);
+		});
+
+		it('re-opening the active tab still un-dismisses and can re-arm autoplay', () => {
+			initial.setActiveTab('a');
+			initial.dismiss();
+			initial.setActiveTab('a', { autoplay: true });
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
+			expect(useMediaPlaybackStore.getState().pendingAutoplay).toBe(true);
+		});
 	});
 
-	it('does not record an entry for a tab that was never playing', () => {
-		// Every player reports false on mount; absent and false mean the same
-		// thing, so paused tabs must not accumulate entries.
-		useMediaPlaybackStore.getState().setPlaying('a', false);
-		expect(useMediaPlaybackStore.getState().playing).toEqual({});
+	describe('autoplay one-shot', () => {
+		it('is consumed exactly once', () => {
+			initial.setActiveTab('a', { autoplay: true });
+			initial.consumeAutoplay();
+			expect(useMediaPlaybackStore.getState().pendingAutoplay).toBe(false);
+			const before = useMediaPlaybackStore.getState();
+			initial.consumeAutoplay();
+			expect(useMediaPlaybackStore.getState()).toBe(before);
+		});
 	});
 
-	it('keeps the same state object when playback is unchanged', () => {
-		useMediaPlaybackStore.getState().setPlaying('a', true);
-		const before = useMediaPlaybackStore.getState().playing;
-		useMediaPlaybackStore.getState().setPlaying('a', true);
-		// Identity is the point: a no-op must not re-render every media element.
-		expect(useMediaPlaybackStore.getState().playing).toBe(before);
+	describe('dismiss and restore', () => {
+		it('dismissing does not stop playback', () => {
+			initial.setActiveTab('a');
+			initial.setPlaying(true);
+			initial.dismiss();
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(true);
+			// Hiding a control must not have the side effect of stopping media.
+			expect(useMediaPlaybackStore.getState().playing).toBe(true);
+			expect(useMediaPlaybackStore.getState().activeTabId).toBe('a');
+		});
+
+		it('restore clears the dismissal', () => {
+			initial.setActiveTab('a');
+			initial.dismiss();
+			initial.restore();
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
+		});
+
+		it('selectCanRestoreFloatingPlayer needs both a dismissal and loaded media', () => {
+			expect(selectCanRestoreFloatingPlayer(useMediaPlaybackStore.getState())).toBe(false);
+			initial.setActiveTab('a');
+			expect(selectCanRestoreFloatingPlayer(useMediaPlaybackStore.getState())).toBe(false);
+			initial.dismiss();
+			expect(selectCanRestoreFloatingPlayer(useMediaPlaybackStore.getState())).toBe(true);
+		});
 	});
 
-	it('publishes a slot rect and marks it visible', () => {
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		expect(useMediaPlaybackStore.getState().slots.a).toEqual({ rect: RECT, visible: true });
+	describe('toggle requests', () => {
+		it('increments a nonce so the pill can drive the element', () => {
+			initial.requestToggle();
+			initial.requestToggle();
+			expect(useMediaPlaybackStore.getState().toggleRequest).toBe(2);
+		});
 	});
 
-	it('ignores a repeated identical rect', () => {
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		const before = useMediaPlaybackStore.getState().slots;
-		useMediaPlaybackStore.getState().setSlotRect('a', { ...RECT });
-		expect(useMediaPlaybackStore.getState().slots).toBe(before);
+	describe('docked slots', () => {
+		it('publishes a rect and marks it visible', () => {
+			initial.setSlotRect('a', RECT);
+			expect(useMediaPlaybackStore.getState().slots.a).toEqual({ rect: RECT, visible: true });
+		});
+
+		it('ignores a repeated identical rect', () => {
+			initial.setSlotRect('a', RECT);
+			const before = useMediaPlaybackStore.getState().slots;
+			initial.setSlotRect('a', { ...RECT });
+			expect(useMediaPlaybackStore.getState().slots).toBe(before);
+		});
+
+		it('applies a changed rect', () => {
+			initial.setSlotRect('a', RECT);
+			initial.setSlotRect('a', { ...RECT, width: 400 });
+			expect(useMediaPlaybackStore.getState().slots.a.rect.width).toBe(400);
+		});
+
+		it('retains the last rect when hiding, so a docked player keeps a real size', () => {
+			initial.setSlotRect('a', RECT);
+			initial.hideSlot('a');
+			expect(useMediaPlaybackStore.getState().slots.a).toEqual({ rect: RECT, visible: false });
+		});
+
+		it('hiding an unknown or already-hidden slot is a no-op', () => {
+			const before = useMediaPlaybackStore.getState().slots;
+			initial.hideSlot('nope');
+			expect(useMediaPlaybackStore.getState().slots).toBe(before);
+		});
 	});
 
-	it('applies a changed rect', () => {
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		useMediaPlaybackStore.getState().setSlotRect('a', { ...RECT, width: 400 });
-		expect(useMediaPlaybackStore.getState().slots.a.rect.width).toBe(400);
+	describe('resume positions', () => {
+		it('remembers where a file was left', () => {
+			initial.rememberTime('a', 42.5);
+			expect(useMediaPlaybackStore.getState().resumeTimes.a).toBe(42.5);
+		});
 	});
 
-	it('retains the last rect when hiding so playback keeps a real size', () => {
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		useMediaPlaybackStore.getState().hideSlot('a');
-		expect(useMediaPlaybackStore.getState().slots.a).toEqual({ rect: RECT, visible: false });
+	describe('clearTab', () => {
+		it('releases the player when the playing tab closes', () => {
+			initial.setActiveTab('a', { autoplay: true });
+			initial.setPlaying(true);
+			initial.setSlotRect('a', RECT);
+			initial.rememberTime('a', 10);
+
+			initial.clearTab('a');
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.activeTabId).toBeNull();
+			expect(state.playing).toBe(false);
+			expect(state.pendingAutoplay).toBe(false);
+			expect(state.slots.a).toBeUndefined();
+			expect(state.resumeTimes.a).toBeUndefined();
+		});
+
+		it('leaves the active tab alone when a different tab closes', () => {
+			initial.setActiveTab('a');
+			initial.setSlotRect('b', RECT);
+			initial.clearTab('b');
+			expect(useMediaPlaybackStore.getState().activeTabId).toBe('a');
+		});
+
+		it('clearing an unknown tab is a no-op', () => {
+			const before = useMediaPlaybackStore.getState();
+			initial.clearTab('nope');
+			expect(useMediaPlaybackStore.getState()).toBe(before);
+		});
 	});
 
-	it('re-shows a hidden slot when the tab comes back', () => {
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		useMediaPlaybackStore.getState().hideSlot('a');
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		expect(useMediaPlaybackStore.getState().slots.a.visible).toBe(true);
-	});
+	describe('float geometry', () => {
+		it('stores and persists the rect', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+			initial.setFloatRect(FLOAT);
+			expect(useMediaPlaybackStore.getState().floatRect).toEqual(FLOAT);
+			expect(set).toHaveBeenCalledWith('mediaPlayerFloatRect', FLOAT);
+		});
 
-	it('hiding an unknown or already-hidden slot is a no-op', () => {
-		const before = useMediaPlaybackStore.getState().slots;
-		useMediaPlaybackStore.getState().hideSlot('nope');
-		expect(useMediaPlaybackStore.getState().slots).toBe(before);
-	});
-
-	it('clears everything for a closed tab', () => {
-		useMediaPlaybackStore.getState().setPlaying('a', true);
-		useMediaPlaybackStore.getState().setSlotRect('a', RECT);
-		useMediaPlaybackStore.getState().setPlaying('b', true);
-
-		useMediaPlaybackStore.getState().clearTab('a');
-
-		expect(useMediaPlaybackStore.getState().playing).toEqual({ b: true });
-		expect(useMediaPlaybackStore.getState().slots.a).toBeUndefined();
-	});
-
-	it('clearing an unknown tab is a no-op', () => {
-		const before = useMediaPlaybackStore.getState().playing;
-		useMediaPlaybackStore.getState().clearTab('nope');
-		expect(useMediaPlaybackStore.getState().playing).toBe(before);
-	});
-
-	it('selectHasPlayingMedia reports whether anything is audible', () => {
-		expect(selectHasPlayingMedia({ playing: {} })).toBe(false);
-		expect(selectHasPlayingMedia({ playing: { a: false } })).toBe(false);
-		expect(selectHasPlayingMedia({ playing: { a: false, b: true } })).toBe(true);
+		it('survives a missing settings bridge', () => {
+			(window as unknown as { maestro?: unknown }).maestro = undefined;
+			expect(() => initial.setFloatRect(FLOAT)).not.toThrow();
+			expect(useMediaPlaybackStore.getState().floatRect).toEqual(FLOAT);
+		});
 	});
 });

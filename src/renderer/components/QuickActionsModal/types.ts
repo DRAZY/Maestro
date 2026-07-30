@@ -1,6 +1,5 @@
 import type React from 'react';
 import type { GroupChat } from '../../../shared/group-chat-types';
-import type { MediaKind } from '../../../shared/mediaTypes';
 import type {
 	Group,
 	RightPanelTab,
@@ -37,10 +36,6 @@ export interface QuickAction {
 	// Jump-to-agent actions only: bookmark state and stable sort key.
 	bookmarked?: boolean;
 	agentSortKey?: string;
-	// Agents-mode only: marks a file preview tab that is currently playing audio
-	// or video, bucketed under MEDIA between LIVE and IDLE. The kind drives the
-	// row icon so audio and video are distinguishable at a glance.
-	playingMediaKind?: MediaKind;
 }
 
 /**
@@ -48,15 +43,13 @@ export interface QuickAction {
  * Derived rather than stored so the bucket, the section headers, and the sort
  * can never disagree.
  */
-export type AgentBucket = 'live' | 'media' | 'idle';
+export type AgentBucket = 'live' | 'idle';
 
 export function getAgentBucket(action: QuickAction): AgentBucket {
-	if (action.isRunningAgent) return 'live';
-	if (action.playingMediaKind) return 'media';
-	return 'idle';
+	return action.isRunningAgent ? 'live' : 'idle';
 }
 
-export const AGENT_BUCKET_ORDER: readonly AgentBucket[] = ['live', 'media', 'idle'];
+export const AGENT_BUCKET_ORDER: readonly AgentBucket[] = ['live', 'idle'];
 
 export interface ActiveTabInfo {
 	isTerminalMode: boolean;

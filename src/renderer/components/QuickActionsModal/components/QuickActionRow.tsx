@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useState } from 'react';
-import { Bot, FileAudio, FileVideo } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
 import { getStatusColor } from '../../../utils/theme';
@@ -68,20 +68,6 @@ export function QuickActionRow({
 							}}
 							aria-hidden="true"
 						/>
-					)}
-					{action.playingMediaKind && (
-						<span
-							className="flex-shrink-0"
-							style={{ color: isSelected ? theme.colors.accentForeground : theme.colors.accent }}
-							title={action.playingMediaKind === 'video' ? 'Playing video' : 'Playing audio'}
-							aria-label={action.playingMediaKind === 'video' ? 'Playing video' : 'Playing audio'}
-						>
-							{action.playingMediaKind === 'video' ? (
-								<FileVideo className="w-3.5 h-3.5" />
-							) : (
-								<FileAudio className="w-3.5 h-3.5" />
-							)}
-						</span>
 					)}
 					{/* data-action-label lets tests read the label without having to strip
 					    number badges, subtext, and shortcut hints out of textContent. */}

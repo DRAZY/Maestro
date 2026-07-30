@@ -73,3 +73,32 @@ export function collectMediaTabs(sessions: Session[]): MediaTabRef[] {
 	}
 	return refs;
 }
+
+/** Display filename for a media tab, extension included. */
+export function getMediaTabLabel(ref: Pick<MediaTabRef, 'name' | 'extension'>): string {
+	return `${ref.name}${ref.extension}`;
+}
+
+/**
+ * The media tab `steps` positions from the active one, or `null` when there is
+ * nowhere to go.
+ *
+ * The order is the open order from {@link collectMediaTabs} rather than a
+ * visit-history stack. With two files the two are identical, and with more the
+ * open order is the one the user can predict: the widget's prev/next walk the
+ * same sequence every time instead of depending on how they arrived. Does not
+ * wrap, so the ends of the list disable the buttons.
+ */
+export function stepMediaTab(
+	refs: MediaTabRef[],
+	activeTabId: string | null,
+	steps: number
+): MediaTabRef | null {
+	if (refs.length === 0) return null;
+	const index = refs.findIndex((r) => r.tabId === activeTabId);
+	// Unknown active tab (just closed, or none yet): treat the ends as the start.
+	if (index === -1) return steps > 0 ? refs[0] : refs[refs.length - 1];
+	const next = index + steps;
+	if (next < 0 || next >= refs.length) return null;
+	return refs[next];
+}

@@ -40,9 +40,6 @@ export function filterAndSortQuickActions(
 				return a.bookmarked ? -1 : 1;
 			}
 			if (mode === 'agents') {
-				// LIVE, then MEDIA, then IDLE. Media rows sit between the two so a
-				// playing podcast is one keystroke away without displacing the agents
-				// that are actually working.
 				const aBucket = AGENT_BUCKET_ORDER.indexOf(getAgentBucket(a));
 				const bBucket = AGENT_BUCKET_ORDER.indexOf(getAgentBucket(b));
 				if (aBucket !== bBucket) return aBucket - bBucket;

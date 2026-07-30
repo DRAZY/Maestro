@@ -42,6 +42,7 @@ import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { normalizePlaybackRate } from '../../shared/mediaTypes';
+import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
 import { logger } from '../utils/logger';
 import { useUIStore, type ModalSize } from './uiStore';
 
@@ -2516,6 +2517,18 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['modalSizes'] !== undefined && typeof allSettings['modalSizes'] === 'object')
 			useUIStore.setState({
 				modalSizes: allSettings['modalSizes'] as Record<string, ModalSize>,
+			});
+
+		// Floating media player geometry lives in mediaPlaybackStore for the same
+		// reason as modalSizes above: the drag/resize handlers read and write it
+		// without a settings round-trip.
+		if (
+			allSettings['mediaPlayerFloatRect'] !== undefined &&
+			allSettings['mediaPlayerFloatRect'] !== null &&
+			typeof allSettings['mediaPlayerFloatRect'] === 'object'
+		)
+			useMediaPlaybackStore.setState({
+				floatRect: allSettings['mediaPlayerFloatRect'] as MediaFloatRect,
 			});
 
 		if (allSettings['tourCompleted'] !== undefined)

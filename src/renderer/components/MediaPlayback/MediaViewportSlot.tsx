@@ -24,6 +24,16 @@ export const MediaViewportSlot = memo(function MediaViewportSlot({
 	const ref = useRef<HTMLDivElement>(null);
 	const setSlotRect = useMediaPlaybackStore((s) => s.setSlotRect);
 	const hideSlot = useMediaPlaybackStore((s) => s.hideSlot);
+	const setActiveTab = useMediaPlaybackStore((s) => s.setActiveTab);
+
+	// Looking at a media tab claims the single player, so a visible media tab is
+	// always the one loaded. Without this, viewing file B while A floats would
+	// leave B's tab showing an empty slot. No autoplay: merely arriving at a tab
+	// is not a request to make noise (opening the file is, and that path sets its
+	// own autoplay flag).
+	useEffect(() => {
+		setActiveTab(tabId);
+	}, [tabId, setActiveTab]);
 
 	const publish = useCallback(() => {
 		const el = ref.current;

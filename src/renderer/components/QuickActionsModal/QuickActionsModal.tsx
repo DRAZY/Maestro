@@ -32,8 +32,11 @@ import { QuickActionsList } from './components/QuickActionsList';
 import { QuickActionsSearchBar } from './components/QuickActionsSearchBar';
 import { buildAgentPanelCommands } from './commands/agentPanelCommands';
 import { buildAgentSwitcherCommands } from './commands/agentSwitcherCommands';
-import { buildMediaJumpCommands } from './commands/mediaJumpCommands';
-import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
+import { buildMediaPlayerCommands } from './commands/mediaPlayerCommands';
+import {
+	selectCanRestoreFloatingPlayer,
+	useMediaPlaybackStore,
+} from '../../stores/mediaPlaybackStore';
 import { buildActiveTabContextCommands } from './commands/contextCommands';
 import { buildDebugCommands } from './commands/debugCommands';
 import { buildFeatureCommands } from './commands/featureCommands';
@@ -196,11 +199,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const setGroupChatsExpanded = useSettingsStore((s) => s.setGroupChatsExpanded);
 	const isLeaderboardRegistered = useSettingsStore(selectIsLeaderboardRegistered);
 	const activeBatchSessionIds = useBatchStore(useShallow(selectActiveBatchSessionIds));
-	// Subscribed as a stable set of IDs so the palette re-renders when playback
-	// starts or stops, but not on every timeupdate tick.
-	const playingMediaTabIds = useMediaPlaybackStore(
-		useShallow((s) => new Set(Object.keys(s.playing).filter((id) => s.playing[id])))
-	);
+	const canRestoreFloatingPlayer = useMediaPlaybackStore(selectCanRestoreFloatingPlayer);
+	const restoreFloatingPlayer = useMediaPlaybackStore((s) => s.restore);
 
 	const [search, setSearch] = useState('');
 	const [mode, setMode] = useState<'main' | 'move-to-group' | 'agents'>(initialMode);
@@ -391,6 +391,11 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const mainActions: QuickAction[] = [
 		...sessionActions,
 		...groupChatActions,
+		...buildMediaPlayerCommands({
+			canRestoreFloatingPlayer,
+			restoreFloatingPlayer,
+			setQuickActionOpen,
+		}),
 		...buildNavigationCommands({
 			activeSession,
 			activeSessionId,
@@ -703,23 +708,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		revealJumpTarget,
 	});
 
-	// Tabs currently playing audio/video, listed under MEDIA between LIVE and
-	// IDLE. Playback is hosted app-level, so these can belong to idle agents on
-	// tabs that are nowhere on screen — which is the whole reason to surface them.
-	const mediaActions = buildMediaJumpCommands({
-		sessions,
-		playingTabIds: playingMediaTabIds,
-		setSessions,
-		setActiveSessionId,
-		revealJumpTarget,
-	});
-
-	const actions =
-		mode === 'agents'
-			? [...agentActions, ...mediaActions]
-			: mode === 'main'
-				? mainActions
-				: groupActions;
+	const actions = mode === 'agents' ? agentActions : mode === 'main' ? mainActions : groupActions;
 
 	const filtered = filterAndSortQuickActions(actions, search, mode);
 

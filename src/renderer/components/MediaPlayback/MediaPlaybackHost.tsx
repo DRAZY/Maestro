@@ -1,10 +1,12 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 
 import { MediaViewer } from '../FilePreview/MediaViewer';
-import { collectMediaTabs, type MediaTabRef } from '../../utils/mediaTabs';
+import { FloatingMediaPlayer } from './FloatingMediaPlayer';
+import { collectMediaTabs, getMediaTabLabel, stepMediaTab } from '../../utils/mediaTabs';
 import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useTabStore } from '../../stores/tabStore';
+import { fileTabFocusFields } from '../../utils/tabHelpers';
 import type { Theme } from '../../types';
 
 interface MediaPlaybackHostProps {
@@ -12,106 +14,181 @@ interface MediaPlaybackHostProps {
 }
 
 /**
- * App-level owner of every audio/video element.
+ * App-level owner of the one audio/video element.
  *
- * Mounted exactly once, near the root, and never unmounted. MainPanelContent
- * only renders FilePreview for the active file tab of the active session, so a
+ * Mounted exactly once, near the root, and never unmounted. `MainPanelContent`
+ * renders `FilePreview` only for the active file tab of the active session, so a
  * player living inside the tab would be torn down the moment the user looked
  * elsewhere - and removing a media element from the document runs the HTML
- * spec's internal pause steps, killing playback. Hosting the elements here is
- * what lets a podcast keep playing while the user switches tabs and agents.
+ * spec's internal pause steps, killing playback. Hosting it here is what lets a
+ * podcast keep playing while the user works in other tabs and agents.
  *
- * Each element is parked over the rect published by the MediaViewportSlot that
- * FilePreview renders in its place. When the owning tab is off screen the box
- * keeps its last rect but goes `visibility: hidden` - the same trick the
- * terminal and browser tab overlays use, chosen over unmounting for exactly the
- * same reason, and over zero-sizing so a video's decode pipeline stays intact.
+ * Exactly one player exists at a time, which makes overlapping audio structurally
+ * impossible instead of a rule to enforce. It renders in one of two placements:
+ *
+ *  - **Docked** over the `MediaViewportSlot` that `FilePreview` renders in place
+ *    of its content, when the owning tab is on screen.
+ *  - **Floating** as a draggable now-playing widget, when it is not.
+ *
+ * Which file is active follows the user: opening one activates it, viewing a
+ * media tab claims it (see `MediaViewportSlot`), and the widget's prev/next step
+ * through the open media tabs.
  */
 export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 	theme,
 }: MediaPlaybackHostProps) {
 	const sessions = useSessionStore((s) => s.sessions);
+	const setSessions = useSessionStore((s) => s.setSessions);
+	const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
+	const clearAutoplayFlag = useTabStore((s) => s.clearFileTabAutoplayMedia);
+
+	const activeTabId = useMediaPlaybackStore((s) => s.activeTabId);
+	const playing = useMediaPlaybackStore((s) => s.playing);
+	const dismissed = useMediaPlaybackStore((s) => s.dismissed);
+	const pendingAutoplay = useMediaPlaybackStore((s) => s.pendingAutoplay);
+	const toggleRequest = useMediaPlaybackStore((s) => s.toggleRequest);
 	const slots = useMediaPlaybackStore((s) => s.slots);
+	const resumeTimes = useMediaPlaybackStore((s) => s.resumeTimes);
+	const setActiveTab = useMediaPlaybackStore((s) => s.setActiveTab);
+	const setPlaying = useMediaPlaybackStore((s) => s.setPlaying);
+	const consumeAutoplay = useMediaPlaybackStore((s) => s.consumeAutoplay);
 	const clearTab = useMediaPlaybackStore((s) => s.clearTab);
+	const rememberTime = useMediaPlaybackStore((s) => s.rememberTime);
 
 	const mediaTabs = useMemo(() => collectMediaTabs(sessions), [sessions]);
+	const active = activeTabId ? mediaTabs.find((t) => t.tabId === activeTabId) : undefined;
 
-	// Drop store entries for tabs that have closed. Without this, a closed tab
-	// would keep reporting itself as playing in the Command palette forever.
-	const knownTabIdsRef = useRef<Set<string>>(new Set());
+	// Release the player when its tab closes. Guards the palette and the widget
+	// against pointing at a tab that no longer exists.
 	useEffect(() => {
-		const live = new Set(mediaTabs.map((t) => t.tabId));
-		for (const tabId of knownTabIdsRef.current) {
-			if (!live.has(tabId)) clearTab(tabId);
-		}
-		knownTabIdsRef.current = live;
-	}, [mediaTabs, clearTab]);
+		if (activeTabId && !mediaTabs.some((t) => t.tabId === activeTabId)) clearTab(activeTabId);
+	}, [activeTabId, mediaTabs, clearTab]);
 
-	if (mediaTabs.length === 0) return null;
+	// A freshly opened media file claims the player and starts playing. This is
+	// the only place the tab-level one-shot is read, and it is cleared right after
+	// so no later re-render can replay a file the user has since paused.
+	useEffect(() => {
+		const opened = mediaTabs.find((t) => t.autoplay);
+		if (!opened) return;
+		setActiveTab(opened.tabId, { autoplay: true });
+		clearAutoplayFlag(opened.tabId);
+	}, [mediaTabs, setActiveTab, clearAutoplayFlag]);
+
+	const navigate = useCallback(
+		(steps: number) => {
+			const target = stepMediaTab(mediaTabs, activeTabId, steps);
+			// Navigating with the transport means "play this now", matching what the
+			// buttons look like they do.
+			if (target) setActiveTab(target.tabId, { autoplay: true });
+		},
+		[mediaTabs, activeTabId, setActiveTab]
+	);
+
+	/** Focus the active file's tab, which re-docks the player into it. */
+	const returnToTab = useCallback(() => {
+		if (!active) return;
+		setSessions((prev) =>
+			prev.map((s) =>
+				s.id === active.sessionId ? { ...s, ...fileTabFocusFields(active.tabId) } : s
+			)
+		);
+		setActiveSessionId(active.sessionId);
+	}, [active, setSessions, setActiveSessionId]);
+
+	const handleTimeUpdate = useCallback(
+		(seconds: number) => {
+			if (activeTabId) rememberTime(activeTabId, seconds);
+		},
+		[activeTabId, rememberTime]
+	);
+
+	// Hand the one-shot back to the store once the player has it. In an effect,
+	// not inline: a set during render is a React violation.
+	useEffect(() => {
+		if (pendingAutoplay) consumeAutoplay();
+	}, [pendingAutoplay, consumeAutoplay]);
+
+	if (!active) return null;
+
+	const slot = slots[active.tabId];
+	const docked = slot?.visible ?? false;
+	const autoplay = active.autoplay || pendingAutoplay;
+
+	const player = (
+		<MediaViewer
+			// Keyed on the tab so switching files gets a fresh element rather than a
+			// reused one carrying the previous file's state.
+			key={active.tabId}
+			kind={active.kind}
+			name={getMediaTabLabel(active)}
+			path={active.path}
+			autoplay={autoplay}
+			resumeTime={resumeTimes[active.tabId] ?? 0}
+			compact={!docked}
+			onTimeUpdate={handleTimeUpdate}
+			onPlayingChange={setPlaying}
+			onPrev={stepMediaTab(mediaTabs, activeTabId, -1) ? () => navigate(-1) : undefined}
+			onNext={stepMediaTab(mediaTabs, activeTabId, 1) ? () => navigate(1) : undefined}
+			toggleRequest={toggleRequest}
+			theme={theme}
+		/>
+	);
+
+	if (docked) {
+		return (
+			<div
+				data-media-frame={active.tabId}
+				style={{
+					position: 'fixed',
+					top: slot.rect.top,
+					left: slot.rect.left,
+					width: slot.rect.width,
+					height: slot.rect.height,
+					// Above the file preview content it covers, far below modals (9999)
+					// and Center Flash (100001) so it can never sit over an overlay.
+					zIndex: 5,
+					backgroundColor: theme.colors.bgMain,
+				}}
+			>
+				{player}
+			</div>
+		);
+	}
+
+	if (dismissed) {
+		// Hidden by the user. Kept mounted and off screen so playback continues -
+		// dismissing hides a control, it does not stop media. `visibility: hidden`
+		// (not unmounting, not zero size) is what keeps a video's decode pipeline
+		// alive, the same reason the terminal and browser tab overlays use it.
+		return (
+			<div
+				data-testid="media-player-hidden"
+				style={{
+					position: 'fixed',
+					top: 0,
+					left: 0,
+					width: 480,
+					height: 270,
+					visibility: 'hidden',
+					pointerEvents: 'none',
+					zIndex: -1,
+				}}
+			>
+				{player}
+			</div>
+		);
+	}
 
 	return (
-		<>
-			{mediaTabs.map((ref) => (
-				<MediaPlaybackFrame key={ref.tabId} mediaRef={ref} slot={slots[ref.tabId]} theme={theme} />
-			))}
-		</>
+		<FloatingMediaPlayer
+			title={getMediaTabLabel(active)}
+			subtitle={active.sessionName}
+			kind={active.kind}
+			playing={playing}
+			onReturnToTab={returnToTab}
+			theme={theme}
+		>
+			{player}
+		</FloatingMediaPlayer>
 	);
 });
-
-interface MediaPlaybackFrameProps {
-	mediaRef: MediaTabRef;
-	slot:
-		| { rect: { top: number; left: number; width: number; height: number }; visible: boolean }
-		| undefined;
-	theme: Theme;
-}
-
-/**
- * One media element, positioned over its tab's slot. Split out so a rect change
- * on one tab does not re-render the others (and so React keeps each element
- * instance stable, which is the whole point).
- */
-function MediaPlaybackFrame({ mediaRef, slot, theme }: MediaPlaybackFrameProps) {
-	const clearAutoplay = useTabStore((s) => s.clearFileTabAutoplayMedia);
-
-	// Clear the persisted one-shot once it has been handed to the player, so no
-	// later re-render can replay a file the user has since paused. Child effects
-	// run before parent ones, so MediaViewer has already armed itself off the
-	// prop by the time this fires.
-	useEffect(() => {
-		if (mediaRef.autoplay) clearAutoplay(mediaRef.tabId);
-	}, [mediaRef.autoplay, mediaRef.tabId, clearAutoplay]);
-
-	// Before the slot has ever reported in, there is nothing sensible to lay out.
-	// Park the element off screen at a real size so it can still load and play.
-	const rect = slot?.rect ?? { top: 0, left: 0, width: 640, height: 360 };
-	const visible = slot?.visible ?? false;
-
-	return (
-		<div
-			data-media-frame={mediaRef.tabId}
-			style={{
-				position: 'fixed',
-				top: rect.top,
-				left: rect.left,
-				width: rect.width,
-				height: rect.height,
-				visibility: visible ? 'visible' : 'hidden',
-				pointerEvents: visible ? 'auto' : 'none',
-				// Above the file preview content, far below modals (9999) and
-				// Center Flash (100001) so it can never cover an overlay.
-				zIndex: visible ? 5 : -1,
-				backgroundColor: theme.colors.bgMain,
-			}}
-		>
-			<MediaViewer
-				tabId={mediaRef.tabId}
-				kind={mediaRef.kind}
-				name={`${mediaRef.name}${mediaRef.extension}`}
-				path={mediaRef.path}
-				autoplay={mediaRef.autoplay}
-				theme={theme}
-			/>
-		</div>
-	);
-}

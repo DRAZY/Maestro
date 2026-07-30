@@ -54,9 +54,6 @@ export function QuickActionsList({
 						{startsBucket && bucket === 'live' && (
 							<SectionHeader label="LIVE" color={getStatusColor('busy', theme)} />
 						)}
-						{startsBucket && bucket === 'media' && (
-							<SectionHeader label="MEDIA" color={theme.colors.accent} />
-						)}
 						{startsBucket && bucket === 'idle' && (
 							<SectionHeader label="IDLE" color={theme.colors.textDim} />
 						)}

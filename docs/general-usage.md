@@ -52,12 +52,30 @@ Preview. Supported formats are the ones Chromium can decode: `mp3`, `wav`,
 
 Playback starts as soon as you open the file, and **keeps going when you switch
 tabs or agents**. Start a podcast, go work somewhere else, and it follows you.
-Closing the tab is what stops it.
 
-To get back to whatever is playing, open the agent switcher (`Cmd+O` / `Ctrl+O`):
-anything currently making noise is listed under **MEDIA**, between LIVE and IDLE,
-with an icon showing whether it is audio or video and the agent it belongs to.
-Selecting a row jumps straight to that tab so you can pause it.
+### The Floating Player
+
+When you browse away from the tab, the player detaches into a small floating
+widget that stays on top of whatever you are doing:
+
+- **Drag the title bar** to move it anywhere, and **drag the bottom-right corner**
+  to resize it. It remembers where you left it, across restarts. Double-click the
+  corner to reset the size.
+- **Minimize** it to a slim pill with just the title and a play/pause button.
+- **Double-click the title bar** (or click the filename) to jump back to the
+  file's tab, which re-docks the player into it.
+- **Close** it to get it out of the way. This hides the controls only - the audio
+  keeps playing. Bring it back by opening a media file again, or with
+  **Show Floating Media Player** in the command palette (`Cmd+K` / `Ctrl+K`).
+
+Audio-only files get just the controls, since there is no picture to show.
+
+### One Player at a Time
+
+Only one file plays at a time, so you never end up with two podcasts talking over
+each other. You can still have several media files open: the **prev/next buttons**
+in the transport step between them, and each one remembers its position, so you
+can jump back and forth without losing your place.
 
 Files stream from disk with range requests, so scrubbing a multi-gigabyte
 screen recording is instant and does not load the file into memory.

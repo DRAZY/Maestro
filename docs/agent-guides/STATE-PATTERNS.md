@@ -337,12 +337,19 @@ interface GroupChatStoreState {
 **File:** `src/renderer/stores/mediaPlaybackStore.ts`
 **Hook:** `useMediaPlaybackStore`
 
-Transient (never persisted) state for audio/video files open in file preview tabs.
+State for the app's single audio/video player. Only the float geometry persists.
 
 ```typescript
 interface MediaPlaybackStoreState {
-	playing: Record<string, boolean>; // file tab ID -> currently making noise
-	slots: Record<string, { rect: MediaSlotRect; visible: boolean }>; // where to park each player
+	activeTabId: string | null; // the one file tab with a mounted player
+	playing: boolean;
+	dismissed: boolean; // floating widget hidden (playback continues)
+	minimized: boolean; // collapsed to a pill
+	pendingAutoplay: boolean; // one-shot: play when ready
+	toggleRequest: number; // nonce; each increment toggles play/pause
+	slots: Record<string, { rect: MediaSlotRect; visible: boolean }>; // docked placement
+	resumeTimes: Record<string, number>; // per tab, so navigating back resumes
+	floatRect: MediaFloatRect | null; // persisted via settings
 }
 ```
 
@@ -353,21 +360,35 @@ active session**, so switching tabs or agents unmounts it. Removing a media
 element from the document runs the HTML spec's internal pause steps, which would
 kill playback every time the user looked at something else.
 
-So the elements live in `MediaPlaybackHost`, mounted once in `App.tsx` and never
-unmounted. `FilePreview` renders a `MediaViewportSlot` in place of the player;
-the slot publishes its rect here, and the host parks a `position: fixed` box over
-it. When the owning tab goes off screen the box keeps its last rect and flips to
-`visibility: hidden` - the same choice the terminal and browser tab overlays make
-in `MainPanelContent`, and for the same reason. Never zero-size it: a collapsed
-video can lose its decode pipeline.
+So the element lives in `MediaPlaybackHost`, mounted once in `App.tsx` and never
+unmounted. It renders in one of two placements:
+
+- **Docked** - `FilePreview` renders a `MediaViewportSlot` in place of the
+  player; the slot publishes its rect here and the host parks a `position: fixed`
+  box over it.
+- **Floating** - `FloatingMediaPlayer`, a draggable/resizable now-playing widget,
+  when the owning tab is off screen.
+
+**One player, always.** Overlapping audio is structurally impossible rather than
+a rule to enforce: switching files unmounts the previous element. Use
+`stepMediaTab()` (`utils/mediaTabs.ts`) to navigate between open media tabs.
 
 ### Gotchas
 
-- `setPlaying(tabId, false)` on an untracked tab is a deliberate no-op. Absent and
-  `false` mean the same thing, so paused tabs do not accumulate entries.
+- **Dismissing does not stop playback.** Hiding a control must not have the side
+  effect of stopping media. The widget returns via the "Show Floating Media
+  Player" palette command or by opening a media file.
+- **Minimizing must not unmount the player.** `FloatingMediaPlayer` hides the body
+  with a class; unmounting it would pause the media.
+- A visible media tab always owns the player - `MediaViewportSlot` claims it on
+  mount. Without that, viewing file B while A floats would leave B's tab showing
+  an empty slot.
 - `setSlotRect` bails out on an identical rect. Without that, ResizeObserver churn
-  re-renders the host and with it every mounted media element.
-- `hideSlot` retains the rect; only `clearTab` (tab closed) forgets it.
+  re-renders the host and with it the media element.
+- `hideSlot` retains the rect; only `clearTab` (tab closed) forgets it. Never
+  zero-size a docked player: a collapsed video can lose its decode pipeline.
+- `toggleRequest` is a nonce, not a callback in state, so the pill's play button
+  can drive the element without a ref crossing the frame boundary.
 
 ---
 

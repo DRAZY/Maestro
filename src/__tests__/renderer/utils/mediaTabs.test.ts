@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { collectMediaTabs, getFileTabMediaKind } from '../../../renderer/utils/mediaTabs';
+import {
+	collectMediaTabs,
+	getFileTabMediaKind,
+	getMediaTabLabel,
+	stepMediaTab,
+	type MediaTabRef,
+} from '../../../renderer/utils/mediaTabs';
 import type { FilePreviewTab, Session } from '../../../renderer/types';
 
 const AUDIO_URL = 'maestro-media://stream/deadbeef/616263';
@@ -121,5 +127,43 @@ describe('collectMediaTabs', () => {
 	it('tolerates a session with no file tabs', () => {
 		expect(collectMediaTabs([session({ filePreviewTabs: undefined })])).toEqual([]);
 		expect(collectMediaTabs([])).toEqual([]);
+	});
+});
+
+describe('getMediaTabLabel', () => {
+	it('rejoins the name and extension', () => {
+		expect(getMediaTabLabel({ name: 'song', extension: '.mp3' })).toBe('song.mp3');
+	});
+});
+
+describe('stepMediaTab', () => {
+	const refs = ['a', 'b', 'c'].map((id) => ({ tabId: id }) as MediaTabRef);
+
+	it('steps forward and back through the open order', () => {
+		expect(stepMediaTab(refs, 'b', 1)?.tabId).toBe('c');
+		expect(stepMediaTab(refs, 'b', -1)?.tabId).toBe('a');
+	});
+
+	it('does not wrap, so the ends disable the buttons', () => {
+		expect(stepMediaTab(refs, 'c', 1)).toBeNull();
+		expect(stepMediaTab(refs, 'a', -1)).toBeNull();
+	});
+
+	it('returns null when there is nothing open', () => {
+		expect(stepMediaTab([], 'a', 1)).toBeNull();
+		expect(stepMediaTab([], null, -1)).toBeNull();
+	});
+
+	it('enters from the matching end when the active tab is unknown', () => {
+		// Happens right after the playing tab closes, or before anything loads.
+		expect(stepMediaTab(refs, null, 1)?.tabId).toBe('a');
+		expect(stepMediaTab(refs, null, -1)?.tabId).toBe('c');
+		expect(stepMediaTab(refs, 'gone', 1)?.tabId).toBe('a');
+	});
+
+	it('has nowhere to go with a single file, so both buttons stay hidden', () => {
+		const one = [{ tabId: 'only' } as MediaTabRef];
+		expect(stepMediaTab(one, 'only', 1)).toBeNull();
+		expect(stepMediaTab(one, 'only', -1)).toBeNull();
 	});
 });
