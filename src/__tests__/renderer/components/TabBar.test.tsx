@@ -1064,7 +1064,7 @@ describe('TabBar', () => {
 			expect(mockOnOpenTabSearch).toHaveBeenCalled();
 		});
 
-		it('opens search popover and calls onOpenOutputSearch when Search Message History clicked', () => {
+		it('opens search popover and calls onOpenOutputSearch when the this-tab entry is clicked', () => {
 			const mockOnOpenOutputSearch = vi.fn();
 			render(
 				<TabBar
@@ -1081,8 +1081,8 @@ describe('TabBar', () => {
 
 			// Click the search button to open the popover
 			fireEvent.click(screen.getByTitle('Search…'));
-			// Click "Search Message History" in the popover
-			fireEvent.click(screen.getByText('Search Message History'));
+			// Click the this-tab message search entry in the popover
+			fireEvent.click(screen.getByText('Search Messages (this tab)'));
 			expect(mockOnOpenOutputSearch).toHaveBeenCalled();
 		});
 
@@ -1102,7 +1102,7 @@ describe('TabBar', () => {
 			);
 
 			fireEvent.click(screen.getByTitle('Search…'));
-			fireEvent.click(screen.getByText('Search Message History Across All Open Tabs'));
+			fireEvent.click(screen.getByText('Search Messages (all agent tabs)'));
 			expect(mockOnOpenCrossTabSearch).toHaveBeenCalled();
 		});
 
@@ -1120,9 +1120,7 @@ describe('TabBar', () => {
 			);
 
 			fireEvent.click(screen.getByTitle('Search…'));
-			expect(
-				screen.queryByText('Search Message History Across All Open Tabs')
-			).not.toBeInTheDocument();
+			expect(screen.queryByText('Search Messages (all agent tabs)')).not.toBeInTheDocument();
 		});
 	});
 

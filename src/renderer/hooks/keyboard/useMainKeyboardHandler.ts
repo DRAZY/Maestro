@@ -3,6 +3,7 @@ import type { Session, AITab, ThinkingMode } from '../../types';
 import { getInitialRenameValue, moveActiveUnifiedTabToEdge } from '../../utils/tabHelpers';
 import { useModalStore } from '../../stores/modalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { selectActiveSession, useSessionStore } from '../../stores/sessionStore';
 import { isActiveOutputSearchOpen } from '../../utils/outputSearch';
 import { isMacOSPlatform } from '../../utils/platformUtils';
 import { editClipboardImage } from '../../components/ImageAnnotator/editClipboardImage';
@@ -652,9 +653,18 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				ctx.mainPanelRef?.current?.focusActiveTab();
 				trackShortcut('focusActiveTab');
 			} else if (ctx.isShortcut(e, 'searchAllTabs')) {
-				e.preventDefault();
-				// Group chats have no AI tabs to search across.
-				if (!ctx.activeGroupChatId && ctx.activeSession?.aiTabs?.length) {
+				// Resolve the agent from the store at event time rather than reading
+				// `ctx.activeSession`. The keyboard context's shape is not stable across
+				// branches (the multi-window work drops `activeSession` from the ref and
+				// resolves it per event), and a missing property here made the guard
+				// silently falsy - which, with preventDefault already called, swallowed
+				// the keystroke with no visible effect.
+				const searchSession = selectActiveSession(useSessionStore.getState());
+				// Group chats have no AI tabs to search across. preventDefault only when
+				// we actually act, so an inapplicable context falls through instead of
+				// eating the key.
+				if (!ctx.activeGroupChatId && searchSession?.aiTabs?.length) {
+					e.preventDefault();
 					ctx.handleOpenCrossTabSearch?.();
 					trackShortcut('searchAllTabs');
 				}

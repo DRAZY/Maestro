@@ -341,7 +341,7 @@ backward through them.
 
 `Opt+Cmd+F` / `Alt+Ctrl+F` opens a modal that searches the message history of
 **all** open tabs in the current agent at once. It's also in the command palette
-as "Search: Message History (All Open Tabs)".
+as "Search: Messages (All Agent Tabs)".
 
 Results are grouped by tab, each row showing who said it, when, a preview of the
 hit with the match highlighted, and a pill when that message contains several
