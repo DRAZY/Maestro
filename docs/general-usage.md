@@ -50,6 +50,15 @@ Preview. Supported formats are the ones Chromium can decode: `mp3`, `wav`,
 `webm`, `mov`, `ogv` for video. Anything else (`mkv`, `avi`) still gets the
 "Open in Default App" fallback.
 
+Playback starts as soon as you open the file, and **keeps going when you switch
+tabs or agents**. Start a podcast, go work somewhere else, and it follows you.
+Closing the tab is what stops it.
+
+To get back to whatever is playing, open the agent switcher (`Cmd+O` / `Ctrl+O`):
+anything currently making noise is listed under **MEDIA**, between LIVE and IDLE,
+with an icon showing whether it is audio or video and the agent it belongs to.
+Selecting a row jumps straight to that tab so you can pause it.
+
 Files stream from disk with range requests, so scrubbing a multi-gigabyte
 screen recording is instant and does not load the file into memory.
 

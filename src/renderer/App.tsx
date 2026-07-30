@@ -167,6 +167,7 @@ import { useActiveSession } from './hooks/session/useActiveSession';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
+import { MediaPlaybackHost } from './components/MediaPlayback';
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 
 // Import services
@@ -3474,6 +3475,12 @@ function MaestroConsoleInner() {
 
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
+
+				{/* --- MEDIA PLAYBACK (single, app-wide, never unmounted) ---
+				    Owns every <audio>/<video> element so playback survives switching
+				    tabs and agents. Each element is parked over the MediaViewportSlot
+				    its file preview tab renders. See MediaPlaybackHost. */}
+				<MediaPlaybackHost theme={theme} />
 			</div>
 		</>
 	);

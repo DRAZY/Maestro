@@ -191,6 +191,19 @@ multi-GB recording never crosses IPC or lands in the renderer heap.
 | `MEDIA_PLAYBACK_RATES`                    | `readonly number[]`                        | Speed ladder shown in the transport.                                                                 |
 | `normalizePlaybackRate(value)`            | `(unknown) => number`                      | Clamp a persisted/CLI-supplied rate to 0.25-4, falling back to 1.                                    |
 
+### Media File Tabs (`src/renderer/utils/mediaTabs.ts` - Renderer)
+
+| Function                             | Signature                               | Purpose                                                                 |
+| ------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------- |
+| `getFileTabMediaKind(name, content)` | `(string, string) => MediaKind \| null` | The one predicate for "is this previewed file playable media".          |
+| `collectMediaTabs(sessions)`         | `(Session[]) => MediaTabRef[]`          | Every media tab across **all** agents, for the app-level playback host. |
+
+`getFileTabMediaKind` takes the filename and content as separate scalars on
+purpose: a `FilePreviewTab` splits `name` from `extension` (`'song'` + `'.mp3'`)
+while the object handed to `FilePreview` joins them back. Passing either record
+shape directly classifies everything as non-media, which silently kills playback
+outright. Callers must pass a filename that still has its extension.
+
 ---
 
 ## Template Variables (`src/shared/templateVariables.ts` - Both)

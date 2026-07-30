@@ -70,4 +70,68 @@ describe('quickActionSorting', () => {
 			false
 		);
 	});
+
+	it('orders the media bucket between live and idle', () => {
+		const sorted = filterAndSortQuickActions(
+			[
+				action({ id: 'idle-z', label: 'Zulu', isRunningAgent: false }),
+				action({ id: 'media-b', label: 'brief.mp3', playingMediaKind: 'audio' }),
+				action({ id: 'live-a', label: 'Atlas', isRunningAgent: true }),
+				action({ id: 'media-a', label: 'artist.mp4', playingMediaKind: 'video' }),
+				action({ id: 'idle-a', label: 'Alpha', isRunningAgent: false }),
+			],
+			'',
+			'agents'
+		);
+
+		expect(sorted.map((a) => a.id)).toEqual(['live-a', 'media-a', 'media-b', 'idle-a', 'idle-z']);
+	});
+
+	it('buckets a playing media row under media even though it is not a running agent', () => {
+		const sorted = filterAndSortQuickActions(
+			[
+				action({ id: 'idle', label: 'Agent', isRunningAgent: false }),
+				action({ id: 'media', label: 'pod.mp3', playingMediaKind: 'audio' }),
+			],
+			'',
+			'agents'
+		);
+		expect(sorted.map((a) => a.id)).toEqual(['media', 'idle']);
+	});
+
+	it('shows headers when only media and idle are present', () => {
+		expect(
+			shouldShowAgentBucketHeaders(
+				[
+					action({ id: 'media', label: 'pod.mp3', playingMediaKind: 'audio' }),
+					action({ id: 'idle', label: 'Idle', isRunningAgent: false }),
+				],
+				'agents'
+			)
+		).toBe(true);
+	});
+
+	it('hides headers when every row is in the same bucket', () => {
+		expect(
+			shouldShowAgentBucketHeaders(
+				[
+					action({ id: 'a', label: 'A', isRunningAgent: false }),
+					action({ id: 'b', label: 'B', isRunningAgent: false }),
+				],
+				'agents'
+			)
+		).toBe(false);
+	});
+
+	it('filters media rows by the search query like any other row', () => {
+		const sorted = filterAndSortQuickActions(
+			[
+				action({ id: 'media-a', label: 'podcast.mp3', playingMediaKind: 'audio' }),
+				action({ id: 'media-b', label: 'lecture.mp4', playingMediaKind: 'video' }),
+			],
+			'podcast',
+			'agents'
+		);
+		expect(sorted.map((a) => a.id)).toEqual(['media-a']);
+	});
 });

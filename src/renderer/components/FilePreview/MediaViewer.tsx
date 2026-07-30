@@ -16,19 +16,22 @@ import {
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { Spinner } from '../ui/Spinner';
 import { formatElapsedTimeColon } from '../../../shared/formatters';
-import { MEDIA_PLAYBACK_RATES, type MediaKind } from '../../../shared/mediaTypes';
+import { MEDIA_PLAYBACK_RATES, isMediaStreamUrl, type MediaKind } from '../../../shared/mediaTypes';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
 import { useEventListener } from '../../hooks/utils/useEventListener';
 
 interface MediaViewerProps {
-	/** `maestro-media://` stream URL produced by the main process. */
-	src: string;
+	/** File tab that owns this player. Keys its entry in the playback store. */
+	tabId: string;
 	/** Whether to mount an <audio> or a <video> element. */
 	kind: MediaKind;
 	/** File name, used for the audio placeholder label. */
 	name: string;
-	/** Absolute path, used by the "open externally" fallback. */
+	/** Absolute path. Re-resolved into a fresh stream URL, and the "open externally" target. */
 	path: string;
+	/** Start playing as soon as the file is ready. Set for tabs the user just opened. */
+	autoplay?: boolean;
 	theme: any;
 }
 
@@ -52,12 +55,16 @@ const formatTime = (seconds: number): string =>
  *
  * Playback speed is read from and written back to the global settings store,
  * so the rate the user picks sticks across files and across restarts.
+ *
+ * This is mounted by MediaPlaybackHost, not by FilePreview - see that file for
+ * why the element has to outlive the tab's render tree.
  */
 export const MediaViewer = memo(function MediaViewer({
-	src,
+	tabId,
 	kind,
 	name,
 	path,
+	autoplay = false,
 	theme,
 }: MediaViewerProps) {
 	const mediaRef = useRef<HTMLMediaElement | null>(null);
@@ -66,7 +73,9 @@ export const MediaViewer = memo(function MediaViewer({
 
 	const playbackRate = useSettingsStore((s) => s.mediaPlaybackRate);
 	const setPlaybackRate = useSettingsStore((s) => s.setMediaPlaybackRate);
+	const reportPlaying = useMediaPlaybackStore((s) => s.setPlaying);
 
+	const [src, setSrc] = useState<string | null>(null);
 	const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
 	const [playing, setPlaying] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
@@ -77,14 +86,55 @@ export const MediaViewer = memo(function MediaViewer({
 	const [rateMenuOpen, setRateMenuOpen] = useState(false);
 
 	const isVideo = kind === 'video';
+	// Armed per resolved file, consumed once it becomes playable. Keeping this in
+	// a ref (rather than reading the prop at play time) is what stops a return
+	// visit to the tab from restarting something the user deliberately paused.
+	const autoplayPendingRef = useRef(false);
+	// Read inside the path effect without making the effect depend on it: the
+	// request is only ever relevant at the moment a new file starts loading.
+	const autoplayRequestedRef = useRef(autoplay);
+	autoplayRequestedRef.current = autoplay;
 
-	// Reset transport state when the tab switches to a different file.
+	// Resolve a fresh stream URL rather than trusting the tab's stored content.
+	// Stream URLs carry a per-boot capability token, and file preview tabs are
+	// persisted verbatim - so a media tab restored from disk holds a URL the
+	// protocol handler will (correctly) reject. Re-reading the path mints a URL
+	// valid for this boot, which makes restored media tabs just work.
 	useEffect(() => {
+		let cancelled = false;
+		setSrc(null);
 		setLoadState('loading');
 		setPlaying(false);
 		setCurrentTime(0);
 		setDuration(0);
-	}, [src]);
+		// Re-arm per file, so repurposing this tab onto a new media file plays it.
+		autoplayPendingRef.current = autoplayRequestedRef.current;
+
+		void (async () => {
+			try {
+				const resolved = await window.maestro.fs.readFile(path);
+				if (cancelled) return;
+				if (!isMediaStreamUrl(resolved)) {
+					// Deleted, moved, or no longer servable as media.
+					setLoadState('error');
+					return;
+				}
+				setSrc(resolved);
+			} catch {
+				if (!cancelled) setLoadState('error');
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [path]);
+
+	// Mirror playback into the store so the Command palette's MEDIA section can
+	// list what is audible, and clear the entry when this player goes away.
+	useEffect(() => {
+		reportPlaying(tabId, playing);
+	}, [tabId, playing, reportPlaying]);
 
 	// Apply the persisted rate to the element on mount and on every change. The
 	// element resets playbackRate to 1 whenever a new source loads, so this also
@@ -104,6 +154,13 @@ export const MediaViewer = memo(function MediaViewer({
 		setDuration(Number.isFinite(el.duration) ? el.duration : 0);
 		el.playbackRate = playbackRate;
 		setLoadState('ready');
+		if (autoplayPendingRef.current) {
+			autoplayPendingRef.current = false;
+			// Local files with no gesture requirement: Electron's default autoplay
+			// policy allows this. A rejection (policy change, torn-down element)
+			// just leaves the file paused, which the transport already shows.
+			void el.play().catch(() => undefined);
+		}
 	}, [playbackRate]);
 
 	const handleTimeUpdate = useCallback(() => {
@@ -263,7 +320,9 @@ export const MediaViewer = memo(function MediaViewer({
 
 	const mediaProps = useMemo(
 		() => ({
-			src,
+			// Omitted until the stream URL resolves; an empty src would make the
+			// element fire a spurious 'error' and flip us to the unplayable card.
+			...(src ? { src } : {}),
 			preload: 'metadata' as const,
 			onLoadedMetadata: handleLoadedMetadata,
 			onTimeUpdate: handleTimeUpdate,
@@ -288,7 +347,7 @@ export const MediaViewer = memo(function MediaViewer({
 						Cannot Play This File
 					</p>
 					<p className="text-sm mt-1" style={{ color: theme.colors.textDim }}>
-						The codec inside this container is not supported.
+						The codec inside this container is not supported, or the file is no longer there.
 					</p>
 					<button
 						onClick={openExternally}
