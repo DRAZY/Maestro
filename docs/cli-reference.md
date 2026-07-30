@@ -515,7 +515,7 @@ Show unified history across all agents
 | --------------------- | ---------------------------------------------------- | ------- |
 | `-d, --days <n>`      | Lookback period in days (default: from app settings) | -       |
 | `-f, --format <type>` | Output format: json, markdown, text (default: text)  | -       |
-| `--filter <type>`     | Filter by entry type: auto, user, cue                | -       |
+| `--filter <type>`     | Filter by entry type: auto, user, cue, agent         | -       |
 | `-l, --limit <n>`     | Maximum entries to show (default: 100)               | -       |
 | `--json`              | Output as JSON (shorthand for --format json)         | -       |
 

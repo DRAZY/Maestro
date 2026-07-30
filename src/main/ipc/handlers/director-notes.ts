@@ -13,7 +13,7 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { logger } from '../../utils/logger';
 import { createSafeSend } from '../../utils/safe-send';
-import { HistoryEntry, ToolType } from '../../../shared/types';
+import { HistoryEntry, HistoryEntryType, ToolType } from '../../../shared/types';
 import { paginateEntries } from '../../../shared/history';
 import type { PaginatedResult } from '../../../shared/history';
 import { getHistoryManager } from '../../history-manager';
@@ -47,12 +47,12 @@ const LOG_CONTEXT = '[DirectorNotes]';
 /** Filter accepted by the unified-history IPCs: a single type, an array of
  *  types to include, or null/undefined for "all types". An empty array means
  *  "no types selected" and therefore matches nothing. */
-type UnifiedHistoryFilter = 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+type UnifiedHistoryFilter = HistoryEntryType | HistoryEntryType[] | null;
 
 /** Whether an entry's type passes the given filter. */
 function entryPassesFilter(type: HistoryEntry['type'], filter: UnifiedHistoryFilter): boolean {
 	if (filter == null) return true;
-	if (Array.isArray(filter)) return filter.includes(type as 'AUTO' | 'USER' | 'CUE');
+	if (Array.isArray(filter)) return filter.includes(type);
 	return type === filter;
 }
 
@@ -138,6 +138,7 @@ export interface GraphBucket {
 	auto: number;
 	user: number;
 	cue: number;
+	agent: number;
 }
 
 export interface UnifiedHistoryEntry extends HistoryEntry {
@@ -152,7 +153,13 @@ export interface UnifiedHistoryStats {
 	autoCount: number; // Total AUTO entries
 	userCount: number; // Total USER entries
 	cueCount: number; // Total CUE entries
-	totalCount: number; // Total entries (autoCount + userCount + cueCount)
+	/**
+	 * Total AGENT entries (messages proxied in from another agent). Named
+	 * `agentEntryCount`, not `agentCount`, because `agentCount` above already
+	 * means "distinct Maestro agents" on this interface.
+	 */
+	agentEntryCount: number;
+	totalCount: number; // Total entries (sum of the four type counts)
 }
 
 /** Options for the deterministic Rich Overview stats IPC */
@@ -169,6 +176,7 @@ export interface RichTimelineBucket {
 	auto: number;
 	user: number;
 	cue: number;
+	agent: number;
 }
 
 /** Per-agent activity rollup for the Rich Overview, sorted by entryCount desc. */
@@ -193,6 +201,8 @@ export interface RichOverviewStats {
 	autoCount: number;
 	userCount: number;
 	cueCount: number;
+	/** Total AGENT entries; `agentCount` above already means "distinct agents". */
+	agentEntryCount: number;
 	successCount: number; // Entries with success === true
 	failureCount: number; // Entries with success === false (missing success is neither)
 	successRate: number; // successCount / (successCount + failureCount); 0 when no outcomes
@@ -282,6 +292,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				let autoCount = 0;
 				let userCount = 0;
 				let cueCount = 0;
+				let agentEntryCount = 0;
 
 				// Pre-compute graph bucketing parameters if requested
 				// For "all time" (cutoffTime=0), we do a two-pass: first find earliest, then bucket
@@ -294,7 +305,12 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 
 				if (bucketCount > 0 && cutoffTime > 0) {
 					msPerBucket = (bucketEndTime - bucketStartTime) / bucketCount;
-					graphBuckets = Array.from({ length: bucketCount }, () => ({ auto: 0, user: 0, cue: 0 }));
+					graphBuckets = Array.from({ length: bucketCount }, () => ({
+						auto: 0,
+						user: 0,
+						cue: 0,
+						agent: 0,
+					}));
 				}
 
 				for (const sessionId of sessionIds) {
@@ -309,6 +325,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						if (entry.type === 'AUTO') autoCount++;
 						else if (entry.type === 'USER') userCount++;
 						else if (entry.type === 'CUE') cueCount++;
+						else if (entry.type === 'AGENT') agentEntryCount++;
 						if (entry.agentSessionId) uniqueAgentSessions.add(entry.agentSessionId);
 
 						// Track earliest for "all time" bucketing
@@ -326,6 +343,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 								if (entry.type === 'AUTO') graphBuckets[idx].auto++;
 								else if (entry.type === 'USER') graphBuckets[idx].user++;
 								else if (entry.type === 'CUE') graphBuckets[idx].cue++;
+								else if (entry.type === 'AGENT') graphBuckets[idx].agent++;
 							}
 						}
 
@@ -345,7 +363,12 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					if (earliestTimestamp === Infinity) earliestTimestamp = now - 24 * 60 * 60 * 1000;
 					bucketStartTime = earliestTimestamp;
 					msPerBucket = (bucketEndTime - bucketStartTime) / bucketCount;
-					graphBuckets = Array.from({ length: bucketCount }, () => ({ auto: 0, user: 0, cue: 0 }));
+					graphBuckets = Array.from({ length: bucketCount }, () => ({
+						auto: 0,
+						user: 0,
+						cue: 0,
+						agent: 0,
+					}));
 
 					if (msPerBucket > 0) {
 						for (const entry of allEntries) {
@@ -357,6 +380,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 								if (entry.type === 'AUTO') graphBuckets[idx].auto++;
 								else if (entry.type === 'USER') graphBuckets[idx].user++;
 								else if (entry.type === 'CUE') graphBuckets[idx].cue++;
+								else if (entry.type === 'AGENT') graphBuckets[idx].agent++;
 							}
 						}
 					}
@@ -375,7 +399,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					autoCount,
 					userCount,
 					cueCount,
-					totalCount: autoCount + userCount + cueCount,
+					agentEntryCount,
+					totalCount: autoCount + userCount + cueCount + agentEntryCount,
 				};
 
 				logger.debug(
@@ -435,6 +460,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						autoCount: hit.autoCount,
 						userCount: hit.userCount,
 						cueCount: hit.cueCount,
+						agentCount: hit.agentCount,
 						hostCounts: hit.hostCounts,
 						cached: true,
 						stats: {
@@ -443,7 +469,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 							autoCount: hit.autoCount,
 							userCount: hit.userCount,
 							cueCount: hit.cueCount,
-							totalCount: hit.autoCount + hit.userCount + hit.cueCount,
+							agentEntryCount: hit.agentCount,
+							totalCount: hit.autoCount + hit.userCount + hit.cueCount + hit.agentCount,
 						},
 					};
 				}
@@ -480,6 +507,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					autoCount: agg.autoCount,
 					userCount: agg.userCount,
 					cueCount: agg.cueCount,
+					agentCount: agg.agentCount,
 					hostCounts: agg.hostCounts,
 					computedAt: Date.now(),
 				});
@@ -493,6 +521,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					autoCount: agg.autoCount,
 					userCount: agg.userCount,
 					cueCount: agg.cueCount,
+					agentCount: agg.agentCount,
 					hostCounts: agg.hostCounts,
 					cached: false,
 					stats: {
@@ -501,7 +530,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						autoCount: agg.autoCount,
 						userCount: agg.userCount,
 						cueCount: agg.cueCount,
-						totalCount: agg.autoCount + agg.userCount + agg.cueCount,
+						agentEntryCount: agg.agentCount,
+						totalCount: agg.autoCount + agg.userCount + agg.cueCount + agg.agentCount,
 					},
 				};
 			}
@@ -578,6 +608,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				let autoCount = 0;
 				let userCount = 0;
 				let cueCount = 0;
+				let agentEntryCount = 0;
 				let successCount = 0;
 				let failureCount = 0;
 				let totalElapsedMs = 0;
@@ -597,6 +628,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						if (entry.type === 'AUTO') autoCount++;
 						else if (entry.type === 'USER') userCount++;
 						else if (entry.type === 'CUE') cueCount++;
+						else if (entry.type === 'AGENT') agentEntryCount++;
 
 						// Only explicit booleans count; a missing success is neither.
 						if (entry.success === true) successCount++;
@@ -638,6 +670,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					auto: b.auto,
 					user: b.user,
 					cue: b.cue,
+					agent: b.agent,
 				}));
 
 				const perAgent = Array.from(perAgentMap.values()).sort(
@@ -660,6 +693,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					autoCount,
 					userCount,
 					cueCount,
+					agentEntryCount,
 					successCount,
 					failureCount,
 					successRate,

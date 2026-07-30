@@ -680,7 +680,7 @@ directorNotes
 	.description('Show unified history across all agents')
 	.option('-d, --days <n>', 'Lookback period in days (default: from app settings)')
 	.option('-f, --format <type>', 'Output format: json, markdown, text (default: text)')
-	.option('--filter <type>', 'Filter by entry type: auto, user, cue')
+	.option('--filter <type>', 'Filter by entry type: auto, user, cue, agent')
 	.option('-l, --limit <n>', 'Maximum entries to show (default: 100)')
 	.option('--json', 'Output as JSON (shorthand for --format json)')
 	.action(directorNotesHistory);

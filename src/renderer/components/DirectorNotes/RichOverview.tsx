@@ -28,6 +28,7 @@ import type { Theme } from '../../types';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { Spinner } from '../ui/Spinner';
 import { CUE_COLOR } from '../../../shared/cue-pipeline-types';
+import { AGENT_COLOR } from '../../../shared/crossAgentTypes';
 import { formatNumber, formatDurationLong } from '../../../shared/formatters';
 import { generateTerminalProseStyles } from '../../utils/markdownConfig';
 import { safeClipboardWrite } from '../../utils/clipboard';
@@ -123,13 +124,14 @@ export function RichOverview({
 	const failureColor = colorBlindMode ? COLORBLIND_STATUS_COLORS.error : theme.colors.error;
 
 	const timelineBuckets = richStats?.timelineBuckets ?? [];
-	const totalsTrend = timelineBuckets.map((b) => b.auto + b.user + b.cue);
+	const totalsTrend = timelineBuckets.map((b) => b.auto + b.user + b.cue + (b.agent ?? 0));
 
 	const totalEntries = richStats?.totalEntries ?? 0;
 	const agentCount = richStats?.agentCount ?? 0;
 	const autoCount = richStats?.autoCount ?? 0;
 	const userCount = richStats?.userCount ?? 0;
 	const cueCount = richStats?.cueCount ?? 0;
+	const agentEntryCount = richStats?.agentEntryCount ?? 0;
 	const successCount = richStats?.successCount ?? 0;
 	const failureCount = richStats?.failureCount ?? 0;
 	const successRate = richStats?.successRate ?? 0;
@@ -178,6 +180,7 @@ export function RichOverview({
 		{ label: 'User', value: userCount, color: userColor },
 		{ label: 'Auto', value: autoCount, color: autoColor },
 		{ label: 'Cue', value: cueCount, color: CUE_COLOR },
+		{ label: 'Agent', value: agentEntryCount, color: AGENT_COLOR },
 	];
 
 	const agentBars: BarDatum[] = (richStats?.perAgent ?? []).map((a) => ({

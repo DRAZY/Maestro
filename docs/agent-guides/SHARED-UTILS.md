@@ -267,14 +267,19 @@ UI: use `<AdditionalDirectoriesSection>` (`src/renderer/components/shared/`) - d
 
 ## History Utilities (`src/shared/history.ts` - Both)
 
-| Function / Constant                  | Signature                                            | Purpose                                                      |
-| ------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------ |
-| `HISTORY_VERSION`                    | `number` (1)                                         | Current history file format version.                         |
-| `MAX_ENTRIES_PER_SESSION`            | `number` (5000)                                      | Max history entries per session file.                        |
-| `ORPHANED_SESSION_ID`                | `string` (`'_orphaned'`)                             | Session ID for entries without associated sessions.          |
-| `sanitizeSessionId(sessionId)`       | `(string) => string`                                 | Replace non-safe chars with underscore for filesystem.       |
-| `paginateEntries(entries, options?)` | `<T>(T[], PaginationOptions?) => PaginatedResult<T>` | Apply limit/offset pagination. Default: limit 100, offset 0. |
-| `sortEntriesByTimestamp(entries)`    | `(HistoryEntry[]) => HistoryEntry[]`                 | Immutable sort by descending timestamp.                      |
+| Function / Constant                  | Signature                                            | Purpose                                                                                                                                                         |
+| ------------------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HISTORY_VERSION`                    | `number` (1)                                         | Current history file format version.                                                                                                                            |
+| `MAX_ENTRIES_PER_SESSION`            | `number` (5000)                                      | Max history entries per session file.                                                                                                                           |
+| `ORPHANED_SESSION_ID`                | `string` (`'_orphaned'`)                             | Session ID for entries without associated sessions.                                                                                                             |
+| `sanitizeSessionId(sessionId)`       | `(string) => string`                                 | Replace non-safe chars with underscore for filesystem.                                                                                                          |
+| `paginateEntries(entries, options?)` | `<T>(T[], PaginationOptions?) => PaginatedResult<T>` | Apply limit/offset pagination. Default: limit 100, offset 0.                                                                                                    |
+| `sortEntriesByTimestamp(entries)`    | `(HistoryEntry[]) => HistoryEntry[]`                 | Immutable sort by descending timestamp.                                                                                                                         |
+| `ALL_HISTORY_ENTRY_TYPES`            | `readonly HistoryEntryType[]`                        | The ONE list of entry types (`USER`, `AGENT`, `AUTO`, `CUE`), in filter-display order. Iterate it - never re-declare a local copy.                              |
+| `isHistoryEntryType(value)`          | `(unknown) => value is HistoryEntryType`             | Type guard for IPC/CLI/plugin payload validation.                                                                                                               |
+| `visibleHistoryEntryTypes(cueOn)`    | `(boolean) => HistoryEntryType[]`                    | Types a filter UI should offer; drops `CUE` when the Cue Encore Feature is off.                                                                                 |
+| `normalizeHistoryEntryType(entry)`   | `(HistoryEntry) => HistoryEntryType`                 | Re-maps legacy cross-agent consults (`AUTO` + `sourceAgentName`) to `AGENT`.                                                                                    |
+| `normalizeHistoryEntries(entries)`   | `(HistoryEntry[]) => HistoryEntry[]`                 | Batch form of the above; returns the same array when nothing changed. Applied at both read chokepoints (`HistoryManager.getEntries`, CLI `readSessionHistory`). |
 
 ---
 

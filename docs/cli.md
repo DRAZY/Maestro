@@ -1449,7 +1449,7 @@ maestro-cli director-notes synopsis --json
 | both       | `-d, --days <n>`      | Lookback period in days (defaults to the app's Director's Notes setting) |
 | both       | `-f, --format <type>` | Output format: `json`, `markdown`, `text` (default `text`)               |
 | both       | `--json`              | Shorthand for `--format json`                                            |
-| `history`  | `--filter <type>`     | Filter by entry type: `auto`, `user`, `cue`                              |
+| `history`  | `--filter <type>`     | Filter by entry type: `auto`, `user`, `cue`, `agent`                     |
 | `history`  | `-l, --limit <n>`     | Maximum entries to show (default 100)                                    |
 
 `synopsis` requires the desktop app to be running; `history` reads from disk and works offline. If `encoreFeatures.directorNotes` is disabled, enable it first with `maestro-cli settings set encoreFeatures.directorNotes true`.

@@ -31,7 +31,7 @@ export function CrossAgentMentionsSection({
 				<div className="font-medium" style={{ color: theme.colors.textMain }}>
 					Consult Permission
 				</div>
-				<div className="text-xs opacity-50 mt-0.5 mb-2" style={{ color: theme.colors.textDim }}>
+				<div className="text-xs opacity-50 mt-0.5 mb-2">
 					{crossAgentMentionsWritable
 						? 'Mentioned agents may modify files in their own workspace while answering.'
 						: 'Mentioned agents can read to inform their answer but never modify files (the default and safest choice).'}

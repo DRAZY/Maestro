@@ -37,6 +37,7 @@ import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { buildSharedHistoryContext } from '../utils/sessionHelpers';
 import { logger } from '../utils/logger';
 import { RIGHT_PANEL_COMPACT_THRESHOLD } from '../constants/rightPanel';
+import { visibleHistoryEntryTypes } from '../../shared/history';
 
 interface HistoryPanelProps {
 	session: Session;
@@ -93,9 +94,7 @@ export const HistoryPanel = React.memo(
 		const shortcuts = useSettingsStore((s) => s.shortcuts);
 		const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
 		const compact = rightPanelWidth < RIGHT_PANEL_COMPACT_THRESHOLD;
-		const visibleTypes: HistoryEntryType[] = maestroCueEnabled
-			? ['USER', 'AUTO', 'CUE']
-			: ['USER', 'AUTO'];
+		const visibleTypes: HistoryEntryType[] = visibleHistoryEntryTypes(maestroCueEnabled);
 
 		// History source-type filters (USER/AUTO/CUE) are persisted per-agent so
 		// each agent keeps its own selection across switches and app restarts.
@@ -462,6 +461,15 @@ export const HistoryPanel = React.memo(
 			count: allFilteredEntries.length,
 			getScrollElement: () => listRef.current,
 			estimateSize,
+			// Key measurements to the ENTRY, not its slot. The measurement cache is
+			// keyed by item key, and the default key is the index - so when a search
+			// or type filter changes the list, index 3 silently inherits the measured
+			// height of whatever used to be at index 3. A short entry landing in a
+			// tall entry's slot then renders with a large gap beneath it (and vice
+			// versa) until something forces a remeasure. Keying by id makes a changed
+			// list a cache miss, which correctly falls back to estimateSize and lets
+			// measureElement correct from there.
+			getItemKey: (index) => allFilteredEntries[index]?.id ?? index,
 			overscan: 5, // Render 5 extra items above/below viewport
 			gap: 12, // Space between items (equivalent to space-y-3)
 			initialRect: { width: 300, height: 600 }, // Provide initial dimensions to avoid flushSync during render

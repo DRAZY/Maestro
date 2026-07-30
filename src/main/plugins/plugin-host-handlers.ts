@@ -44,6 +44,7 @@ import {
 	type PanelContribution,
 } from '../../shared/plugins/contributions';
 import type { HistoryEntry } from '../../shared/types';
+import { isHistoryEntryType } from '../../shared/history';
 
 /** Cap a fetched response body so a hostile/huge response cannot exhaust memory. */
 const MAX_FETCH_BYTES = 5_000_000;
@@ -447,7 +448,7 @@ function sanitizeTranscriptWriteEntry(
 	sessionId: string,
 	projectPath: string
 ): HistoryEntry {
-	const type = raw.type === 'AUTO' || raw.type === 'USER' || raw.type === 'CUE' ? raw.type : 'USER';
+	const type = isHistoryEntryType(raw.type) ? raw.type : 'USER';
 	return {
 		id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : `${Date.now()}-${Math.random()}`,
 		type,

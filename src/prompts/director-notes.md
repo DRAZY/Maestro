@@ -14,7 +14,7 @@ You will receive a list of session history file paths below. Each file is a JSON
 	"entries": [
 		{
 			"id": "unique-id",
-			"type": "AUTO | USER",
+			"type": "AUTO | USER | CUE | AGENT",
 			"timestamp": 1234567890000,
 			"summary": "Brief description of work",
 			"fullResponse": "Full agent output (may be long)",

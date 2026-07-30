@@ -7,7 +7,7 @@
  */
 
 import { ipcRenderer } from 'electron';
-import type { ToolType, HistoryEntry } from '../../shared/types';
+import type { ToolType, HistoryEntry, HistoryEntryType } from '../../shared/types';
 import type { DirectorNotesNarrative } from '../../shared/directorNotesNarrative';
 
 /** Aggregate stats returned alongside unified history */
@@ -25,6 +25,7 @@ export interface GraphBucket {
 	auto: number;
 	user: number;
 	cue: number;
+	agent: number;
 }
 
 /**
@@ -47,7 +48,7 @@ export interface UnifiedHistoryOptions {
 	lookbackDays: number;
 	// A single type, an array of types to include, or null for "all".
 	// An empty array selects nothing.
-	filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+	filter?: HistoryEntryType | HistoryEntryType[] | null;
 	/** Number of entries to return per page (default: 100) */
 	limit?: number;
 	/** Number of entries to skip for pagination (default: 0) */
@@ -61,7 +62,7 @@ export interface UnifiedHistoryOptions {
  */
 export interface UnifiedHistoryEntry {
 	id: string;
-	type: 'AUTO' | 'USER' | 'CUE';
+	type: HistoryEntryType;
 	timestamp: number;
 	summary: string;
 	fullResponse?: string;
@@ -202,7 +203,7 @@ export function createDirectorNotesApi() {
 			timestamp: number,
 			options?: {
 				lookbackDays?: number;
-				filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+				filter?: HistoryEntryType | HistoryEntryType[] | null;
 			}
 		): Promise<number> =>
 			ipcRenderer.invoke('director-notes:getOffsetForTimestamp', timestamp, options),

@@ -2164,7 +2164,7 @@ interface MaestroAPI {
 			sharedContext?: { sshRemoteId: string; remoteCwd: string },
 			projectPath?: string
 		) => Promise<{
-			buckets: Array<{ auto: number; user: number; cue: number }>;
+			buckets: Array<{ auto: number; user: number; cue: number; agent: number }>;
 			bucketCount: number;
 			earliestTimestamp: number;
 			latestTimestamp: number;
@@ -2172,6 +2172,7 @@ interface MaestroAPI {
 			autoCount: number;
 			userCount: number;
 			cueCount: number;
+			agentCount: number;
 			hostCounts: Record<string, number>;
 			cached: boolean;
 		}>;
@@ -3744,7 +3745,7 @@ interface MaestroAPI {
 	directorNotes: {
 		getUnifiedHistory: (options: {
 			lookbackDays: number;
-			filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+			filter?: HistoryEntryType | HistoryEntryType[] | null;
 			limit?: number;
 			offset?: number;
 			graphBucketCount?: number;
@@ -3777,15 +3778,16 @@ interface MaestroAPI {
 				autoCount: number;
 				userCount: number;
 				cueCount: number;
+				agentEntryCount: number;
 				totalCount: number;
 			};
-			graphBuckets?: Array<{ auto: number; user: number; cue: number }>;
+			graphBuckets?: Array<{ auto: number; user: number; cue: number; agent: number }>;
 		}>;
 		getGraphData: (
 			bucketCount: number,
 			lookbackHours: number | null
 		) => Promise<{
-			buckets: Array<{ auto: number; user: number; cue: number }>;
+			buckets: Array<{ auto: number; user: number; cue: number; agent: number }>;
 			bucketCount: number;
 			earliestTimestamp: number;
 			latestTimestamp: number;
@@ -3793,6 +3795,7 @@ interface MaestroAPI {
 			autoCount: number;
 			userCount: number;
 			cueCount: number;
+			agentCount: number;
 			cached: boolean;
 			stats: {
 				agentCount: number;
@@ -3800,6 +3803,7 @@ interface MaestroAPI {
 				autoCount: number;
 				userCount: number;
 				cueCount: number;
+				agentEntryCount: number;
 				totalCount: number;
 			};
 		}>;
@@ -3807,7 +3811,7 @@ interface MaestroAPI {
 			timestamp: number,
 			options?: {
 				lookbackDays?: number;
-				filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+				filter?: HistoryEntryType | HistoryEntryType[] | null;
 			}
 		) => Promise<number>;
 		/**
@@ -3821,12 +3825,19 @@ interface MaestroAPI {
 			autoCount: number;
 			userCount: number;
 			cueCount: number;
+			agentEntryCount: number;
 			successCount: number;
 			failureCount: number;
 			successRate: number;
 			totalElapsedMs: number;
 			avgElapsedMs: number;
-			timelineBuckets: Array<{ startTime: number; auto: number; user: number; cue: number }>;
+			timelineBuckets: Array<{
+				startTime: number;
+				auto: number;
+				user: number;
+				cue: number;
+				agent: number;
+			}>;
 			perAgent: Array<{
 				sessionId: string;
 				agentName: string;

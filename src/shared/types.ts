@@ -340,8 +340,23 @@ export interface UsageStats {
 	};
 }
 
-// History entry types for the History panel
-export type HistoryEntryType = 'AUTO' | 'USER' | 'CUE';
+/**
+ * History entry types for the History panel.
+ *
+ * - `USER`  - an interactive turn the user typed themselves.
+ * - `AUTO`  - an Auto Run (playbook / goal) task the engine dispatched.
+ * - `CUE`   - a turn triggered by a Cue subscription.
+ * - `AGENT` - an ordinary message proxied in from ANOTHER agent (a cross-agent
+ *   `@mention` consult). It is a normal turn, not automation: the only thing
+ *   that differs from `USER` is who typed it. Consults were originally logged as
+ *   `AUTO`, which made them render as Auto Run tasks and inflated the Auto Run
+ *   counts; `normalizeHistoryEntryType` in `shared/history.ts` re-maps those
+ *   legacy entries on read.
+ *
+ * Adding a member here? `ALL_HISTORY_ENTRY_TYPES` (shared/history.ts) is the
+ * single list every filter/validator iterates - update it, not a local copy.
+ */
+export type HistoryEntryType = 'AUTO' | 'USER' | 'CUE' | 'AGENT';
 
 export interface HistoryEntry {
 	id: string;
