@@ -146,7 +146,7 @@ export const DEFAULT_SHORTCUTS = {
 	},
 	searchAllTabs: {
 		id: 'searchAllTabs',
-		label: 'Search Messages Across All Tabs',
+		label: 'Search Messages (All Agent Tabs)',
 		keys: ['Alt', 'Meta', 'f'],
 	},
 	editClipboardImage: {

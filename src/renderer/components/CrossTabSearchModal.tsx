@@ -109,7 +109,7 @@ export function CrossTabSearchModal({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const selectedRowRef = useRef<HTMLButtonElement>(null);
 
-	useModalLayer(MODAL_PRIORITIES.CROSS_TAB_SEARCH, 'Search Messages Across All Tabs', onClose);
+	useModalLayer(MODAL_PRIORITIES.CROSS_TAB_SEARCH, 'Search Messages (All Agent Tabs)', onClose);
 
 	useEffect(() => {
 		inputRef.current?.focus();
@@ -174,7 +174,7 @@ export function CrossTabSearchModal({
 			<div
 				role="dialog"
 				aria-modal="true"
-				aria-label="Search Messages Across All Tabs"
+				aria-label="Search Messages (All Agent Tabs)"
 				tabIndex={-1}
 				className="modal-w-lg rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[700px] outline-none select-none"
 				style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}

@@ -59,6 +59,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	terminalFontFamily: '',
 	customFonts: [],
 	mediaPlaybackRate: 1,
+	mediaPlayerFloatRect: null,
 	logLevel: 'info',
 	defaultShell: getDefaultShell(),
 	webAuthEnabled: false,

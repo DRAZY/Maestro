@@ -164,6 +164,12 @@ describe('settingsStore', () => {
 			};
 		}
 
+		// Cue stats mock (not in global setup). loadAllSettings calls this for the
+		// one-time cueTimeMs backfill; default to "no retained history".
+		(window.maestro as any).cueStats = {
+			getHistoricalConductorCredit: vi.fn().mockResolvedValue(0),
+		};
+
 		vi.clearAllMocks();
 	});
 
@@ -1622,6 +1628,93 @@ describe('settingsStore', () => {
 			expect(state.settingsLoaded).toBe(true);
 			expect(state.fontFamily).toBe('Roboto Mono, Menlo, "Courier New", monospace');
 			expect(state.fontSize).toBe(14);
+		});
+
+		describe('cue time backfill', () => {
+			const HOUR = 60 * 60 * 1000;
+
+			/** Let the un-awaited backfill promise chain settle. */
+			const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+			it('re-attributes historical Cue credit into cueTimeMs', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					concurrentAutoRunTimeMigrationApplied: true,
+					autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 100 * HOUR },
+				});
+				(window.maestro as any).cueStats.getHistoricalConductorCredit.mockResolvedValue(25 * HOUR);
+
+				await loadAllSettings();
+				await flush();
+
+				const stats = useSettingsStore.getState().autoRunStats;
+				expect(stats.cueTimeMs).toBe(25 * HOUR);
+				// Re-attribution only - the total must not grow.
+				expect(stats.cumulativeTimeMs).toBe(100 * HOUR);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('cueTimeBackfillApplied', true);
+			});
+
+			it('never lets the Cue subtotal exceed the cumulative total', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					concurrentAutoRunTimeMigrationApplied: true,
+					autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 10 * HOUR },
+				});
+				(window.maestro as any).cueStats.getHistoricalConductorCredit.mockResolvedValue(50 * HOUR);
+
+				await loadAllSettings();
+				await flush();
+
+				expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(10 * HOUR);
+			});
+
+			it('keeps live-accrued credit when it already exceeds the historical total', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					autoRunStats: {
+						...DEFAULT_AUTO_RUN_STATS,
+						cumulativeTimeMs: 100 * HOUR,
+						cueTimeMs: 30 * HOUR,
+					},
+				});
+				(window.maestro as any).cueStats.getHistoricalConductorCredit.mockResolvedValue(25 * HOUR);
+
+				await loadAllSettings();
+				await flush();
+
+				expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(30 * HOUR);
+			});
+
+			it('does not run once the backfill flag is set', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					cueTimeBackfillApplied: true,
+					autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 100 * HOUR },
+				});
+
+				await loadAllSettings();
+				await flush();
+
+				expect(
+					(window.maestro as any).cueStats.getHistoricalConductorCredit
+				).not.toHaveBeenCalled();
+				expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(0);
+			});
+
+			it('leaves the flag unset when the Cue database read fails, so it retries', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					concurrentAutoRunTimeMigrationApplied: true,
+					autoRunStats: { ...DEFAULT_AUTO_RUN_STATS, cumulativeTimeMs: 100 * HOUR },
+				});
+				(window.maestro as any).cueStats.getHistoricalConductorCredit.mockRejectedValue(
+					new Error('cue.db unavailable')
+				);
+
+				await loadAllSettings();
+				await flush();
+
+				expect(window.maestro.settings.set).not.toHaveBeenCalledWith(
+					'cueTimeBackfillApplied',
+					true
+				);
+				expect(useSettingsStore.getState().autoRunStats.cueTimeMs).toBe(0);
+			});
 		});
 
 		it('loads persisted starredSessionsCollapsed into the settings store', async () => {

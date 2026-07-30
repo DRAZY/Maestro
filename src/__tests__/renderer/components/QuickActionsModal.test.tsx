@@ -631,7 +631,7 @@ describe('QuickActionsModal', () => {
 			render(<QuickActionsModal {...props} />);
 
 			expect(screen.getByText('Search: Agents')).toBeInTheDocument();
-			expect(screen.getByText('Search: Message History')).toBeInTheDocument();
+			expect(screen.getByText('Search: Messages (This Tab)')).toBeInTheDocument();
 			expect(screen.getByText('Search: Files')).toBeInTheDocument();
 			expect(screen.getByText('Search: History')).toBeInTheDocument();
 		});
@@ -654,12 +654,12 @@ describe('QuickActionsModal', () => {
 			vi.useRealTimers();
 		});
 
-		it('handles Search: Message History action', async () => {
+		it('handles Search: Messages (This Tab) action', async () => {
 			vi.useFakeTimers();
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Search: Message History'));
+			fireEvent.click(screen.getByText('Search: Messages (This Tab)'));
 
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
 			expect(useUIStore.getState().activeFocus).toBe('main');
@@ -714,7 +714,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.change(input, { target: { value: 'search' } });
 
 			expect(screen.getByText('Search: Agents')).toBeInTheDocument();
-			expect(screen.getByText('Search: Message History')).toBeInTheDocument();
+			expect(screen.getByText('Search: Messages (This Tab)')).toBeInTheDocument();
 			expect(screen.getByText('Search: Files')).toBeInTheDocument();
 			expect(screen.getByText('Search: History')).toBeInTheDocument();
 		});
@@ -1639,7 +1639,7 @@ describe('QuickActionsModal', () => {
 
 			// Read labels off the dedicated attribute rather than parsing textContent:
 			// the old heuristic broke as soon as one label was a prefix of another
-			// ("Search: Message History" vs "Search: Message History (All Open Tabs)").
+			// ("Search: Messages (This Tab)" vs "Search: Messages (All Agent Tabs)").
 			const labels = Array.from(document.querySelectorAll<HTMLElement>('[data-action-label]')).map(
 				(el) => el.getAttribute('data-action-label') || ''
 			);
