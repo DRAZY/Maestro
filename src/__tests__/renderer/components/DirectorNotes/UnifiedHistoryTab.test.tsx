@@ -280,6 +280,13 @@ const createPaginatedResponse = (entries: any[], hasMore = false, total?: number
 });
 
 beforeEach(() => {
+	// UnifiedHistoryTab persists its USER/AUTO/CUE filter selection to
+	// localStorage (see historyFilterPersistence.ts). jsdom's localStorage is
+	// shared across tests in this file, so a filter toggled in one test
+	// otherwise leaks into every test that follows and silently filters out
+	// entries, shifting index-based assertions with no visible cause.
+	localStorage.clear();
+
 	mockDirNotesSettings.defaultLookbackDays = 7;
 	(window as any).maestro = {
 		directorNotes: {
