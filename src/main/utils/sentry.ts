@@ -12,13 +12,7 @@ export type SentrySeverityLevel = 'fatal' | 'error' | 'warning' | 'log' | 'info'
 
 /** Breadcrumb categories for tracking user actions before crashes */
 export type BreadcrumbCategory =
-	| 'session'
-	| 'agent'
-	| 'navigation'
-	| 'ui'
-	| 'ipc'
-	| 'memory'
-	| 'file';
+	'session' | 'agent' | 'navigation' | 'ui' | 'ipc' | 'memory' | 'file';
 
 /** Sentry module type for crash reporting */
 interface SentryModule {

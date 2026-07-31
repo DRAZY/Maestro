@@ -623,8 +623,7 @@ export function updateHeartbeat(): void {
  */
 export function getLastHeartbeat(): number | null {
 	const row = getDb().prepare(`SELECT last_seen FROM cue_heartbeat WHERE id = 1`).get() as
-		| { last_seen: number }
-		| undefined;
+		{ last_seen: number } | undefined;
 	return row?.last_seen ?? null;
 }
 
@@ -707,8 +706,7 @@ export function getGitHubItemState(
 			`SELECT last_revision, fire_count FROM cue_github_seen WHERE subscription_id = ? AND item_key = ?`
 		)
 		.get(subscriptionId, itemKey) as
-		| { last_revision: string | null; fire_count: number }
-		| undefined;
+		{ last_revision: string | null; fire_count: number } | undefined;
 	if (!row) return null;
 	return {
 		lastRevision: row.last_revision,
@@ -984,8 +982,7 @@ export function deleteTelemetryEvents(ids: string[]): void {
 export function countTelemetryEvents(): number {
 	if (!db) return 0;
 	const row = db.prepare(`SELECT COUNT(*) AS c FROM cue_telemetry_outbox`).get() as
-		| { c: number }
-		| undefined;
+		{ c: number } | undefined;
 	return row?.c ?? 0;
 }
 

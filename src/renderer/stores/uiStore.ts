@@ -24,8 +24,7 @@ import { notifyCenterFlash } from './centerFlashStore';
  * time - landing on a starred/group-chat row sets selectedSidebarIndex to -1.
  */
 export type SidebarExtraSelection =
-	| { kind: 'starred'; key: string }
-	| { kind: 'groupChat'; id: string };
+	{ kind: 'starred'; key: string } | { kind: 'groupChat'; id: string };
 
 /** Per-window state for the AI chat "Find" bar (one slot per agent+AI-tab). */
 export interface OutputSearchSlot {
@@ -121,19 +120,6 @@ export interface UIStoreState {
 	// scheduler (usage-refresh-scheduler.ts) reads the same persisted map and is
 	// the sole driver of background sampling on this cadence.
 	usageRefreshIntervals: Record<string, number>;
-
-	// User-chosen size for every resizable modal, keyed by the modal's stable
-	// `resizeKey` (see Modal's `resizeKey` prop). A missing entry means the modal
-	// is still at its declared default size. Persisted via settings write-through
-	// (same pattern as hiddenQuotaAccounts) and hydrated by loadAllSettings on
-	// startup, so a resize survives restarts.
-	modalSizes: Record<string, ModalSize>;
-}
-
-/** Pixel size a user dragged a resizable modal to. */
-export interface ModalSize {
-	width: number;
-	height: number;
 }
 
 export interface UIStoreActions {
@@ -221,12 +207,6 @@ export interface UIStoreActions {
 
 	// Set the auto-refresh interval (ms; 0 = off) for a provider quota panel.
 	setUsageRefreshInterval: (providerId: string, ms: number) => void;
-
-	// Remember the size a resizable modal was dragged to.
-	setModalSize: (resizeKey: string, size: ModalSize) => void;
-
-	// Forget a modal's remembered size, so it reopens at its declared default.
-	resetModalSize: (resizeKey: string) => void;
 }
 
 export type UIStore = UIStoreState & UIStoreActions;
@@ -289,15 +269,6 @@ function persistUsageRefreshIntervals(value: Record<string, number>): void {
 	window.maestro?.settings?.set('usageRefreshIntervals', value);
 }
 
-/**
- * Persist the per-modal size map so a resized modal reopens at the size the user
- * left it, across restarts. Hydrated back into this store on startup by
- * `loadAllSettings` in settingsStore.
- */
-function persistModalSizes(value: Record<string, ModalSize>): void {
-	window.maestro?.settings?.set('modalSizes', value);
-}
-
 export const useUIStore = create<UIStore>()((set) => ({
 	// --- State ---
 	leftSidebarOpen: true,
@@ -324,7 +295,6 @@ export const useUIStore = create<UIStore>()((set) => ({
 	usageDashboardViewMode: 'overview',
 	hiddenQuotaAccounts: {},
 	usageRefreshIntervals: {},
-	modalSizes: {},
 
 	// --- Actions ---
 	setLeftSidebarOpen: (v) => set((s) => ({ leftSidebarOpen: resolve(v, s.leftSidebarOpen) })),
@@ -437,21 +407,5 @@ export const useUIStore = create<UIStore>()((set) => ({
 			const nextMap = { ...s.usageRefreshIntervals, [providerId]: ms };
 			persistUsageRefreshIntervals(nextMap);
 			return { usageRefreshIntervals: nextMap };
-		}),
-
-	setModalSize: (resizeKey, size) =>
-		set((s) => {
-			const nextMap = { ...s.modalSizes, [resizeKey]: size };
-			persistModalSizes(nextMap);
-			return { modalSizes: nextMap };
-		}),
-
-	resetModalSize: (resizeKey) =>
-		set((s) => {
-			if (s.modalSizes[resizeKey] === undefined) return {};
-			const nextMap = { ...s.modalSizes };
-			delete nextMap[resizeKey];
-			persistModalSizes(nextMap);
-			return { modalSizes: nextMap };
 		}),
 }));

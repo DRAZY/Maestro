@@ -137,6 +137,13 @@ describe('HistoryPanel', () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 
+		// HistoryPanel persists its USER/AUTO/CUE filter selection to
+		// localStorage per agent (see historyFilterPersistence.ts). jsdom's
+		// localStorage is shared across tests in this file, so a filter
+		// toggled in one test otherwise leaks into every test that follows
+		// and silently filters out entries with no visible cause.
+		localStorage.clear();
+
 		// Reset uiStore state used by HistoryPanel
 		useUIStore.setState({ historySearchFilterOpen: false });
 

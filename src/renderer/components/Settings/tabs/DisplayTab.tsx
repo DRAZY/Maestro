@@ -188,8 +188,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 			setSystemFonts(detected);
 
 			const savedCustomFonts = (await window.maestro.settings.get('customFonts')) as
-				| string[]
-				| undefined;
+				string[] | undefined;
 			if (savedCustomFonts && Array.isArray(savedCustomFonts)) {
 				setCustomFonts(savedCustomFonts);
 			}

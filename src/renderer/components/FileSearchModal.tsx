@@ -5,10 +5,12 @@ import type { Theme, Shortcut } from '../types';
 import type { FileNode } from '../types/fileTree';
 import { fuzzyMatchWithScore } from '../utils/search';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
+import { useResizableModal } from '../hooks/ui/useResizableModal';
 import { useDebouncedValue } from '../hooks/utils/useThrottle';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { isAbsolutePath, getBasename } from '../../shared/formatters';
+import { ResizeHandles } from './ui/ResizeHandles';
 
 /** Flattened file item for the search list */
 export interface FlatFileItem {
@@ -371,7 +373,7 @@ export function FileSearchModal({
 	);
 
 	// Open the absolute path currently typed in the search box. No-op unless it
-	// has resolved to an existing file — folders and missing paths can't preview.
+	// has resolved to an existing file - folders and missing paths can't preview.
 	const handleAbsoluteOpen = useCallback(() => {
 		if (absDisplay.status !== 'file') return;
 		onFileSelect({
@@ -431,17 +433,35 @@ export function FileSearchModal({
 		const lastSlash = fullPath.lastIndexOf('/');
 		return lastSlash > 0 ? fullPath.substring(0, lastSlash) : '';
 	};
+	const resizableModal = useResizableModal({
+		resizeKey: 'file-search',
+		defaultSize: { width: 600, height: 550 },
+		minSize: { width: 420, height: 320 },
+	});
 
 	return (
-		<div className="fixed inset-0 modal-overlay flex items-start justify-center pt-32 z-[9999] animate-in fade-in duration-100">
+		<div className="fixed inset-0 modal-overlay flex items-center justify-center p-8 z-[9999] animate-in fade-in duration-100">
 			<div
+				ref={resizableModal.modalRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Fuzzy File Search"
 				tabIndex={-1}
-				className="modal-w-md rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[550px] outline-none"
-				style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+				className="relative rounded-xl shadow-2xl border overflow-hidden flex flex-col outline-none select-none"
+				style={{
+					...resizableModal.style,
+					backgroundColor: theme.colors.bgActivity,
+					borderColor: theme.colors.border,
+				}}
+				data-modal-resize-key="file-search"
 			>
+				<ResizeHandles
+					onResizeStart={resizableModal.onResizeStart}
+					accentColor={theme.colors.accent}
+					onResetSize={resizableModal.onResetSize}
+					canReset={resizableModal.canReset}
+				/>
+
 				{/* Search Header */}
 				<div
 					className="p-4 border-b flex items-center gap-3"
@@ -475,7 +495,7 @@ export function FileSearchModal({
 					</div>
 				</div>
 
-				{/* Mode Toggle Pills — hidden in absolute-path mode (no list to scope) */}
+				{/* Mode Toggle Pills - hidden in absolute-path mode (no list to scope) */}
 				{!isAbsoluteQuery && (
 					<div
 						className="px-4 py-2 flex items-center gap-2 border-b"
@@ -511,7 +531,7 @@ export function FileSearchModal({
 					</div>
 				)}
 
-				{/* Absolute-path open panel — replaces the file list when the query
+				{/* Absolute-path open panel - replaces the file list when the query
 				    is a full filesystem path that points at an existing file. */}
 				{isAbsoluteQuery && (
 					<div className="flex-1 flex flex-col items-center justify-center px-8 py-12 text-center gap-3">
