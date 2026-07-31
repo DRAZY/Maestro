@@ -570,6 +570,59 @@ You can always rename tabs manually:
 - Or double-click the tab name to edit it directly
 - Manual names take precedence over automatic naming
 
+### Snoozing Tabs
+
+Snooze hides an AI tab until a moment you choose, then brings it back with a notification you have to dismiss. It's the email-snooze idea applied to conversations: park work you can't act on yet without closing it or letting it clutter the tab bar.
+
+Hover a tab and choose **Snooze Tab**, or run **Snooze Tab** from Quick Actions (`Cmd+K` / `Ctrl+K`). Snoozing is available on AI tabs only.
+
+**Choosing when it comes back**
+
+The snooze dialog gives you three ways to pick a time, and always previews the exact moment it resolved to before you commit:
+
+- **Presets** - Later today, This evening, Tomorrow, This weekend, Next week, Next month. Presets that have already passed for the day drop off the list.
+- **Free-form text** - type it the way you'd say it:
+
+| What you type                         | When it comes back                            |
+| ------------------------------------- | --------------------------------------------- |
+| `1d`, `10h`, `45m`                    | That far from now                             |
+| `2 weeks`, `3 days`, `1d 4h`          | Compound durations work too                   |
+| `tomorrow`, `next week`, `next month` | 9:00 AM on that day                           |
+| `tonight`                             | 6:00 PM today                                 |
+| `friday`                              | The upcoming Friday                           |
+| `next friday`                         | Friday of the following week                  |
+| `3pm`, `15:45`                        | Today if it's still ahead, otherwise tomorrow |
+| `friday 3pm`, `tomorrow at 9am`       | A day plus a time                             |
+| `aug 5`, `2026-08-05`, `12/25 6pm`    | A specific date                               |
+
+- **Calendar** - pick a date from the month grid and set a time of day.
+
+**Note to self**
+
+Every snooze takes an optional note, and that note becomes the body of the notification when the tab returns. This is what turns snooze into a reminder system: leave yourself the reason you're coming back ("check if the migration finished", "review this before standup") instead of rediscovering it later.
+
+**What happens while a tab is snoozed**
+
+The tab disappears from the tab bar and from tab navigation. The conversation is preserved exactly as you left it, and the tab returns to its original position when it wakes. If you snooze an agent's only tab, a fresh empty tab takes its place so you're never left staring at an empty workspace.
+
+When the time arrives, the tab reappears and Maestro raises a notification that stays until you dismiss it, so a reminder can't scroll past unseen. Click it to jump straight to the tab.
+
+<Note>
+Wakes are delivered by the running app. If Maestro is closed when a snooze comes due, the tab returns the next time you launch - overdue reminders are never silently dropped.
+</Note>
+
+**Managing snoozed tabs**
+
+Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, or run **See All Snoozed Tabs** from Quick Actions. It shows every snoozed tab across all agents, soonest first, with its note and a countdown. Each row offers:
+
+- **Unsnooze** - bring the tab back right now
+- **Reschedule** - pick a new time or edit the note
+- **Dismiss** - drop the snooze and the tab, for when you no longer care
+
+<Note>
+Dismissing only discards Maestro's tab. The underlying conversation is still on disk and can be reopened from the Session Explorer.
+</Note>
+
 ## Session Management
 
 Browse, star, rename, and resume past sessions. The Session Explorer (`Cmd+Shift+L` / `Ctrl+Shift+L`) shows all conversations for an agent with search, filtering, and quick actions.

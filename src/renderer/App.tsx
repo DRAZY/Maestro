@@ -87,6 +87,7 @@ import {
 	// Tab handlers
 	useTabHandlers,
 	useTerminalTabHandlers,
+	useSnoozeScheduler,
 	// Group chat handlers
 	useGroupChatHandlers,
 	// Modal handlers
@@ -876,6 +877,10 @@ function MaestroConsoleInner() {
 		handleAtBottomChange,
 		handleDeleteLog,
 	} = useTabHandlers();
+
+	// Wakes snoozed tabs when their time arrives (and on launch, for wakes
+	// missed while Maestro was closed).
+	useSnoozeScheduler();
 
 	// --- TERMINAL TAB HANDLERS ---
 	const { handleOpenTerminalTab, handleSelectTerminalTab, handleCloseTerminalTab } =

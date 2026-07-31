@@ -652,6 +652,27 @@ export type ClosedTabEntry =
 	| { type: 'terminal'; tab: TerminalTab; unifiedIndex: number; closedAt: number }
 	| { type: 'browser'; tab: BrowserTab; unifiedIndex: number; closedAt: number };
 
+/**
+ * A snoozed AI tab, held out of the tab bar until `wakeAt`.
+ *
+ * Snoozing removes the tab from `aiTabs` entirely (rather than flagging it in
+ * place) so every consumer of the tab list - rendering, Cmd+1..9 navigation,
+ * cross-tab search, the thinking pill - hides it with no extra filtering. The
+ * shape mirrors {@link ClosedTabEntry} because waking reuses the same
+ * restore-at-original-position logic as reopening a closed tab.
+ *
+ * Unlike `unifiedClosedTabHistory` (a runtime-only undo stack), this list IS
+ * persisted: a snooze has to survive quitting the app.
+ */
+export interface SnoozedTabEntry {
+	id: string; // Snooze ID (stable across edits, used for list keys and wake dedupe)
+	tab: AITab; // The full tab, restored verbatim on wake
+	unifiedIndex: number; // Position in unifiedTabOrder at snooze time (restore target)
+	snoozedAt: number; // When the user snoozed it
+	wakeAt: number; // When it should come back (ms epoch)
+	note?: string; // Optional note-to-self surfaced in the wake notification
+}
+
 export interface Session {
 	id: string;
 	groupId?: string;
@@ -776,6 +797,9 @@ export interface Session {
 	// can surface them until the underlying agent process finishes. Runtime-only,
 	// not persisted. Entries are removed by the agent exit/error listeners.
 	orphanedThinkingTabs?: AITab[];
+	// AI tabs the user snoozed. Held out of aiTabs until their wakeAt passes, then
+	// restored by useSnoozeScheduler with a sticky notification. Persisted.
+	snoozedTabs?: SnoozedTabEntry[];
 
 	// File Preview Tabs - in-tab file viewing (coexists with AI tabs and terminal tabs)
 	// Tabs are interspersed visually but stored separately for type safety

@@ -50,6 +50,13 @@ export const MODAL_PRIORITIES = {
 	/** Rename tab modal */
 	RENAME_TAB: 875,
 
+	/**
+	 * Snooze tab modal (pick a wake time).
+	 * Sits above SNOOZED_TABS because it opens on top of that list when
+	 * rescheduling an existing snooze.
+	 */
+	SNOOZE_TAB: 874,
+
 	/** Terminal tab startup command configuration modal */
 	TERMINAL_STARTUP_COMMAND: 873,
 
@@ -124,6 +131,9 @@ export const MODAL_PRIORITIES = {
 
 	/** Tab context menu (right-click on tab) */
 	TAB_CONTEXT_MENU: 708,
+
+	/** Snoozed tabs list modal (shows every agent's snoozed tabs) */
+	SNOOZED_TABS: 704,
 
 	/** Prompt composer modal for long prompts */
 	PROMPT_COMPOSER: 725,
