@@ -58,7 +58,7 @@ export function FileEditPreviewSection({
 					<p className="text-sm" style={{ color: theme.colors.textMain }}>
 						Toolbar buttons
 					</p>
-					<p className="text-xs opacity-50 mt-0.5">
+					<p className="text-xs opacity-70 mt-0.5">
 						Hide buttons you never use. Hidden actions stay reachable via command palette and
 						keyboard shortcuts.
 					</p>

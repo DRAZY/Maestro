@@ -1,5 +1,6 @@
 import { User } from 'lucide-react';
 import type { Theme } from '../../../../../types';
+import { SettingsSectionHeading } from '../../../SettingsSectionHeading';
 
 interface ConductorProfileSectionProps {
 	theme: Theme;
@@ -14,11 +15,8 @@ export function ConductorProfileSection({
 }: ConductorProfileSectionProps) {
 	return (
 		<div data-setting-id="general-conductor-profile">
-			<div className="block text-xs font-bold opacity-70 uppercase mb-1 flex items-center gap-2">
-				<User className="w-3 h-3" />
-				Conductor Profile (aka, About Me)
-			</div>
-			<p className="text-xs opacity-50 mb-2">
+			<SettingsSectionHeading icon={User}>Conductor Profile (aka, About Me)</SettingsSectionHeading>
+			<p className="text-xs opacity-70 mb-2">
 				Tell us a little about yourself so that agents created under Maestro know how to work and
 				communicate with you. As the conductor, you orchestrate the symphony of AI agents.
 				(Optional, max 5000 characters)

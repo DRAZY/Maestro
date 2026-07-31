@@ -16,12 +16,12 @@ This is "double-dimming". Each channel dims independently, so stacking them mult
 
 ```tsx
 // WRONG - two dimming channels stacked
-<div className="text-xs opacity-50" style={{ color: theme.colors.textDim }}>
+<div className="text-xs opacity-70" style={{ color: theme.colors.textDim }}>
 	Mentioned agents may modify files in their own workspace.
 </div>
 
 // RIGHT - one dimming channel
-<div className="text-xs opacity-50">
+<div className="text-xs opacity-70">
 	Mentioned agents may modify files in their own workspace.
 </div>
 ```
@@ -30,22 +30,27 @@ This is "double-dimming". Each channel dims independently, so stacking them mult
 
 Measured contrast against each theme's `bgMain` (WCAG needs 3:1 for secondary text, 4.5:1 for body):
 
-| Dimming approach                          | Passes 3:1         | Dracula (default theme) |
-| ----------------------------------------- | ------------------ | ----------------------- |
-| `textDim`, no opacity utility             | **21 / 21 themes** | 3.03:1                  |
-| `opacity-50` on inherited `textMain`      | 15 / 21 themes     | 4.52:1                  |
-| `opacity-50` **+** `textDim` (double-dim) | **4 / 21 themes**  | **1.74:1**              |
+| Dimming approach                                    | Passes 3:1         | Dracula (default theme) |
+| --------------------------------------------------- | ------------------ | ----------------------- |
+| `opacity-70` on inherited `textMain` (the standard) | **21 / 21 themes** | 7.34:1                  |
+| `textDim`, no opacity utility                       | 21 / 21 themes     | 3.03:1                  |
+| `opacity-50` on inherited `textMain` (old default)  | 15 / 21 themes     | 4.52:1                  |
+| `opacity-50` **+** `textDim` (double-dim)           | **4 / 21 themes**  | **1.74:1**              |
 
-Double-dimming costs an average of **1.21 contrast points** and fails the 3:1 floor in **17 of 21 themes**. On Dracula the same sentence renders at 1.74:1 instead of 4.52:1 - roughly a **2.6x** readability loss. That is why one description reads fine and the one directly below it looks broken.
+Double-dimming costs an average of **1.21 contrast points** and fails the 3:1 floor in **17 of 21 themes**. On Dracula the same sentence renders at 1.74:1 instead of 7.34:1 - roughly a **4x** readability loss. That is why one description reads fine and the one directly below it looks broken.
+
+### Why the standard is `opacity-70`, not `opacity-50`
+
+`opacity-50` used to be the convention and it fails 3:1 in 6 themes, **5 of which are light**. This is structural, not a per-theme accident: on a light background an opacity utility blends dark text _toward_ the background, so even a pure-black `textMain` tops out around 3.9:1. You cannot fix it by editing the theme. `opacity-70` clears 3:1 in all 21 themes (worst is `ayu-light` at 3.12:1) while still reading as clearly secondary against a 100% title.
 
 ### The trap that produces it
 
 Double-dimming is usually inherited, not typed. It happens when:
 
-1. You copy a neighbouring section that already has the bug (`TabBehaviorSection` has 5 instances and is the most-copied section in the tree), or
-2. You pass a `textDim`-colored node **into** a component that already applies opacity. `ToggleSettingRow` wraps `description` in `<p className="text-xs opacity-50">`, so `description={<span style={{ color: theme.colors.textDim }}>...` is a cross-file double-dim. Two of these exist today.
+1. You copy a neighbouring section that already has the bug, or
+2. You pass a `textDim`-colored node **into** a component that already applies opacity. `ToggleSettingRow` wraps `description` in `<p className="text-xs opacity-70">`, so `description={<span style={{ color: theme.colors.textDim }}>...` is a cross-file double-dim that no per-element check would catch.
 
-**Before copying any section as a template, check it against this rule first.** Prefer copying from `DisplayTab` (audited clean, 0 instances) over `GeneralTab` (19 instances).
+The tree is currently clean (all 31 historical instances fixed) and `settingsStyleGuide.test.ts` fails the build if one comes back. **Do not disable that test to land a change.**
 
 ---
 
@@ -95,16 +100,16 @@ All four already exist. Hand-rolling them is the root cause of the drift this gu
 | A 2-4 way choice                    | `ToggleButtonGroup`      | `src/renderer/components/ToggleButtonGroup`               |
 | A bare switch (inside a custom row) | `ToggleSwitch`           | `src/renderer/components/ui/ToggleSwitch`                 |
 
-Current adoption, for context on how much of the tree predates these:
+Current adoption:
 
 | Tab            | Files | `SettingsSectionHeading` | `ToggleSettingRow` | Double-dim defects |
 | -------------- | ----- | ------------------------ | ------------------ | ------------------ |
 | **DisplayTab** | 21    | 16 of 18                 | 27 of 28           | **0**              |
-| GeneralTab     | 21    | 0 of 18                  | 0 of 10            | 19                 |
-| Settings root  | 20    | 0 of 13                  | n/a                | 6                  |
-| EncoreTab      | 6     | 0 of 3                   | n/a                | 4                  |
+| GeneralTab     | 21    | **18 of 18**             | 0 of 10            | **0**              |
+| Settings root  | 20    | 0 of 13                  | n/a                | **0**              |
+| EncoreTab      | 6     | 0 of 3                   | n/a                | **0**              |
 
-**`DisplayTab` is the reference implementation.** When you need a template, read `ContextWarningsSection.tsx`, `WindowChromeSection.tsx`, or `TabOptionsSection.tsx`. `GeneralTab` sections are legacy markup that has not been migrated; match this guide, not the file you happen to be editing next to.
+**`DisplayTab` is the reference implementation.** When you need a template, read `ContextWarningsSection.tsx`, `WindowChromeSection.tsx`, or `TabOptionsSection.tsx`. `GeneralTab` now matches on headings and dimming but still hand-rolls its card bodies and toggle rows, so copy its heading, not its card.
 
 ### `SectionCard` note
 
@@ -120,12 +125,14 @@ Only these four roles exist. If you find yourself inventing a fifth, you are pro
 | --------------------- | ----------------------------------------------------------------------- | -------------------------------- |
 | Section heading       | via `SettingsSectionHeading` (`text-xs font-bold opacity-70 uppercase`) | inherit (never override)         |
 | Setting title         | `font-medium` (or `text-sm font-medium` inside dense rows)              | `theme.colors.textMain`          |
-| Description / helper  | `text-xs opacity-50`                                                    | **inherit - do not set a color** |
-| Micro-note / footnote | `text-[11px] opacity-40`                                                | inherit                          |
+| Description / helper  | `text-xs opacity-70`                                                    | **inherit - do not set a color** |
+| Micro-note / footnote | `text-[11px] opacity-55`                                                | inherit                          |
 
-Sizes in use across the tree: `text-xs` (194), `text-sm` (82), `text-[10px]` (30), `text-[11px]` (20). Prefer `text-xs` for descriptions. Reach for `text-[11px]` only for a genuine third-level footnote, and never go below `text-[10px]`.
+**There are exactly two dim levels: `opacity-70` for descriptions and `opacity-55` for micro-notes.** Do not invent a third. The tree previously carried five (`40`, `50`, `60`, `70`, `80`) across 93 sites, which is why neighbouring descriptions looked like different design languages.
 
-**Do not set `color` on description text.** Inheriting `textMain` and dimming once with `opacity-50` is the convention (78 instances) and it is what the shared primitives hard-code. Setting `textDim` on top of that is the bug in §1.
+Sizes: `text-xs` for descriptions, `text-sm` only inside dense rows, `text-[11px]` for a genuine third-level footnote. Never go below `text-[10px]`.
+
+**Do not set `color` on description text.** Inheriting `textMain` and dimming once is the convention and it is what the shared primitives hard-code. Setting `textDim` on top of that is the bug in §1.
 
 ---
 
@@ -229,53 +236,38 @@ Before you call a settings change done:
 
 - [ ] No element has both an `opacity-*` utility and `theme.colors.textDim`
 - [ ] No `textDim`-colored node passed into `ToggleSettingRow`'s `description`
+- [ ] Dim levels are only `opacity-70` (description) or `opacity-55` (micro-note)
 - [ ] `SettingsSectionHeading` used, with a Lucide icon
 - [ ] `SectionCard` used for the body
 - [ ] Order is title -> description -> warning -> control
 - [ ] Control spans full width (except an inline `ToggleSwitch`)
 - [ ] No hard-coded hex, no hard-coded `Cmd`/`Ctrl`
 - [ ] `data-setting-id` matches the `searchableSettings.ts` entry
-- [ ] Checked against a light theme (`github-light`) and a low-contrast one (`solarized-dark`)
+- [ ] Checked against a light theme (`ayu-light` is the tightest at 3.12:1) and `solarized-dark`
+- [ ] `settingsStyleGuide.test.ts` passes
 - [ ] `npm run lint` and `lint:eslint` clean
 
 ---
 
-## 11. Known debt and remediation options
+## 11. Remediation log and remaining debt
 
-The audit found four classes of drift. None are urgent; all are listed so a future agent can pick one up deliberately instead of half-fixing it in passing.
+### Resolved
 
-### A. Double-dim defects (29 instances)
+| Item                      | What was done                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Double-dim defects**    | All 31 sites fixed by deleting the redundant `theme.colors.textDim` override. Two decorative icons were deliberately left alone (their opacity is intentional de-emphasis, not text dimming).                                                                                                                                                         |
+| **Regression guard**      | `src/__tests__/renderer/components/Settings/settingsStyleGuide.test.ts` parses every JSX tag in the tree and fails on any element combining an unconditional `opacity-*` with `textDim`. It also fails on hand-rolled headings in `GeneralTab`, and re-measures every theme so a `themes.ts` edit cannot push dimmed description text back under 3:1. |
+| **`GeneralTab` headings** | All 18 migrated to `SettingsSectionHeading`. `LogLevelSection` had no icon and was given `ScrollText`. `GeneralTab` now has zero hand-rolled headings.                                                                                                                                                                                                |
+| **Opacity scale**         | 84 sites collapsed from five values (`40/50/60/70/80`) to two: `opacity-70` for descriptions, `opacity-55` for micro-notes.                                                                                                                                                                                                                           |
+| **Low-contrast themes**   | `solarized-light`'s `textMain` raised from `#5f737b` (4.61:1) to Solarized base02 `#073642` (12.05:1). With `opacity-70`, **all 21 themes now clear 3:1** (worst: `ayu-light` at 3.12:1).                                                                                                                                                             |
 
-The readability bug in §1. `GeneralTab` 19, `Settings root` 6, `EncoreTab` 4, `ShortcutsTab` 1, plus 2 cross-component instances via `ToggleSettingRow`.
+Note on the theme fix: the original plan was to brighten all six failing themes, but the measurement showed no theme's `textDim` was ever below 3:1 and five of the six failures were _light_ themes, where an opacity utility blends text toward the background and even pure-black `textMain` caps near 3.9:1. That is a property of the dimming approach, not of the themes, so raising the description opacity was the actual fix. Only `solarized-light` additionally needed a theme edit.
 
-- **A1 (recommended, low risk):** strip the `color: theme.colors.textDim` override from every element that also carries an `opacity-*` utility. Purely subtractive, no layout change, immediately fixes contrast in 17 themes.
-- **A2:** strip the `opacity-*` utility instead and keep `textDim`. Also correct, and scores 21/21 on contrast, but changes the look of far more surfaces since `opacity-50` is the dominant existing convention.
-- **A3:** add an ESLint rule or a unit test that fails when a `className` containing `opacity-` sits on an element whose `style` sets `textDim`. Prevents regression permanently; catches the copy-paste vector that keeps reintroducing this.
+### Remaining
 
-### B. `GeneralTab` has not been migrated to the primitives
-
-18 hand-rolled headings, 10 raw `ToggleSwitch` rows, 0 `SectionCard`.
-
-- **B1:** migrate headings only. 18 mechanical replacements, near-zero risk, removes the most-copied source of bad markup.
-- **B2:** migrate headings + `SectionCard`. Also normalises padding and border color.
-- **B3:** full migration including `ToggleSettingRow`. Highest consistency payoff, but each row needs its click/keyboard behaviour checked, so it warrants its own PR.
-- **B4:** migrate only sections you are already touching. Slowest to converge, lowest risk of a large diff.
-
-### C. Six themes fail 3:1 for `opacity-50` secondary text even without double-dimming
-
-`solarized-dark`, `solarized-light`, `one-light`, and three others sit under the WCAG floor for correctly-written single-dim text.
-
-- **C1:** raise `textDim`/`textMain` contrast in just those six theme definitions. Fixes the root cause once, touches no components.
-- **C2:** move descriptions from `opacity-50` to `opacity-60`. One-line change per site, recovers most of the gap, slightly brightens every theme.
-- **C3:** switch descriptions globally to `textDim` with no opacity (21/21 pass). Cleanest semantically, largest visual diff.
-- **C4:** accept and document. These are opt-in low-contrast themes.
-
-### D. Heading markup has ten spelling variants
-
-39 hand-rolled headings across 10 distinct class strings (`mb-1` vs `mb-2` vs `mb-3`, with and without `opacity-70`, with and without the icon flex).
-
-- **D1:** replace all 39 with `SettingsSectionHeading`. Subsumes B1 and collapses ten variants to one.
-- **D2:** extend `SettingsSectionHeading` with an optional `description` slot, since the heading is followed by an intro paragraph in ~12 sections that each style it slightly differently.
+- **`GeneralTab` still hand-rolls its card bodies and toggle rows** - 10 raw `ToggleSwitch` rows and no `SectionCard`. Migrating these normalises padding and border color, but each row's click/keyboard behaviour needs verifying, so it deserves its own PR. Do it opportunistically when you are already in a section, or as one deliberate pass.
+- **Other tabs still hand-roll section headings** - `EncoreTab` (3), `DisplayTab` (2), plus `SettingsModal`, `MaestroPromptsTab`, `ShortcutsTab`, `ThemeTab`, `EnvironmentTab`, `SshRemoteModal`. The style-guide test currently only enforces `GeneralTab`; widen its scope as each tab is migrated.
+- **`SettingsSectionHeading` has no `description` slot** - about 12 sections follow the heading with an intro paragraph and each styles it slightly differently. An optional slot would collapse that.
 
 ---
 
