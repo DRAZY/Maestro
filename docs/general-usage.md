@@ -39,8 +39,31 @@ The **File Explorer** (Right Panel → Files tab) lets you browse project files.
 - **Markdown rendering** with toggle between raw/preview (`Cmd+E` / `Ctrl+E`)
 - **Image viewing** for common image formats
 - **Audio and video playback** with a speed control that sticks (see below)
+- **CSV and TSV tables** with sortable columns and a per-row detail view (see below)
 - **Line numbers** for easy reference
 - **Search within file** (`Cmd+F` / `Ctrl+F`)
+
+### CSV and TSV Tables
+
+`.csv` and `.tsv` files render as a real table instead of raw text. Click any
+column header to sort by it (click again to reverse, a third time to clear), and
+`Cmd+F` / `Ctrl+F` filters the table down to matching rows with the hits
+highlighted.
+
+Wide rows get cut off at the edge of the screen, which is the wrong shape for
+reading one record closely. **Double-click a row** to flip it into a vertical
+view: a modal listing every column as a field/value pair, one per line. Long and
+multi-line values wrap and keep their line breaks instead of being truncated,
+and each value has a copy button on hover.
+
+Inside that view:
+
+- The **filter box** narrows to fields whose name or value matches what you type.
+- **Up and Down arrows**, or the chevrons in the header, step through rows
+  without closing the modal. Navigation follows whatever the table is currently
+  showing, so it respects your active sort and search.
+- Drag any edge or corner to resize. The size is remembered for next time.
+- `Esc` closes the row view and leaves the file open.
 
 ### Audio and Video Playback
 
