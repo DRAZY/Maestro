@@ -668,7 +668,7 @@ export const AutoRunDocumentSelector = forwardRef<
 				>
 					<div
 						ref={createDocumentModal.modalRef}
-						className="relative border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+						className="relative border rounded-lg shadow-2xl overflow-hidden flex flex-col select-none"
 						style={{
 							...createDocumentModal.style,
 							backgroundColor: theme.colors.bgSidebar,
@@ -698,7 +698,7 @@ export const AutoRunDocumentSelector = forwardRef<
 						</div>
 
 						{/* Content */}
-						<div className="p-6 space-y-4">
+						<div className="p-6 space-y-4 flex-1 min-h-0 overflow-y-auto">
 							{/* Folder Selector - only show if there are subfolders */}
 							{availableFolders.length > 0 && (
 								<div>

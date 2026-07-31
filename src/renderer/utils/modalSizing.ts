@@ -59,10 +59,10 @@ export function normalizeModalSize(value: unknown): ModalSize | null {
 	if (!isFinitePositiveNumber(candidate.width) || !isFinitePositiveNumber(candidate.height)) {
 		return null;
 	}
-	return {
-		width: Math.round(candidate.width),
-		height: Math.round(candidate.height),
-	};
+	const width = Math.round(candidate.width);
+	const height = Math.round(candidate.height);
+	if (width <= 0 || height <= 0) return null;
+	return { width, height };
 }
 
 export function sanitizeModalSizes(value: unknown): ModalSizes {

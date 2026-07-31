@@ -422,7 +422,7 @@ function DocumentSelectorModal({
 			/>
 			<div
 				ref={resizableModal.modalRef}
-				className="relative z-10 border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+				className="relative z-10 border rounded-lg shadow-2xl overflow-hidden flex flex-col select-none"
 				style={{
 					...resizableModal.style,
 					backgroundColor: theme.colors.bgSidebar,

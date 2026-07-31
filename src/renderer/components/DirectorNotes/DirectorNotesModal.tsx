@@ -267,7 +267,7 @@ export function DirectorNotesModal({
 
 				{/* Tab content */}
 				<div
-					className="flex-1 overflow-hidden min-h-0 flex flex-col"
+					className="flex-1 overflow-hidden min-h-0 flex flex-col select-text"
 					style={{ backgroundColor: theme.colors.bgMain }}
 				>
 					<Suspense

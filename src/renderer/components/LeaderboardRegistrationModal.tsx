@@ -803,7 +803,7 @@ export function LeaderboardRegistrationModal({
 				</div>
 
 				{/* Content */}
-				<div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+				<div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0 select-text">
 					{/* Info text */}
 					<p className="text-sm" style={{ color: theme.colors.textDim }}>
 						Join the global Maestro leaderboard at{' '}
