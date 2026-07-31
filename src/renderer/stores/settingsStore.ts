@@ -236,6 +236,7 @@ export const FILE_PREVIEW_TOOLBAR_BUTTON_KEYS = [
 	'publishGist',
 	'documentGraph',
 	'openInDefault',
+	'revealInFolder',
 	'copyPath',
 ] as const;
 
