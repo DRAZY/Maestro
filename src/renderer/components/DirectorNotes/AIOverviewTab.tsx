@@ -15,6 +15,7 @@ import { Spinner } from '../ui/Spinner';
 import type { Theme } from '../../types';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { RichOverview } from './RichOverview';
+import { NarrativeParseError } from './NarrativeParseError';
 import { SaveMarkdownModal } from '../SaveMarkdownModal';
 import { useSettings } from '../../hooks';
 import { generateTerminalProseStyles } from '../../utils/markdownConfig';
@@ -85,6 +86,7 @@ let cachedSynopsis: {
 	stats?: SynopsisStats;
 	narrative?: DirectorNotesNarrative | null;
 	narrativeError?: string | null;
+	narrativeRecovery?: string | null;
 } | null = null;
 
 // Exported for testing only – allows resetting the module-level cache between test runs
@@ -121,14 +123,18 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 	const { directorNotesSettings, bionifyReadingMode } = useSettings();
 	const [lookbackDays, setLookbackDays] = useState(directorNotesSettings.defaultLookbackDays);
 	const [synopsis, setSynopsis] = useState<string>(cachedSynopsis?.content ?? '');
-	// Structured narrative (Rich Mode) and its overt parse-failure detail, both
-	// derived from the synopsis result. Plain Mode ignores these and renders the
-	// raw `synopsis` markdown.
+	// Structured narrative and its overt parse-failure detail, both derived from
+	// the synopsis result. BOTH reading modes render from the narrative: Rich as
+	// section cards, Plain as markdown prose. `narrativeRecovery` is set when the
+	// narrative had to be salvaged, and drives the partial-recovery banner.
 	const [narrative, setNarrative] = useState<DirectorNotesNarrative | null>(
 		cachedSynopsis?.narrative ?? null
 	);
 	const [narrativeError, setNarrativeError] = useState<string | null>(
 		cachedSynopsis?.narrativeError ?? null
+	);
+	const [narrativeRecovery, setNarrativeRecovery] = useState<string | null>(
+		cachedSynopsis?.narrativeRecovery ?? null
 	);
 	const [generatedAt, setGeneratedAt] = useState<number | null>(
 		cachedSynopsis?.generatedAt ?? null
@@ -160,6 +166,23 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 		setViewMode(mode);
 		localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
 	}, []);
+
+	// Three paths consume a synopsis result (fresh generation, attaching to an
+	// in-flight run, restoring the cache) and each has to apply the same narrative
+	// triple. Applying it in one place is what keeps a surface from silently
+	// missing a field.
+	const applyNarrative = useCallback(
+		(source: {
+			narrative?: DirectorNotesNarrative | null;
+			narrativeError?: string | null;
+			narrativeRecovery?: string | null;
+		}) => {
+			setNarrative(source.narrative ?? null);
+			setNarrativeError(source.narrativeError ?? null);
+			setNarrativeRecovery(source.narrativeRecovery ?? null);
+		},
+		[]
+	);
 	const isGeneratingRef = useRef(false);
 
 	// Base prose styling for the Plain-mode markdown block. (Rich mode frames the
@@ -244,6 +267,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					stats: result.stats,
 					narrative: result.narrative ?? null,
 					narrativeError: result.narrativeError ?? null,
+					narrativeRecovery: result.narrativeRecovery ?? null,
 				};
 			}
 
@@ -258,8 +282,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 			if (result.success) {
 				const ts = result.generatedAt ?? Date.now();
 				setSynopsis(result.synopsis);
-				setNarrative(result.narrative ?? null);
-				setNarrativeError(result.narrativeError ?? null);
+				applyNarrative(result);
 				setGeneratedAt(ts);
 				setStats(result.stats ?? null);
 				onSynopsisReady?.();
@@ -279,15 +302,14 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 				setIsGenerating(false);
 			}
 		}
-	}, [lookbackDays, directorNotesSettings, onSynopsisReady]);
+	}, [lookbackDays, directorNotesSettings, onSynopsisReady, applyNarrative]);
 
 	// On mount: use cache if available, attach to in-flight generation, or start fresh
 	useEffect(() => {
 		mountedRef.current = true;
 		if (cachedSynopsis) {
 			setSynopsis(cachedSynopsis.content);
-			setNarrative(cachedSynopsis.narrative ?? null);
-			setNarrativeError(cachedSynopsis.narrativeError ?? null);
+			applyNarrative(cachedSynopsis);
 			setGeneratedAt(cachedSynopsis.generatedAt);
 			setStats(cachedSynopsis.stats ?? null);
 			setLookbackDays(cachedSynopsis.lookbackDays);
@@ -305,8 +327,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					if (result.success) {
 						const ts = result.generatedAt ?? Date.now();
 						setSynopsis(result.synopsis);
-						setNarrative(result.narrative ?? null);
-						setNarrativeError(result.narrativeError ?? null);
+						applyNarrative(result);
 						setGeneratedAt(ts);
 						setStats(result.stats ?? null);
 						if (cachedSynopsis) setLookbackDays(cachedSynopsis.lookbackDays);
@@ -555,6 +576,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							synopsis={synopsis}
 							narrative={narrative}
 							narrativeError={narrativeError}
+							narrativeRecovery={narrativeRecovery}
 							lookbackDays={lookbackDays}
 							enableBionifyReadingMode={bionifyReadingMode}
 							chatMath
@@ -562,15 +584,31 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					) : (
 						// Content-driven AI output: opt back into text selection under
 						// the modal's select-none (see CLAUDE.md modal text rules).
-						<div className="director-notes-content select-text">
+						<div className="director-notes-content select-text flex flex-col gap-4">
 							<style>{proseStyles}</style>
-							<MarkdownRenderer
-								content={plainContent}
-								theme={theme}
-								onCopy={(text) => safeClipboardWrite(text)}
-								enableBionifyReadingMode={bionifyReadingMode}
-								chatMath
-							/>
+							{/* Plain Mode fails as loudly as Rich Mode. Dumping the raw
+							    structured output into the markdown renderer would show a
+							    wall of JSON where a report should be. */}
+							{narrativeError && (
+								<NarrativeParseError
+									theme={theme}
+									error={narrativeError}
+									rawOutput={synopsis}
+									recovery={narrativeRecovery}
+								/>
+							)}
+							{/* Prose from the narrative, or the raw string when there is no
+							    narrative to build from and nothing failed (legacy markdown
+							    synopses and the "no history files" message). */}
+							{(narrative || !narrativeError) && (
+								<MarkdownRenderer
+									content={plainContent}
+									theme={theme}
+									onCopy={(text) => safeClipboardWrite(text)}
+									enableBionifyReadingMode={bionifyReadingMode}
+									chatMath
+								/>
+							)}
 						</div>
 					)
 				) : isGenerating ? (

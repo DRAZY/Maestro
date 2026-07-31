@@ -101,6 +101,10 @@ The AI Overview renders the same synopsis two ways, switchable with the **Rich /
 
 You can set which mode opens by default in **Settings > Encore Features > Director's Notes**; the in-tab toggle overrides it for the current session.
 
+#### When the AI's output cannot be parsed
+
+The synopsis agent returns a structured narrative, and both reading modes render from it. If a run comes back malformed (cut off mid-response, or with formatting the parser rejects), Maestro salvages the readable portion and shows it with a banner saying what had to be recovered - a partial report is never presented as a complete one. When nothing usable survives, both modes show a parse-failure banner with the raw output preserved behind **View raw output**. Neither mode ever renders the raw structured output as if it were the report.
+
 **Provider Configuration:**
 Configure which AI provider generates the synopsis in **Settings > Encore Features**. Any installed agent (Claude Code, Codex, OpenCode) can be used. The default lookback window is also configurable there.
 

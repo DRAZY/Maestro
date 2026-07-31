@@ -27,6 +27,7 @@ import { groomContext } from '../../utils/context-groomer';
 import { buildDirectorNotesSynopsisPrompt } from '../../utils/director-notes-prompt';
 import {
 	parseDirectorNotesNarrative,
+	recoverDirectorNotesNarrative,
 	type DirectorNotesNarrative,
 } from '../../../shared/directorNotesNarrative';
 import { getPrompt } from '../../prompt-manager';
@@ -235,9 +236,10 @@ export interface SynopsisResult {
 	stats?: SynopsisStats;
 	error?: string;
 	/**
-	 * Parsed structured narrative for Rich Mode. Present only when the raw
-	 * `synopsis` parsed cleanly. Plain Mode and copy/save never read this - they
-	 * use `synopsis` verbatim.
+	 * Parsed structured narrative. Rich Mode renders it as section cards and
+	 * Plain Mode renders it as markdown prose, so this is what every reading
+	 * surface consumes; `synopsis` stays the verbatim raw output. Present on a
+	 * clean parse AND on a successful salvage (see `narrativeRecovery`).
 	 */
 	narrative?: DirectorNotesNarrative;
 	/**
@@ -247,6 +249,13 @@ export interface SynopsisResult {
 	 * reachable. Never a reason to fail the whole call.
 	 */
 	narrativeError?: string;
+	/**
+	 * Set when `narrative` came from a salvage of output the strict parser
+	 * rejected (a cut-off response, stray control characters, malformed bullets).
+	 * Explains what was recovered so the UI can say so rather than passing a
+	 * partial report off as a complete one.
+	 */
+	narrativeRecovery?: string;
 }
 
 /**
@@ -800,17 +809,30 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						completionReason: result.completionReason,
 					});
 
-					// Parse the raw output into the structured narrative for Rich Mode.
-					// `synopsis` stays the verbatim raw string (Plain Mode + copy/save
-					// depend on that). A parse failure is NOT a synopsis failure: we
-					// still return success with the raw text and a populated
-					// `narrativeError` so the renderer can show an overt error while
-					// keeping the raw output reachable.
+					// Parse the raw output into the structured narrative every reading
+					// surface renders. `synopsis` stays the verbatim raw string. A parse
+					// failure is NOT a synopsis failure: fall back to a best-effort
+					// salvage (a run costs minutes, so a cut-off response should still
+					// be readable), and only when nothing survives do we return the bare
+					// `narrativeError` for the overt failure banner.
 					const parsed = parseDirectorNotesNarrative(synopsis);
-					if (!parsed.ok) {
+					let narrativeFields: Partial<SynopsisResult>;
+					if (parsed.ok) {
+						narrativeFields = { narrative: parsed.narrative };
+					} else {
+						const recovered = recoverDirectorNotesNarrative(synopsis);
 						logger.warn('Synopsis narrative parse failed', LOG_CONTEXT, {
 							narrativeError: parsed.error,
+							recovered: recovered.ok,
+							recoveryReason: recovered.ok ? recovered.reason : undefined,
 						});
+						narrativeFields = recovered.ok
+							? {
+									narrative: recovered.narrative,
+									narrativeError: parsed.error,
+									narrativeRecovery: recovered.reason,
+								}
+							: { narrativeError: parsed.error };
 					}
 
 					return {
@@ -822,7 +844,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 							entryCount,
 							durationMs: result.durationMs,
 						},
-						...(parsed.ok ? { narrative: parsed.narrative } : { narrativeError: parsed.error }),
+						...narrativeFields,
 					};
 				} catch (err) {
 					const errorMsg = err instanceof Error ? err.message : String(err);
