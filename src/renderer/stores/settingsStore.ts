@@ -44,7 +44,9 @@ import { isToastWidth } from '../../shared/toastWidth';
 import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
 import { logger } from '../utils/logger';
-import { useUIStore, type ModalSize } from './uiStore';
+import { useUIStore } from './uiStore';
+import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
+import { sanitizeModalSizes } from '../utils/modalSizing';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -331,6 +333,7 @@ export interface SettingsStoreState {
 	defaultShowThinking: ThinkingMode;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
+	modalSizes: ModalSizes;
 	markdownEditMode: boolean;
 	chatRawTextMode: boolean;
 	bionifyReadingMode: boolean;
@@ -482,6 +485,10 @@ export interface SettingsStoreActions {
 	setDefaultShowThinking: (value: ThinkingMode) => void;
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
+	setModalSize: (key: ModalResizeKey, value: ModalSize) => void;
+	/** Forget ONE modal's remembered size, so it reopens at its declared default. */
+	resetModalSize: (key: ModalResizeKey) => void;
+	resetModalSizes: () => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
 	setBionifyReadingMode: (value: boolean) => void;
@@ -702,6 +709,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		defaultShowThinking: 'off',
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
+		modalSizes: {},
 		markdownEditMode: false,
 		chatRawTextMode: false,
 		bionifyReadingMode: false,
@@ -956,6 +964,33 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			const clamped = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(RIGHT_PANEL_MAX_WIDTH, value));
 			set({ rightPanelWidth: clamped });
 			window.maestro.settings.set('rightPanelWidth', clamped);
+		},
+
+		setModalSize: (key, value) => {
+			const normalized = sanitizeModalSizes({ [key]: value })[key];
+			if (!normalized) return;
+			const next = {
+				...get().modalSizes,
+				[key]: normalized,
+			};
+			set({ modalSizes: next });
+			window.maestro.settings.set('modalSizes', next);
+		},
+
+		// Single-key counterpart to resetModalSizes, backing the double-click-to-reset
+		// gesture on a single modal's resize handles.
+		resetModalSize: (key) => {
+			const current = get().modalSizes;
+			if (!(key in current)) return;
+			const next = { ...current };
+			delete next[key];
+			set({ modalSizes: next });
+			window.maestro.settings.set('modalSizes', next);
+		},
+
+		resetModalSizes: () => {
+			set({ modalSizes: {} });
+			window.maestro.settings.set('modalSizes', {});
 		},
 
 		setMarkdownEditMode: (value) => {
@@ -2278,6 +2313,9 @@ export async function loadAllSettings(): Promise<void> {
 				Math.min(RIGHT_PANEL_MAX_WIDTH, allSettings['rightPanelWidth'] as number)
 			);
 
+		if (allSettings['modalSizes'] !== undefined)
+			patch.modalSizes = sanitizeModalSizes(allSettings['modalSizes']);
+
 		if (allSettings['markdownEditMode'] !== undefined)
 			patch.markdownEditMode = allSettings['markdownEditMode'] as boolean;
 
@@ -2413,8 +2451,7 @@ export async function loadAllSettings(): Promise<void> {
 		} else {
 			// One-time migration: copy from globalStats.totalActiveTimeMs if it exists and is > 0
 			const legacyGlobalStats = allSettings['globalStats'] as
-				| { totalActiveTimeMs?: number }
-				| undefined;
+				{ totalActiveTimeMs?: number } | undefined;
 			if (legacyGlobalStats?.totalActiveTimeMs && legacyGlobalStats.totalActiveTimeMs > 0) {
 				patch.totalActiveTimeMs = legacyGlobalStats.totalActiveTimeMs;
 				window.maestro.settings.set('totalActiveTimeMs', legacyGlobalStats.totalActiveTimeMs);
@@ -2512,16 +2549,11 @@ export async function loadAllSettings(): Promise<void> {
 				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
 			});
 
-		// Per-modal sizes live in uiStore next to the other persisted UI maps, so
-		// the resize hook can read and write them without a settings round-trip.
-		if (allSettings['modalSizes'] !== undefined && typeof allSettings['modalSizes'] === 'object')
-			useUIStore.setState({
-				modalSizes: allSettings['modalSizes'] as Record<string, ModalSize>,
-			});
-
-		// Floating media player geometry lives in mediaPlaybackStore for the same
-		// reason as modalSizes above: the drag/resize handlers read and write it
-		// without a settings round-trip.
+		// Floating media player geometry lives in mediaPlaybackStore so the
+		// drag/resize handlers can read and write it without a settings
+		// round-trip. (Per-modal `modalSizes` is NOT hydrated here: rc keeps it in
+		// settingsStore behind sanitizeModalSizes, hydrated above with the other
+		// settings-owned keys.)
 		if (
 			allSettings['mediaPlayerFloatRect'] !== undefined &&
 			allSettings['mediaPlayerFloatRect'] !== null &&
@@ -2614,12 +2646,7 @@ export async function loadAllSettings(): Promise<void> {
 			const validTimeRanges = ['day', 'week', 'month', 'quarter', 'year', 'all'];
 			if (validTimeRanges.includes(allSettings['defaultStatsTimeRange'] as string)) {
 				patch.defaultStatsTimeRange = allSettings['defaultStatsTimeRange'] as
-					| 'day'
-					| 'week'
-					| 'month'
-					| 'quarter'
-					| 'year'
-					| 'all';
+					'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
 			}
 		}
 
@@ -3005,6 +3032,9 @@ export function getSettingsActions() {
 		setDefaultShowThinking: state.setDefaultShowThinking,
 		setLeftSidebarWidth: state.setLeftSidebarWidth,
 		setRightPanelWidth: state.setRightPanelWidth,
+		setModalSize: state.setModalSize,
+		resetModalSize: state.resetModalSize,
+		resetModalSizes: state.resetModalSizes,
 		setMarkdownEditMode: state.setMarkdownEditMode,
 		setChatRawTextMode: state.setChatRawTextMode,
 		setBionifyReadingMode: state.setBionifyReadingMode,
