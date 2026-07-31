@@ -908,7 +908,10 @@ describe('director-notes IPC handlers', () => {
 			expect(result.narrative.sections[0].items[0].agent).toBe('alpha');
 		});
 
-		it('returns success with narrativeError (raw preserved) when output is not valid narrative JSON', async () => {
+		it('treats prose output as markdown, with no narrativeError', async () => {
+			// The prompt is a user setting: a profile holding a markdown-contract
+			// prompt makes the agent return prose. That is not a broken narrative,
+			// and flagging it would show a parse error where a report should be.
 			const { groomContext } = await import('../../../../main/utils/context-groomer');
 			vi.mocked(groomContext).mockResolvedValue({
 				response: '# Synopsis\n\nThis is markdown, not JSON.',
@@ -924,9 +927,31 @@ describe('director-notes IPC handlers', () => {
 			const handler = handlers.get('director-notes:generateSynopsis');
 			const result = await handler!({} as any, { lookbackDays: 7, provider: 'claude-code' });
 
-			// A parse failure is NOT a synopsis failure: still success, raw kept.
 			expect(result.success).toBe(true);
 			expect(result.synopsis).toBe('# Synopsis\n\nThis is markdown, not JSON.');
+			expect(result.narrative).toBeUndefined();
+			expect(result.narrativeError).toBeUndefined();
+		});
+
+		it('returns narrativeError when JSON-shaped output fails the schema', async () => {
+			// Shaped like the narrative but wrong: the agent really did botch it,
+			// so the user should see the failure rather than a wall of JSON.
+			const { groomContext } = await import('../../../../main/utils/context-groomer');
+			vi.mocked(groomContext).mockResolvedValue({
+				response: '{ "version": 99, "sections": "nope" }',
+				durationMs: 1000,
+				completionReason: 'process exited with code 0',
+			});
+
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getHistoryFilePath).mockReturnValue(
+				'/data/history/session-1.json'
+			);
+
+			const handler = handlers.get('director-notes:generateSynopsis');
+			const result = await handler!({} as any, { lookbackDays: 7, provider: 'claude-code' });
+
+			expect(result.success).toBe(true);
 			expect(result.narrative).toBeUndefined();
 			expect(result.narrativeError).toBeTypeOf('string');
 			expect(result.narrativeError.length).toBeGreaterThan(0);

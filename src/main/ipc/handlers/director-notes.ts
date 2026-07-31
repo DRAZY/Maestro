@@ -26,6 +26,7 @@ import {
 import { groomContext } from '../../utils/context-groomer';
 import { buildDirectorNotesSynopsisPrompt } from '../../utils/director-notes-prompt';
 import {
+	looksLikeStructuredOutput,
 	parseDirectorNotesNarrative,
 	recoverDirectorNotesNarrative,
 	type DirectorNotesNarrative,
@@ -819,6 +820,17 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					let narrativeFields: Partial<SynopsisResult>;
 					if (parsed.ok) {
 						narrativeFields = { narrative: parsed.narrative };
+					} else if (!looksLikeStructuredOutput(synopsis)) {
+						// Not a broken narrative - prose. The prompt is a user-editable
+						// setting persisted to userData, so a profile can hold a prompt that
+						// asked for a markdown report while this build's parser expects JSON.
+						// The agent obeyed the prompt it was given; reporting a parse error
+						// would blame it for our contract drift. Emit neither field and let
+						// the reading surfaces render it as markdown.
+						logger.info('Synopsis is prose, not a structured narrative', LOG_CONTEXT, {
+							responseLength: synopsis.length,
+						});
+						narrativeFields = {};
 					} else {
 						const recovered = recoverDirectorNotesNarrative(synopsis);
 						logger.warn('Synopsis narrative parse failed', LOG_CONTEXT, {

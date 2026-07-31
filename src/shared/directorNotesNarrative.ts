@@ -198,6 +198,53 @@ function extractFirstJsonObject(raw: string): string | null {
 }
 
 /**
+ * Shown when the output is JSON-shaped but no narrative reached the reading
+ * surface and no specific parse error came with it - the shape of a result
+ * cached before the narrative fields existed. Generic on purpose: we know the
+ * output is not a readable report, but not why.
+ */
+export const STRUCTURED_OUTPUT_UNPARSED_MESSAGE =
+	'This report was returned as structured output that could not be read back. Regenerate it to get a fresh report.';
+
+/**
+ * Does this raw output even CLAIM to be the structured narrative?
+ *
+ * The Director's Notes prompt is a user-customizable core prompt persisted to
+ * `userData/core-prompts-customizations.json`, so a profile can easily hold a
+ * prompt that asks for markdown while the running build's parser expects JSON,
+ * or the reverse. Neither is a malformed narrative - the agent did exactly what
+ * the prompt it was given asked for. Shape is the only honest discriminator.
+ *
+ * The rule is deliberately narrow: after an optional leading code fence, the
+ * output must START with `{`. The prompt says "return a single JSON object and
+ * nothing else", so a genuine structured response always does. A markdown
+ * report starts with a heading or prose - and critically, a markdown report
+ * that merely CONTAINS a fenced JSON example still starts with prose, so it is
+ * correctly treated as markdown. `extractFirstJsonObject` is intentionally not
+ * used here: it scans anywhere in the string and would misread that example as
+ * a botched narrative.
+ *
+ * Callers use this to decide what a parse failure MEANS: JSON-shaped means the
+ * narrative really is broken and the user should see the error; anything else
+ * is prose and should simply be rendered as markdown.
+ */
+export function looksLikeStructuredOutput(raw: string): boolean {
+	if (typeof raw !== 'string') return false;
+
+	let text = raw.trim();
+	if (text.length === 0) return false;
+
+	// Agents sometimes fence the object despite being told not to.
+	if (text.startsWith('```')) {
+		const newlineIndex = text.indexOf('\n');
+		if (newlineIndex === -1) return false;
+		text = text.slice(newlineIndex + 1).trimStart();
+	}
+
+	return text.startsWith('{');
+}
+
+/**
  * Tolerantly extract and strictly validate the structured narrative from the
  * agent's raw output.
  *

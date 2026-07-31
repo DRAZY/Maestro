@@ -804,6 +804,54 @@ describe('AIOverviewTab', () => {
 		});
 	});
 
+	// The Director's Notes prompt is a USER SETTING persisted to userData, so a
+	// profile can hold a prompt written against the other branch's contract. Both
+	// directions have to degrade correctly, and neither may put raw JSON on
+	// screen. See looksLikeStructuredOutput in shared/directorNotesNarrative.
+	describe('Plain Mode tolerates either prompt contract', () => {
+		it('renders a markdown synopsis as the report when no narrative came back', async () => {
+			// Direction 1: markdown-contract prompt meeting a JSON-expecting build.
+			// The agent obeyed its prompt, so this IS the report - not a failure.
+			mockGenerateSynopsis.mockResolvedValue({
+				success: true,
+				synopsis: '# Synopsis\n\n## Accomplishments\n\n- Shipped the thing',
+				stats: { agentCount: 2, entryCount: 9, durationMs: 5000 },
+			});
+
+			render(<AIOverviewTab theme={mockTheme} />);
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+
+			const md = screen.getByTestId('markdown-renderer');
+			expect(md.textContent).toContain('- Shipped the thing');
+			// No accusation of a broken narrative - nothing was broken.
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		});
+
+		it('never renders raw JSON even when no narrativeError came back', async () => {
+			// Direction 2, and the invariant: JSON-shaped output with NEITHER a
+			// narrative nor an error - the shape of a result cached before the
+			// narrative fields existed. This used to fall through to the raw string
+			// and paint a wall of JSON where the report belongs.
+			mockGenerateSynopsis.mockResolvedValue({
+				success: true,
+				synopsis: '{"version":1,"sections":[{"kind":"accomplishments"}]}',
+				stats: { agentCount: 2, entryCount: 9, durationMs: 5000 },
+			});
+
+			render(<AIOverviewTab theme={mockTheme} />);
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+
+			expect(screen.getByRole('alert')).toBeInTheDocument();
+			expect(screen.queryByTestId('markdown-renderer')).not.toBeInTheDocument();
+		});
+	});
+
 	// When the structured output cannot be parsed at all, Plain Mode used to feed
 	// the raw string straight to the markdown renderer - which meant a wall of raw
 	// JSON where the report should be. It must fail as loudly as Rich Mode does.

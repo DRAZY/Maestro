@@ -17,6 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+	looksLikeStructuredOutput,
 	parseDirectorNotesNarrative,
 	recoverDirectorNotesNarrative,
 	narrativeToMarkdown,
@@ -550,5 +551,43 @@ describe('recoverDirectorNotesNarrative', () => {
 		for (const raw of ['{', '{{{{', '[]', 'null', '{"sections":"nope"}', '{"sections":[{']) {
 			expect(() => recoverDirectorNotesNarrative(raw)).not.toThrow();
 		}
+	});
+});
+
+describe('looksLikeStructuredOutput', () => {
+	// This predicate decides what a FAILED parse means. The Director's Notes
+	// prompt is a user-editable setting persisted to userData, so a profile can
+	// hold a markdown-contract prompt while the build expects JSON, or the
+	// reverse. JSON-shaped means the narrative is genuinely broken; anything
+	// else is prose that should simply be rendered.
+	it('accepts a bare structured object', () => {
+		expect(looksLikeStructuredOutput('{"version":1,"sections":[]}')).toBe(true);
+		expect(looksLikeStructuredOutput('\n\n  {"version":1}  ')).toBe(true);
+	});
+
+	it('accepts an object wrapped in a code fence', () => {
+		// The agent fences it sometimes despite being told not to.
+		expect(looksLikeStructuredOutput('```json\n{"version":1}\n```')).toBe(true);
+		expect(looksLikeStructuredOutput('```\n{"version":1}\n```')).toBe(true);
+	});
+
+	it('rejects markdown prose', () => {
+		expect(looksLikeStructuredOutput('# Synopsis\n\nWe shipped things.')).toBe(false);
+		expect(looksLikeStructuredOutput('## Accomplishments\n\n- Did the thing')).toBe(false);
+	});
+
+	it('rejects markdown that merely CONTAINS a JSON example', () => {
+		// Why this is a starts-with check and not a scan: a report quoting a JSON
+		// snippet is still a report, and treating it as a botched narrative would
+		// replace it with a parse error.
+		const raw = '# Synopsis\n\nThe config looked like:\n\n```json\n{"a":1}\n```\n';
+		expect(looksLikeStructuredOutput(raw)).toBe(false);
+	});
+
+	it('rejects empty and non-string input without throwing', () => {
+		expect(looksLikeStructuredOutput('')).toBe(false);
+		expect(looksLikeStructuredOutput('   \n  ')).toBe(false);
+		expect(looksLikeStructuredOutput(undefined as unknown as string)).toBe(false);
+		expect(looksLikeStructuredOutput('```json')).toBe(false);
 	});
 });

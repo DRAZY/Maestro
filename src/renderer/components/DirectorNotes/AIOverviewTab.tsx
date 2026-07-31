@@ -24,7 +24,9 @@ import { formatNumber } from '../../../shared/formatters';
 import { notifyToast } from '../../stores/notificationStore';
 import { useModalStore } from '../../stores/modalStore';
 import {
+	looksLikeStructuredOutput,
 	narrativeToMarkdown,
+	STRUCTURED_OUTPUT_UNPARSED_MESSAGE,
 	type DirectorNotesNarrative,
 } from '../../../shared/directorNotesNarrative';
 
@@ -219,13 +221,24 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 		});
 	};
 
-	// Human-readable markdown for Plain Mode, Copy, and Save. The agent emits the
-	// structured JSON narrative now, so render that as prose; only fall back to
-	// the raw `synopsis` for legacy markdown, the no-data message, or a parse
-	// failure (when there is no parsed narrative to convert).
+	// Does the raw output claim to be the structured narrative? This is the
+	// discriminator for what a MISSING narrative means. The handler already
+	// makes the same call, but this recomputes it locally on purpose: the
+	// narrative fields also arrive from the module-level synopsis cache, which
+	// can hold a result produced before this logic existed. Deriving the shape
+	// from the synopsis itself is what makes the no-raw-JSON invariant hold no
+	// matter where the content came from.
+	const isStructuredShaped = useMemo(() => looksLikeStructuredOutput(synopsis ?? ''), [synopsis]);
+
+	// Human-readable markdown for Plain Mode, Copy, and Save. A parsed narrative
+	// becomes prose. Otherwise the raw string IS the report (a markdown synopsis
+	// from a markdown-contract prompt, or the no-history message) - unless it is
+	// JSON-shaped, in which case there is no readable report to show and the
+	// parse-error banner takes over. Empty rather than raw JSON: dumping the
+	// object into the markdown renderer is the wall-of-JSON regression itself.
 	const plainContent = useMemo(
-		() => (narrative ? narrativeToMarkdown(narrative) : synopsis),
-		[narrative, synopsis]
+		() => (narrative ? narrativeToMarkdown(narrative) : isStructuredShaped ? '' : synopsis),
+		[narrative, synopsis, isStructuredShaped]
 	);
 
 	// Copy the readable synopsis markdown to clipboard
@@ -588,19 +601,23 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							<style>{proseStyles}</style>
 							{/* Plain Mode fails as loudly as Rich Mode. Dumping the raw
 							    structured output into the markdown renderer would show a
-							    wall of JSON where a report should be. */}
-							{narrativeError && (
+							    wall of JSON where a report should be. Shown whenever the
+							    output is JSON-shaped but produced no narrative - including
+							    when no error came back at all, which is how a stale cached
+							    result used to fall through to the raw string. */}
+							{(narrativeError || (!narrative && isStructuredShaped)) && (
 								<NarrativeParseError
 									theme={theme}
-									error={narrativeError}
+									error={narrativeError ?? STRUCTURED_OUTPUT_UNPARSED_MESSAGE}
 									rawOutput={synopsis}
 									recovery={narrativeRecovery}
 								/>
 							)}
-							{/* Prose from the narrative, or the raw string when there is no
-							    narrative to build from and nothing failed (legacy markdown
-							    synopses and the "no history files" message). */}
-							{(narrative || !narrativeError) && (
+							{/* Prose from the narrative, or the raw string when the output is
+							    not JSON-shaped - a markdown synopsis from a markdown-contract
+							    prompt, or the "no history files" message. Gated on shape, not
+							    on the error, so raw JSON can never reach the renderer. */}
+							{(narrative || !isStructuredShaped) && (
 								<MarkdownRenderer
 									content={plainContent}
 									theme={theme}

@@ -38,7 +38,11 @@ import { logger } from '../../utils/logger';
 import { daysToLookbackHours, bucketCountForLookback } from './lookback';
 import { NarrativeSections } from './NarrativeSections';
 import { NarrativeParseError } from './NarrativeParseError';
-import type { DirectorNotesNarrative } from '../../../shared/directorNotesNarrative';
+import {
+	looksLikeStructuredOutput,
+	STRUCTURED_OUTPUT_UNPARSED_MESSAGE,
+	type DirectorNotesNarrative,
+} from '../../../shared/directorNotesNarrative';
 import {
 	StatCardGrid,
 	SectionCard,
@@ -264,8 +268,14 @@ export function RichOverview({
 					)}
 					<NarrativeSections theme={theme} narrative={narrative} />
 				</>
-			) : narrativeError ? (
-				<NarrativeParseError theme={theme} error={narrativeError} rawOutput={synopsis} />
+			) : narrativeError || looksLikeStructuredOutput(synopsis) ? (
+				// Same invariant as Plain Mode: JSON-shaped output with no narrative
+				// is not a report, so it never reaches MarkdownRenderer below.
+				<NarrativeParseError
+					theme={theme}
+					error={narrativeError ?? STRUCTURED_OUTPUT_UNPARSED_MESSAGE}
+					rawOutput={synopsis}
+				/>
 			) : (
 				synopsis && (
 					<SectionCard theme={theme} title="AI Narrative" icon={FileText}>
