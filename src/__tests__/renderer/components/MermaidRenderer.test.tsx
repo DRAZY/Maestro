@@ -45,7 +45,8 @@ async function captureThemeVariables(
 
 	const calls = initializeMock.mock.calls;
 	const config = calls[calls.length - 1]?.[0] as
-		{ themeVariables?: Record<string, string> } | undefined;
+		| { themeVariables?: Record<string, string> }
+		| undefined;
 	expect(config?.themeVariables).toBeDefined();
 	return config!.themeVariables!;
 }

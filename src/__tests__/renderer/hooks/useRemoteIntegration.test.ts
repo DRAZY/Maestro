@@ -30,7 +30,8 @@ describe('useRemoteIntegration', () => {
 	const originalMaestro = { ...window.maestro };
 
 	let onRemoteCommandHandler:
-		((sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => void) | undefined;
+		| ((sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => void)
+		| undefined;
 	let onRemoteSwitchModeHandler: ((sessionId: string, mode: 'ai' | 'terminal') => void) | undefined;
 	let onRemoteInterruptHandler: ((sessionId: string) => void) | undefined;
 	let onRemoteSelectSessionHandler: ((sessionId: string, tabId?: string) => void) | undefined;
@@ -38,14 +39,18 @@ describe('useRemoteIntegration', () => {
 	let onRemoteNewTabHandler: ((sessionId: string, responseChannel: string) => void) | undefined;
 	let onRemoteCloseTabHandler: ((sessionId: string, tabId: string) => void) | undefined;
 	let onRemoteRenameTabHandler:
-		((sessionId: string, tabId: string, newName: string) => void) | undefined;
+		| ((sessionId: string, tabId: string, newName: string) => void)
+		| undefined;
 	let onRemoteStarTabHandler:
-		((sessionId: string, tabId: string, starred: boolean) => void) | undefined;
+		| ((sessionId: string, tabId: string, starred: boolean) => void)
+		| undefined;
 	let onRemoteReorderTabHandler:
-		((sessionId: string, fromIndex: number, toIndex: number) => void) | undefined;
+		| ((sessionId: string, fromIndex: number, toIndex: number) => void)
+		| undefined;
 	let onRemoteToggleBookmarkHandler: ((sessionId: string) => void) | undefined;
 	let onRemoteNewAITabWithPromptHandler:
-		((sessionId: string, prompt: string, responseChannel: string) => void) | undefined;
+		| ((sessionId: string, prompt: string, responseChannel: string) => void)
+		| undefined;
 	let onRemoteNotifyToastHandler:
 		| ((params: {
 				title: string;

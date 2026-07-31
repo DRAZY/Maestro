@@ -55,7 +55,8 @@ function buildDocTree(documents: AutoRunDocument[]): DocTreeNode[] {
 			acc = acc ? `${acc}/${part}` : part;
 			current.children = current.children || [];
 			let next = current.children.find((c) => c.type === 'folder' && c.name === part) as
-				MutableNode | undefined;
+				| MutableNode
+				| undefined;
 			if (!next) {
 				next = { name: part, type: 'folder', path: acc, children: [] };
 				current.children.push(next);

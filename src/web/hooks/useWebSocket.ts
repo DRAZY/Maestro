@@ -18,7 +18,11 @@ import { webLogger } from '../utils/logger';
  * WebSocket connection states
  */
 export type WebSocketState =
-	'disconnected' | 'connecting' | 'connected' | 'authenticating' | 'authenticated';
+	| 'disconnected'
+	| 'connecting'
+	| 'connected'
+	| 'authenticating'
+	| 'authenticated';
 
 /**
  * Usage stats for session cost/token tracking (all fields optional in web context)

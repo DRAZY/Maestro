@@ -482,7 +482,13 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
 			const typedFilter = filter
 				? {
 						level: filter.level as
-							'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun' | undefined,
+							| 'debug'
+							| 'info'
+							| 'warn'
+							| 'error'
+							| 'toast'
+							| 'autorun'
+							| undefined,
 						context: filter.context,
 						limit: filter.limit,
 					}

@@ -21,7 +21,12 @@ import type { AgentId } from './agentIds';
  * - `failed` — last detection attempt threw / errored unexpectedly.
  */
 export type AgentStatus =
-	'ok' | 'not_installed' | 'auth_required' | 'not_configured' | 'probing' | 'failed';
+	| 'ok'
+	| 'not_installed'
+	| 'auth_required'
+	| 'not_configured'
+	| 'probing'
+	| 'failed';
 
 /**
  * A point-in-time capability snapshot for one agent in one environment.

@@ -47,14 +47,16 @@ export interface DirectorNotesNarrative {
 
 /** Discriminated result of {@link parseDirectorNotesNarrative}. */
 export type ParseNarrativeResult =
-	{ ok: true; narrative: DirectorNotesNarrative } | { ok: false; error: string };
+	| { ok: true; narrative: DirectorNotesNarrative }
+	| { ok: false; error: string };
 
 /**
  * Discriminated result of {@link recoverDirectorNotesNarrative}. `reason`
  * explains what had to be salvaged so the UI can say so out loud.
  */
 export type RecoverNarrativeResult =
-	{ ok: true; narrative: DirectorNotesNarrative; reason: string } | { ok: false; error: string };
+	| { ok: true; narrative: DirectorNotesNarrative; reason: string }
+	| { ok: false; error: string };
 
 const VALID_KINDS: ReadonlySet<string> = new Set<NarrativeSectionKind>([
 	'accomplishments',
