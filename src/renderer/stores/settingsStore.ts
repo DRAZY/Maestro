@@ -2404,6 +2404,10 @@ function migrateShortcuts(
  * Called once on app startup and again on system resume from sleep.
  */
 export async function loadAllSettings(): Promise<void> {
+	// Snapshot before the awaited reads below. Anything the user changes while
+	// they are in flight must survive this load - see the filter before setState.
+	const beforeRead = useSettingsStore.getState() as unknown as Record<string, unknown>;
+
 	try {
 		// Batch load all settings in a single IPC call
 		const allSettings = (await window.maestro.settings.getAll()) as Record<string, unknown>;
@@ -3225,6 +3229,23 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['annotatorTextBgColor'] !== undefined)
 			patch.annotatorTextBgColor = allSettings['annotatorTextBgColor'] as string;
+
+		// On a RELOAD (system resume, another window's write), drop any key the user
+		// changed while the reads above were in flight. This load is several IPC
+		// round trips long, so reapplying the older snapshot on top of live typing
+		// loses keystrokes and yanks the caret to the end of the field. Those edits
+		// persisted themselves on the way in, so the in-memory value is the newer
+		// one. Skipped on the initial hydration, where the store still holds
+		// defaults and every disk value must land.
+		if (beforeRead.settingsLoaded === true) {
+			const live = useSettingsStore.getState() as unknown as Record<string, unknown>;
+			const patchKeys = patch as unknown as Record<string, unknown>;
+			for (const key of Object.keys(patchKeys)) {
+				if (live[key] !== beforeRead[key]) {
+					delete patchKeys[key];
+				}
+			}
+		}
 
 		// Apply the entire patch in one setState call
 		patch.settingsLoaded = true;

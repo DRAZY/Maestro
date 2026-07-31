@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo } from 'react';
+import { lazy, Suspense, memo, useCallback } from 'react';
 import type React from 'react';
 import type {
 	Theme,
@@ -17,7 +17,7 @@ import type { WizardStep } from '../Wizard/WizardContext';
 import type { FlatFileItem } from '../FileSearchModal';
 
 // Modal store (for reading per-modal data passed by callers)
-import { useModalStore, selectModalData } from '../../stores/modalStore';
+import { useModalStore, selectModalData, selectModalOpen } from '../../stores/modalStore';
 
 // Utility Modal Components
 import { QuickActionsModal } from '../QuickActionsModal';
@@ -25,6 +25,11 @@ import { TabSwitcherModal } from '../TabSwitcherModal';
 import { FileSearchModal } from '../FileSearchModal';
 import { CrossTabSearchModal } from '../CrossTabSearchModal';
 import type { CrossTabSearchJumpTarget } from '../CrossTabSearchModal';
+import { SnoozeTabModal } from '../SnoozeTabModal';
+import { SnoozedTabsModal } from '../SnoozedTabsModal';
+import { useTabStore } from '../../stores/tabStore';
+import { notifyCenterFlash } from '../../stores/centerFlashStore';
+import { formatSnoozeTarget } from '../../../shared/snooze';
 import { PromptComposerModal } from '../PromptComposerModal';
 import { ExecutionQueueBrowser } from '../ExecutionQueueBrowser';
 import { BatchRunnerModal } from '../BatchRunnerModal';
@@ -525,6 +530,26 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	const batchRunnerData = useModalStore(selectModalData('batchRunner'));
 	const batchRunnerPresetDocuments = batchRunnerData?.presetDocuments;
 
+	// Snooze modals subscribe to the modal store directly rather than taking
+	// open/close props - they need no state from App.tsx beyond the theme.
+	const snoozeTabOpen = useModalStore(selectModalOpen('snoozeTab'));
+	const snoozeTabData = useModalStore(selectModalData('snoozeTab'));
+	const snoozedTabsOpen = useModalStore(selectModalOpen('snoozedTabs'));
+	const closeSnoozeTab = useCallback(() => useModalStore.getState().closeModal('snoozeTab'), []);
+	const closeSnoozedTabs = useCallback(
+		() => useModalStore.getState().closeModal('snoozedTabs'),
+		[]
+	);
+
+	const handleSnoozeConfirm = useCallback((tabId: string, wakeAt: number, note: string) => {
+		const entry = useTabStore.getState().snoozeTab(tabId, wakeAt, note);
+		if (!entry) return;
+		notifyCenterFlash({
+			message: `Snoozed until ${formatSnoozeTarget(wakeAt)}`,
+			color: 'theme',
+		});
+	}, []);
+
 	return (
 		<>
 			{/* --- QUICK ACTIONS MODAL (Cmd+K) --- */}
@@ -822,6 +847,28 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onReorderItems={onReorderQueueItems}
 					onToggleItemPause={onTogglePauseQueueItem}
 					onEditItem={onEditQueueItem}
+				/>
+			)}
+
+			{/* --- SNOOZE TAB (pick a wake time) --- */}
+			{snoozeTabOpen && snoozeTabData && (
+				<SnoozeTabModal
+					theme={theme}
+					tabLabel={snoozeTabData.tabLabel}
+					onClose={closeSnoozeTab}
+					onConfirm={(wakeAt, note) => {
+						handleSnoozeConfirm(snoozeTabData.tabId, wakeAt, note);
+						closeSnoozeTab();
+					}}
+				/>
+			)}
+
+			{/* --- SNOOZED TABS (list across all agents) --- */}
+			{snoozedTabsOpen && (
+				<SnoozedTabsModal
+					theme={theme}
+					onClose={closeSnoozedTabs}
+					onJumpToTab={onSwitchQueueSession}
 				/>
 			)}
 		</>

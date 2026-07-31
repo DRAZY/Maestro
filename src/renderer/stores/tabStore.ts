@@ -25,7 +25,7 @@
  */
 
 import { create } from 'zustand';
-import type { AITab, FilePreviewTab, Session, LogEntry } from '../types';
+import type { AITab, FilePreviewTab, Session, LogEntry, SnoozedTabEntry } from '../types';
 import type { GistInfo } from '../components/GistPublishModal';
 import {
 	createTab as createTabHelper,
@@ -62,6 +62,13 @@ import {
 	setGroupEmoji as setGroupEmojiHelper,
 	reopenClosedTabWithTiling as reopenUnifiedClosedTabHelper,
 } from '../utils/panelLayout';
+import {
+	snoozeTab as snoozeTabHelper,
+	wakeSnoozedTab as wakeSnoozedTabHelper,
+	removeSnoozedTab as removeSnoozedTabHelper,
+	updateSnoozedTab as updateSnoozedTabHelper,
+	type WakeSnoozedTabResult,
+} from '../utils/snoozeHelpers';
 import { logger } from '../utils/logger';
 
 /**
@@ -207,6 +214,42 @@ export interface TabStoreActions {
 	 * back to the default grid glyph. Persisted via updateSessionWith.
 	 */
 	setGroupEmoji: (groupId: string, emoji: string) => void;
+
+	/**
+	 * Snooze an AI tab in the active session until `wakeAt`, with an optional
+	 * note surfaced in the wake notification. The tab leaves the tab bar until
+	 * useSnoozeScheduler brings it back.
+	 *
+	 * @returns The stored snooze entry, or null if the tab wasn't found
+	 */
+	snoozeTab: (
+		tabId: string,
+		wakeAt: number,
+		note?: string,
+		showUnreadOnly?: boolean
+	) => SnoozedTabEntry | null;
+
+	/**
+	 * Restore a snoozed tab immediately, clearing its snooze. Works on any
+	 * session so the Snoozed Tabs list can act across agents.
+	 */
+	unsnoozeTab: (sessionId: string, snoozeId: string) => WakeSnoozedTabResult | null;
+
+	/**
+	 * Discard a snooze without restoring its tab.
+	 */
+	dismissSnoozedTab: (sessionId: string, snoozeId: string) => void;
+
+	/**
+	 * Reschedule a snooze. Passing `note` rewrites it; omitting it keeps the
+	 * existing note.
+	 */
+	rescheduleSnoozedTab: (
+		sessionId: string,
+		snoozeId: string,
+		wakeAt: number,
+		note?: string
+	) => void;
 
 	/**
 	 * Toggle read-only mode on an AI tab.
@@ -559,6 +602,35 @@ export const useTabStore = create<TabStore>()((set) => ({
 		const session = getActiveSession();
 		if (!session) return;
 		updateSessionWith(session.id, (s) => setGroupEmojiHelper(s, groupId, emoji));
+	},
+
+	// Snooze - see utils/snoozeHelpers.ts for why snoozed tabs leave aiTabs entirely
+	snoozeTab: (tabId, wakeAt, note, showUnreadOnly = false) => {
+		const session = getActiveSession();
+		if (!session) return null;
+		const result = snoozeTabHelper(session, tabId, wakeAt, note, showUnreadOnly);
+		if (!result) return null;
+		updateActiveSession(result.session);
+		return result.entry;
+	},
+
+	unsnoozeTab: (sessionId, snoozeId) => {
+		const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+		if (!session) return null;
+		const result = wakeSnoozedTabHelper(session, snoozeId);
+		if (!result) return null;
+		updateSessionWith(sessionId, () => result.session);
+		return result;
+	},
+
+	dismissSnoozedTab: (sessionId, snoozeId) => {
+		updateSessionWith(sessionId, (session) => removeSnoozedTabHelper(session, snoozeId));
+	},
+
+	rescheduleSnoozedTab: (sessionId, snoozeId, wakeAt, note) => {
+		updateSessionWith(sessionId, (session) =>
+			updateSnoozedTabHelper(session, snoozeId, wakeAt, note)
+		);
 	},
 
 	toggleReadOnly: (tabId) => {

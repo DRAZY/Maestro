@@ -39,8 +39,10 @@ import {
 	computeQueuedTabIds,
 	computeUnreadGroupIds,
 	focusAiTabInSession,
+	getTabDisplayName,
 } from '../../utils/tabHelpers';
 import { readEffortFromConfig } from '../../utils/agentEffort';
+import { useModalStore } from '../../stores/modalStore';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
 import { useFilePreviewHandlers } from '../../hooks/mainPanel/useFilePreviewHandlers';
@@ -518,6 +520,19 @@ export const MainPanel = React.memo(
 			},
 			[activeTab, setTabEffort]
 		);
+
+		// Opening the snooze picker needs nothing from App.tsx, so it talks to the
+		// modal store directly instead of adding another link to the
+		// App -> useMainPanelProps -> MainPanel -> TabBar prop chain.
+		const handleOpenSnooze = useCallback((tabId: string) => {
+			const session = selectActiveSession(useSessionStore.getState());
+			const tab = session?.aiTabs.find((t) => t.id === tabId);
+			if (!tab) return;
+			useModalStore.getState().openModal('snoozeTab', {
+				tabId,
+				tabLabel: getTabDisplayName(tab, session?.agentSessionId),
+			});
+		}, []);
 
 		// Expose methods to parent via ref
 		// Holds the latest terminal/browser buffer-action handlers. The imperative
@@ -1188,6 +1203,7 @@ export const MainPanel = React.memo(
 									onSummarizeAndContinue={onSummarizeAndContinue}
 									onCopyContext={onCopyContext}
 									onExportHtml={onExportHtml}
+									onSnooze={handleOpenSnooze}
 									onPublishGist={props.onPublishTabGist}
 									ghCliAvailable={props.ghCliAvailable}
 									showUnreadOnly={showUnreadOnly}

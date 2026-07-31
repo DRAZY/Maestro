@@ -85,6 +85,7 @@ import {
 	// Tab handlers
 	useTabHandlers,
 	useTerminalTabHandlers,
+	useSnoozeScheduler,
 	// Group chat handlers
 	useGroupChatHandlers,
 	// Modal handlers
@@ -1028,6 +1029,10 @@ function MaestroConsoleInner() {
 		if (!sess?.activeFileTabId) return null;
 		return sess.filePreviewTabs.find((t) => t.id === sess.activeFileTabId) ?? null;
 	});
+
+	// Wakes snoozed tabs when their time arrives (and on launch, for wakes
+	// missed while Maestro was closed).
+	useSnoozeScheduler();
 
 	// --- TERMINAL TAB HANDLERS ---
 	const { handleOpenTerminalTab, handleSelectTerminalTab, handleCloseTerminalTab } =

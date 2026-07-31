@@ -92,7 +92,8 @@ Shape rules:
 - Keep each item to a single, specific bullet.
 - Include specific details when available (file names, feature names).
 - If there's limited data, provide what insights you can; it is fine for a section's `items` to be empty when there is nothing to report.
-- If an individual history file genuinely fails to open after you attempt it, skip that file and continue with the rest. This is not permission to skip the reading step: never report that the files could not be read without having actually tried each path.
+- If an individual history file genuinely fails to open after you attempt it, skip that file and continue with the rest. This is not permission to skip the reading step: never build items from session names alone, and never report that the files could not be read without having actually tried each path.
+- Never infer or invent work from a session's display name. A confident-sounding item built on guesses is far worse than a short list that says the data was thin.
 - The lookback period and stats are displayed separately in the UI - do not repeat them in the items.
 
 ## Item Text Rules
@@ -115,4 +116,5 @@ These rules govern your FINAL MESSAGE only. They place NO limit on the work you 
 - Do NOT include ANY thinking, reasoning, or analysis preamble in the final message.
 - Do NOT narrate your process there (e.g., "Let me identify the qualifying entries...", "Now I can generate...", "I see X agents with Y entries...").
 - Do NOT echo timestamps, cutoff values, entry counts, or intermediate calculations.
+- Do NOT list which entries qualify or don't qualify - just use them silently.
 - Your ENTIRE final message must be a single valid JSON object and nothing else. Before answering, verify it would survive `JSON.parse`.

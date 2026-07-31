@@ -18,6 +18,10 @@ interface SearchPopoverProps {
 	searchAllTabsKeys?: string[];
 	/** Number of open tabs in the current session, shown as a pill next to "Search Tabs" */
 	openTabCount?: number;
+	/** Open the snoozed tabs list */
+	onShowSnoozedTabs: () => void;
+	/** Total snoozed tabs across all agents, shown as a pill. Omitted/0 hides it. */
+	snoozedTabCount?: number;
 }
 
 /**
@@ -33,6 +37,8 @@ export const SearchPopover = memo(function SearchPopover({
 	searchOutputKeys,
 	searchAllTabsKeys,
 	openTabCount,
+	onShowSnoozedTabs,
+	snoozedTabCount,
 }: SearchPopoverProps) {
 	const [popoverOpen, setPopoverOpen] = useState(false);
 	const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
@@ -156,6 +162,25 @@ export const SearchPopover = memo(function SearchPopover({
 								)}
 							</button>
 						)}
+
+						{/* Point-and-click route to the snoozed tabs list */}
+						<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+						<button
+							className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors"
+							style={{ color: theme.colors.textMain }}
+							onClick={() => closeAndDo(onShowSnoozedTabs)}
+						>
+							<Clock className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+							See All Snoozed Tabs
+							{snoozedTabCount != null && snoozedTabCount > 0 && (
+								<span
+									className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
+									style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
+								>
+									{snoozedTabCount}
+								</span>
+							)}
+						</button>
 					</div>,
 					document.body
 				)}

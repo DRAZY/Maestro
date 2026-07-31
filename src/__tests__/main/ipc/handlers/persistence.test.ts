@@ -29,6 +29,11 @@ vi.mock('electron', () => ({
 		getPath: vi.fn().mockReturnValue('/mock/user/data'),
 		on: vi.fn(),
 	},
+	// settings:set notifies peer windows so a renderer never gets its own write
+	// echoed back as an external change (see notifyPeerWindows).
+	BrowserWindow: {
+		getAllWindows: vi.fn(() => []),
+	},
 }));
 
 // Mock fs/promises
@@ -84,7 +89,6 @@ describe('persistence IPC handlers', () => {
 		broadcastSessionRemoved: ReturnType<typeof vi.fn>;
 	};
 	let getWebServerFn: () => WebServer | null;
-	let mockSafeSend: PersistenceHandlerDependencies['safeSend'];
 
 	beforeEach(() => {
 		// Clear mocks
@@ -119,7 +123,6 @@ describe('persistence IPC handlers', () => {
 		};
 
 		getWebServerFn = () => mockWebServer as unknown as WebServer;
-		mockSafeSend = vi.fn<PersistenceHandlerDependencies['safeSend']>();
 
 		// Capture all registered handlers
 		handlers = new Map();
@@ -133,7 +136,6 @@ describe('persistence IPC handlers', () => {
 			sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
 			groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
 			getWebServer: getWebServerFn,
-			safeSend: mockSafeSend,
 		};
 		registerPersistenceHandlers(deps);
 	});
@@ -243,7 +245,6 @@ describe('persistence IPC handlers', () => {
 					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
 					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
 					getWebServer: getWebServerFn,
-					safeSend: mockSafeSend,
 					emitPluginEvent,
 				};
 				registerPersistenceHandlers(deps);
@@ -301,7 +302,6 @@ describe('persistence IPC handlers', () => {
 					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
 					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
 					getWebServer: getWebServerFn,
-					safeSend: mockSafeSend,
 					emitPluginEvent: localEmit,
 				});
 				const localSetHandler = handlers.get('sessions:setActiveSessionId') as (
@@ -338,7 +338,6 @@ describe('persistence IPC handlers', () => {
 					sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
 					groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
 					getWebServer: getWebServerFn,
-					safeSend: mockSafeSend,
 					emitPluginEvent: localEmit,
 				});
 				const localSetHandler = handlers.get('sessions:setActiveSessionId') as (
@@ -429,6 +428,28 @@ describe('persistence IPC handlers', () => {
 			expect(result).toBe(true);
 		});
 
+		it('should notify other windows but never the window that wrote', async () => {
+			const { BrowserWindow } = await import('electron');
+			const makeWindow = (id: number) => ({
+				isDestroyed: () => false,
+				webContents: { id, send: vi.fn(), isDestroyed: () => false },
+			});
+			const writer = makeWindow(1);
+			const peer = makeWindow(2);
+			(BrowserWindow.getAllWindows as unknown as ReturnType<typeof vi.fn>).mockReturnValue([
+				writer,
+				peer,
+			]);
+
+			const handler = handlers.get('settings:set');
+			await handler!({ sender: { id: 1 } } as any, 'fontSize', 16);
+
+			// Echoing the write back to its own window makes that renderer reload
+			// settings asynchronously on top of whatever is being typed.
+			expect(writer.webContents.send).not.toHaveBeenCalled();
+			expect(peer.webContents.send).toHaveBeenCalledWith('settings:externalChange');
+		});
+
 		it('should broadcast theme changes to connected web clients', async () => {
 			mockWebServer.getWebClientCount.mockReturnValue(3);
 			const { getThemeById } = await import('../../../../main/themes');
@@ -450,17 +471,24 @@ describe('persistence IPC handlers', () => {
 			expect(mockWebServer.broadcastThemeChange).not.toHaveBeenCalled();
 		});
 
-		it('should cascade every settings change to all windows (settings are global)', async () => {
+		it('should cascade every settings change to peer windows (settings are global)', async () => {
+			const { BrowserWindow } = await import('electron');
+			const peer = {
+				isDestroyed: () => false,
+				webContents: { id: 2, send: vi.fn(), isDestroyed: () => false },
+			};
+			(BrowserWindow.getAllWindows as unknown as ReturnType<typeof vi.fn>).mockReturnValue([peer]);
+
 			const handler = handlers.get('settings:set');
 
-			// A UI-driven theme switch must reach every window, not just the sender.
-			await handler!({} as any, 'activeThemeId', 'light');
-			expect(mockSafeSend).toHaveBeenCalledWith('settings:externalChange');
+			// A UI-driven theme switch must reach every other window, not just the sender.
+			await handler!({ sender: { id: 1 } } as any, 'activeThemeId', 'light');
+			expect(peer.webContents.send).toHaveBeenCalledWith('settings:externalChange');
 
 			// Not theme-specific: any setting cascades so all windows stay in unison.
-			vi.mocked(mockSafeSend).mockClear();
-			await handler!({} as any, 'fontSize', 16);
-			expect(mockSafeSend).toHaveBeenCalledWith('settings:externalChange');
+			peer.webContents.send.mockClear();
+			await handler!({ sender: { id: 1 } } as any, 'fontSize', 16);
+			expect(peer.webContents.send).toHaveBeenCalledWith('settings:externalChange');
 		});
 
 		it('should not cascade when the settings write fails', async () => {
@@ -470,11 +498,18 @@ describe('persistence IPC handlers', () => {
 				throw err;
 			});
 
+			const { BrowserWindow } = await import('electron');
+			const peer = {
+				isDestroyed: () => false,
+				webContents: { id: 2, send: vi.fn(), isDestroyed: () => false },
+			};
+			(BrowserWindow.getAllWindows as unknown as ReturnType<typeof vi.fn>).mockReturnValue([peer]);
+
 			const handler = handlers.get('settings:set');
-			const result = await handler!({} as any, 'activeThemeId', 'light');
+			const result = await handler!({ sender: { id: 1 } } as any, 'activeThemeId', 'light');
 
 			expect(result).toBe(false);
-			expect(mockSafeSend).not.toHaveBeenCalled();
+			expect(peer.webContents.send).not.toHaveBeenCalled();
 		});
 
 		it('should broadcast bionify reading mode changes to connected web clients', async () => {
@@ -558,7 +593,6 @@ describe('persistence IPC handlers', () => {
 				sessionsStore: mockSessionsStore as unknown as Store<SessionsData>,
 				groupsStore: mockGroupsStore as unknown as Store<GroupsData>,
 				getWebServer: () => null,
-				safeSend: mockSafeSend,
 			};
 			registerPersistenceHandlers(deps);
 

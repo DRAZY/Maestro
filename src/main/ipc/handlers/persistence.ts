@@ -10,11 +10,12 @@
  * Extracted from main/index.ts to improve code organization.
  */
 
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { logger } from '../../utils/logger';
+import { isWebContentsAvailable } from '../../utils/safe-send';
 import { getThemeById } from '../../themes';
 import { WebServer } from '../../web-server';
 import {
@@ -57,6 +58,24 @@ function cliActivityChanged(
 }
 
 /**
+ * Tell every OTHER window that settings changed on disk.
+ *
+ * The settings file watcher deliberately ignores writes the app makes itself
+ * (see stores/write-tracker.ts): echoing a renderer's own write back to it
+ * triggers an async `loadAllSettings()` that overwrites whatever the user is
+ * typing, which is how the Conductor Profile textarea kept losing characters
+ * and snapping the caret to the end. Peer windows still have to hear about it,
+ * so route that here - immediately, and only to windows that did not write.
+ */
+function notifyPeerWindows(senderWebContentsId: number | undefined): void {
+	for (const win of BrowserWindow.getAllWindows()) {
+		if (!isWebContentsAvailable(win)) continue;
+		if (win.webContents.id === senderWebContentsId) continue;
+		win.webContents.send('settings:externalChange');
+	}
+}
+
+/**
  * Dependencies required for persistence handlers
  */
 export interface PersistenceHandlerDependencies {
@@ -70,14 +89,6 @@ export interface PersistenceHandlerDependencies {
 	 * plugin subsystem is absent (emits are then simply skipped).
 	 */
 	emitPluginEvent?: (event: PluginEvent) => void;
-	/**
-	 * Broadcast an IPC message to EVERY open window. Used so a settings change
-	 * cascades to all windows in unison: settings are global, so a UI-driven
-	 * edit in one window must reload settings in every other window immediately.
-	 * (The file watcher covers external/CLI edits; this covers in-app edits
-	 * deterministically instead of relying on fs.watch + debounce.)
-	 */
-	safeSend: (channel: string, ...args: unknown[]) => void;
 }
 
 /**
@@ -103,8 +114,7 @@ export interface PersistenceHandlers {
 export function registerPersistenceHandlers(
 	deps: PersistenceHandlerDependencies
 ): PersistenceHandlers {
-	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent, safeSend } =
-		deps;
+	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent } = deps;
 
 	// PERF: coalesce activeSessionId disk writes.
 	//
@@ -203,7 +213,7 @@ export function registerPersistenceHandlers(
 		return value;
 	});
 
-	ipcMain.handle('settings:set', async (_, key: string, value: any) => {
+	ipcMain.handle('settings:set', async (event, key: string, value: any) => {
 		try {
 			settingsStore.set(key, value);
 		} catch (err) {
@@ -220,12 +230,10 @@ export function registerPersistenceHandlers(
 
 		// Settings are global: cascade this change to every OTHER window so all
 		// windows stay in unison (e.g. a theme switch applies everywhere at once).
-		// The originating renderer already updated its own store optimistically, so
-		// a reload there is a harmless no-op (shallow compare); broadcasting to all
-		// is simpler and matches the app-wide safeSend pattern. This is the
-		// deterministic in-app path; the settings file watcher handles external
-		// (maestro-cli) edits.
-		safeSend('settings:externalChange');
+		// This is the deterministic in-app path; the settings file watcher handles
+		// external (maestro-cli) edits. The sender is skipped deliberately - see
+		// notifyPeerWindows.
+		notifyPeerWindows(event?.sender?.id);
 
 		const webServer = getWebServer();
 		// Broadcast theme changes to connected web clients

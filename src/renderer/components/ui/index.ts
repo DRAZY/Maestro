@@ -47,3 +47,6 @@ export type { HoverTooltipProps } from './HoverTooltip';
 export { ResizeHandles } from './ResizeHandles';
 
 export { EscCloseHint } from './EscCloseHint';
+
+export { CalendarPicker } from './CalendarPicker';
+export type { CalendarPickerProps } from './CalendarPicker';

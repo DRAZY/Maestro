@@ -120,6 +120,12 @@ export interface RenameTabModalData {
 	initialName: string;
 }
 
+/** Snooze tab modal data - which AI tab is being snoozed, and how to label it */
+export interface SnoozeTabModalData {
+	tabId: string;
+	tabLabel: string;
+}
+
 /** Terminal tab startup command modal data */
 export interface TerminalStartupCommandModalData {
 	sessionId: string;
@@ -248,6 +254,8 @@ export type ModalId =
 	// Tab Management
 	| 'renameTab'
 	| 'terminalStartupCommand'
+	| 'snoozeTab'
+	| 'snoozedTabs'
 	// Group Management
 	| 'renameGroup'
 	// Session Operations
@@ -322,6 +330,7 @@ export interface ModalDataMap {
 	confirm: ConfirmModalData;
 	renameInstance: RenameInstanceModalData;
 	renameTab: RenameTabModalData;
+	snoozeTab: SnoozeTabModalData;
 	terminalStartupCommand: TerminalStartupCommandModalData;
 	renameGroup: RenameGroupModalData;
 	agentSessions: AgentSessionsModalData;
