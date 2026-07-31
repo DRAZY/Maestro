@@ -122,6 +122,7 @@ describe('director-notes IPC handlers', () => {
 			getProcessManager: () => mockProcessManager,
 			getAgentDetector: () => mockAgentDetector,
 			agentConfigsStore: { get: vi.fn(() => ({})) } as any,
+			getMainWindow: () => null,
 		});
 	});
 
@@ -133,6 +134,7 @@ describe('director-notes IPC handlers', () => {
 		it('should register all director-notes handlers', () => {
 			const expectedChannels = [
 				'director-notes:getUnifiedHistory',
+				'director-notes:getRichOverviewStats',
 				'director-notes:generateSynopsis',
 			];
 
@@ -867,6 +869,94 @@ describe('director-notes IPC handlers', () => {
 			expect(promptArg).toContain('Timestamp cutoff:');
 		});
 
+		it('parses a well-formed JSON response into narrative (no narrativeError)', async () => {
+			const { groomContext } = await import('../../../../main/utils/context-groomer');
+			const json = JSON.stringify({
+				version: 1,
+				sections: [
+					{
+						kind: 'accomplishments',
+						title: 'Accomplishments',
+						items: [{ text: 'Shipped the feature', severity: 'info', agent: 'alpha' }],
+					},
+					{ kind: 'challenges', title: 'Challenges', items: [] },
+					{ kind: 'nextSteps', title: 'Next Steps', items: [] },
+				],
+			});
+			vi.mocked(groomContext).mockResolvedValue({
+				response: json,
+				durationMs: 1000,
+				completionReason: 'process exited with code 0',
+			});
+
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getHistoryFilePath).mockReturnValue(
+				'/data/history/session-1.json'
+			);
+
+			const handler = handlers.get('director-notes:generateSynopsis');
+			const result = await handler!({} as any, { lookbackDays: 7, provider: 'claude-code' });
+
+			expect(result.success).toBe(true);
+			// Raw synopsis is preserved verbatim for Plain Mode / copy / save.
+			expect(result.synopsis).toBe(json);
+			expect(result.narrativeError).toBeUndefined();
+			expect(result.narrative).toBeDefined();
+			expect(result.narrative.version).toBe(1);
+			expect(result.narrative.sections).toHaveLength(3);
+			expect(result.narrative.sections[0].items[0].text).toBe('Shipped the feature');
+			expect(result.narrative.sections[0].items[0].agent).toBe('alpha');
+		});
+
+		it('treats prose output as markdown, with no narrativeError', async () => {
+			// The prompt is a user setting: a profile holding a markdown-contract
+			// prompt makes the agent return prose. That is not a broken narrative,
+			// and flagging it would show a parse error where a report should be.
+			const { groomContext } = await import('../../../../main/utils/context-groomer');
+			vi.mocked(groomContext).mockResolvedValue({
+				response: '# Synopsis\n\nThis is markdown, not JSON.',
+				durationMs: 1000,
+				completionReason: 'process exited with code 0',
+			});
+
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getHistoryFilePath).mockReturnValue(
+				'/data/history/session-1.json'
+			);
+
+			const handler = handlers.get('director-notes:generateSynopsis');
+			const result = await handler!({} as any, { lookbackDays: 7, provider: 'claude-code' });
+
+			expect(result.success).toBe(true);
+			expect(result.synopsis).toBe('# Synopsis\n\nThis is markdown, not JSON.');
+			expect(result.narrative).toBeUndefined();
+			expect(result.narrativeError).toBeUndefined();
+		});
+
+		it('returns narrativeError when JSON-shaped output fails the schema', async () => {
+			// Shaped like the narrative but wrong: the agent really did botch it,
+			// so the user should see the failure rather than a wall of JSON.
+			const { groomContext } = await import('../../../../main/utils/context-groomer');
+			vi.mocked(groomContext).mockResolvedValue({
+				response: '{ "version": 99, "sections": "nope" }',
+				durationMs: 1000,
+				completionReason: 'process exited with code 0',
+			});
+
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getHistoryFilePath).mockReturnValue(
+				'/data/history/session-1.json'
+			);
+
+			const handler = handlers.get('director-notes:generateSynopsis');
+			const result = await handler!({} as any, { lookbackDays: 7, provider: 'claude-code' });
+
+			expect(result.success).toBe(true);
+			expect(result.narrative).toBeUndefined();
+			expect(result.narrativeError).toBeTypeOf('string');
+			expect(result.narrativeError.length).toBeGreaterThan(0);
+		});
+
 		it('excludes sessions with no entries inside the lookback window', async () => {
 			const { groomContext } = await import('../../../../main/utils/context-groomer');
 			vi.mocked(groomContext).mockResolvedValue({
@@ -883,7 +973,7 @@ describe('director-notes IPC handlers', () => {
 				.mockReturnValueOnce('/data/history/recent-session.json')
 				.mockReturnValueOnce('/data/history/stale-session.json');
 			// stale-session only has entries far outside the 7-day window and must be
-			// left out of the manifest — otherwise the grooming agent burns its whole
+			// left out of the manifest - otherwise the grooming agent burns its whole
 			// timeout reading out-of-range history files and emits no synopsis.
 			vi.mocked(mockHistoryManager.getEntries)
 				.mockReturnValueOnce([createMockEntry({ timestamp: Date.now() })])
