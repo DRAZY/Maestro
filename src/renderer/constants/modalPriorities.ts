@@ -323,6 +323,9 @@ export const MODAL_PRIORITIES = {
 	 * and Escape closes them first while editing a queued message's images). */
 	QUEUED_ITEM_EDIT: 145,
 
+	/** CSV row detail modal (above the file preview it opens from) */
+	CSV_ROW_DETAIL: 110,
+
 	/** File preview overlay */
 	FILE_PREVIEW: 100,
 

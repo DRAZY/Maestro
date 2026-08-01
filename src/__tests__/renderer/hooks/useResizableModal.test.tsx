@@ -268,6 +268,66 @@ describe('useResizableModal', () => {
 		});
 	});
 
+	describe('resize-ending click suppression', () => {
+		it('swallows the click that follows a resize-ending mouseup, so releasing over a click-to-close backdrop cannot close it', () => {
+			const onBackdropClick = vi.fn();
+			render(
+				<div onClick={onBackdropClick} data-testid="backdrop">
+					<Harness />
+				</div>
+			);
+
+			// Growing the modal moves the cursor past its old bounds - onto the
+			// "backdrop" here - by the time the button is released.
+			fireEvent.mouseDown(screen.getByTestId('modal-resize-handle-se'), {
+				clientX: 0,
+				clientY: 0,
+			});
+			fireEvent.mouseMove(document, { clientX: 300, clientY: 300 });
+			fireEvent.mouseUp(document);
+
+			// The browser would synthesize this click at the same coordinates,
+			// landing on whatever is under the cursor - the backdrop.
+			fireEvent.click(screen.getByTestId('backdrop'));
+
+			expect(onBackdropClick).not.toHaveBeenCalled();
+		});
+
+		it('does not suppress a later, unrelated click once the resize-ending one has been swallowed', () => {
+			const onBackdropClick = vi.fn();
+			render(
+				<div onClick={onBackdropClick} data-testid="backdrop">
+					<Harness />
+				</div>
+			);
+
+			fireEvent.mouseDown(screen.getByTestId('modal-resize-handle-se'), {
+				clientX: 0,
+				clientY: 0,
+			});
+			fireEvent.mouseMove(document, { clientX: 300, clientY: 300 });
+			fireEvent.mouseUp(document);
+			fireEvent.click(screen.getByTestId('backdrop'));
+			expect(onBackdropClick).not.toHaveBeenCalled();
+
+			fireEvent.click(screen.getByTestId('backdrop'));
+			expect(onBackdropClick).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not arm suppression for a plain click with no preceding resize', () => {
+			const onBackdropClick = vi.fn();
+			render(
+				<div onClick={onBackdropClick} data-testid="backdrop">
+					<Harness />
+				</div>
+			);
+
+			fireEvent.click(screen.getByTestId('backdrop'));
+
+			expect(onBackdropClick).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	describe('double-click to reset', () => {
 		it('drops the saved size and snaps back to the declared default', () => {
 			useSettingsStore.setState({

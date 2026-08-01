@@ -250,7 +250,7 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 						</div>
 
 						{/* Process tree */}
-						<div className="overflow-y-auto flex-1 scrollbar-thin">
+						<div className="overflow-y-auto flex-1 scrollbar-thin select-text">
 							<ProcessListView
 								theme={theme}
 								tree={tree}

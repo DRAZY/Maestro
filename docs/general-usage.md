@@ -39,8 +39,31 @@ The **File Explorer** (Right Panel → Files tab) lets you browse project files.
 - **Markdown rendering** with toggle between raw/preview (`Cmd+E` / `Ctrl+E`)
 - **Image viewing** for common image formats
 - **Audio and video playback** with a speed control that sticks (see below)
+- **CSV and TSV tables** with sortable columns and a per-row detail view (see below)
 - **Line numbers** for easy reference
 - **Search within file** (`Cmd+F` / `Ctrl+F`)
+
+### CSV and TSV Tables
+
+`.csv` and `.tsv` files render as a real table instead of raw text. Click any
+column header to sort by it (click again to reverse, a third time to clear), and
+`Cmd+F` / `Ctrl+F` filters the table down to matching rows with the hits
+highlighted.
+
+Wide rows get cut off at the edge of the screen, which is the wrong shape for
+reading one record closely. **Double-click a row** to flip it into a vertical
+view: a modal listing every column as a field/value pair, one per line. Long and
+multi-line values wrap and keep their line breaks instead of being truncated,
+and each value has a copy button on hover.
+
+Inside that view:
+
+- The **filter box** narrows to fields whose name or value matches what you type.
+- **Up and Down arrows**, or the chevrons in the header, step through rows
+  without closing the modal. Navigation follows whatever the table is currently
+  showing, so it respects your active sort and search.
+- Drag any edge or corner to resize. The size is remembered for next time.
+- `Esc` closes the row view and leaves the file open.
 
 ### Audio and Video Playback
 
@@ -158,10 +181,11 @@ Share files directly as GitHub Gists from the File Preview:
 3. Use `Cmd+K` / `Ctrl+K` → "Publish Document as GitHub Gist"
 
 **Visibility options:**
-| Option | Description |
-|--------|-------------|
+
+| Option                       | Description                                                                |
+| ---------------------------- | -------------------------------------------------------------------------- |
 | **Publish Secret** (default) | Creates an unlisted gist - not searchable, only accessible via direct link |
-| **Publish Public** | Creates a public gist - visible on your profile and searchable |
+| **Publish Public**           | Creates a public gist - visible on your profile and searchable             |
 
 The confirmation modal focuses "Publish Secret" by default, so you can press `Enter` to quickly publish. Press `Esc` to cancel.
 
@@ -550,12 +574,13 @@ When you send your first message to a new tab, Maestro automatically generates a
 4. If you've already renamed the tab, automatic naming is skipped
 
 **Examples of generated tab names:**
-| Your message | Generated name |
-|--------------|----------------|
+
+| Your message                                     | Generated name          |
+| ------------------------------------------------ | ----------------------- |
 | "Help me implement user authentication with JWT" | JWT Auth Implementation |
-| "Fix the bug in the checkout flow" | Checkout Bug Fix |
-| "Add dark mode support to the app" | Dark Mode Support |
-| "Refactor the database queries" | Database Query Refactor |
+| "Fix the bug in the checkout flow"               | Checkout Bug Fix        |
+| "Add dark mode support to the app"               | Dark Mode Support       |
+| "Refactor the database queries"                  | Database Query Refactor |
 
 **Configuring automatic tab naming:**
 

@@ -234,6 +234,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		resizeKey: 'settings',
 		defaultSize: { width: 980, height: 900 },
 		minSize: { width: 720, height: 480 },
+		enabled: isOpen,
 	});
 	// Search state
 	const [searchActive, setSearchActive] = useState(false);

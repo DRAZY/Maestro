@@ -197,6 +197,21 @@ export function useResizableModal({
 			};
 
 			const handleMouseUp = () => {
+				// Growing a modal means the cursor frequently ends up past its
+				// pre-drag bounds by the time the button is released - i.e. over the
+				// backdrop. Left alone, the browser then synthesizes a click there,
+				// and since most modals close on a backdrop click, finishing a
+				// resize would look identical to clicking outside and close the
+				// modal the instant the drag ends. Swallow exactly that one click,
+				// in the capture phase so it never reaches whatever is under the
+				// cursor. The timeout is a safety net for the rare case no click
+				// follows at all - `once` already removes it the moment one does.
+				const suppressNextClick = (clickEvent: MouseEvent) => {
+					clickEvent.stopPropagation();
+					clickEvent.preventDefault();
+				};
+				document.addEventListener('click', suppressNextClick, { capture: true, once: true });
+				setTimeout(() => document.removeEventListener('click', suppressNextClick, true), 0);
 				commit();
 			};
 

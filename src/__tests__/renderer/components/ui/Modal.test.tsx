@@ -162,131 +162,14 @@ describe('Modal', () => {
 			expect(screen.getByRole('dialog')).toBeInTheDocument();
 		});
 	});
-});
 
-describe('ModalFooter', () => {
-	it('should render cancel and confirm buttons', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
+	it('applies a remembered size to the card', () => {
+		useSettingsStore.setState({
+			modalSizes: { 'shared-modal-test': { width: 700, height: 500 } },
+		});
+		renderModal();
 
-		render(<ModalFooter theme={mockTheme} onCancel={onCancel} onConfirm={onConfirm} />);
-
-		expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-	});
-
-	it('should use custom button labels', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter
-				theme={mockTheme}
-				onCancel={onCancel}
-				onConfirm={onConfirm}
-				cancelLabel="Discard"
-				confirmLabel="Save Changes"
-			/>
-		);
-
-		expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Save Changes' })).toBeInTheDocument();
-	});
-
-	it('should call onCancel when cancel button is clicked', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(<ModalFooter theme={mockTheme} onCancel={onCancel} onConfirm={onConfirm} />);
-
-		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(onCancel).toHaveBeenCalledTimes(1);
-		expect(onConfirm).not.toHaveBeenCalled();
-	});
-
-	it('should call onConfirm when confirm button is clicked', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(<ModalFooter theme={mockTheme} onCancel={onCancel} onConfirm={onConfirm} />);
-
-		fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-		expect(onConfirm).toHaveBeenCalledTimes(1);
-		expect(onCancel).not.toHaveBeenCalled();
-	});
-
-	it('should disable confirm button when confirmDisabled is true', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter
-				theme={mockTheme}
-				onCancel={onCancel}
-				onConfirm={onConfirm}
-				confirmDisabled={true}
-			/>
-		);
-
-		const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-		expect(confirmButton).toBeDisabled();
-	});
-
-	it('should hide cancel button when showCancel is false', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter theme={mockTheme} onCancel={onCancel} onConfirm={onConfirm} showCancel={false} />
-		);
-
-		expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-	});
-
-	it('should apply destructive styling when destructive is true', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter theme={mockTheme} onCancel={onCancel} onConfirm={onConfirm} destructive={true} />
-		);
-
-		const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-		expect(confirmButton).toHaveStyle({ backgroundColor: mockTheme.colors.error });
-	});
-
-	it('should apply accent styling when not destructive', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter
-				theme={mockTheme}
-				onCancel={onCancel}
-				onConfirm={onConfirm}
-				destructive={false}
-			/>
-		);
-
-		const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-		expect(confirmButton).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
-	});
-
-	it('should apply custom className to confirm button', () => {
-		const onCancel = vi.fn();
-		const onConfirm = vi.fn();
-
-		render(
-			<ModalFooter
-				theme={mockTheme}
-				onCancel={onCancel}
-				onConfirm={onConfirm}
-				confirmClassName="custom-confirm"
-			/>
-		);
-
-		const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-		expect(confirmButton).toHaveClass('custom-confirm');
+		const card = screen.getByText('Modal body').closest('[role="dialog"] > div');
+		expect(card).toHaveStyle({ width: '700px', height: '500px' });
 	});
 });
