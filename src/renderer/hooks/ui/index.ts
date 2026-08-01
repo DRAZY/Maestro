@@ -46,6 +46,13 @@ export { useContextMenuPosition } from './useContextMenuPosition';
 export { useResizablePanel } from './useResizablePanel';
 export type { UseResizablePanelOptions, UseResizablePanelReturn } from './useResizablePanel';
 
+// Remembered height for user-resized textareas
+export { useResizableTextarea } from './useResizableTextarea';
+export type {
+	UseResizableTextareaOptions,
+	UseResizableTextareaReturn,
+} from './useResizableTextarea';
+
 // App-level handlers (drag, file, folder operations)
 export { useAppHandlers } from './useAppHandlers';
 export type { UseAppHandlersDeps, UseAppHandlersReturn } from './useAppHandlers';
