@@ -1052,6 +1052,28 @@ The second case is the one that gets missed: an SVG appended with `appendChild` 
 
 ---
 
+## Table of Contents (`components/Toc`)
+
+Any long scrollable surface that wants a jump list uses the shared TOC. Do NOT re-implement the floating button, the panel, or its keyboard handling: users have muscle memory from File Preview, and a second copy drifts from it.
+
+| Piece               | Location                            | Responsibility                                                                      |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
+| `<TocOverlay>`      | `components/Toc/TocOverlay.tsx`     | The button + panel, entry rendering, Arrow/Home/End navigation, focus-first-on-open |
+| `useTocOverlay()`   | `hooks/ui/useTocOverlay.ts`         | Open state, toggle hotkey, Escape, click-outside, focus restore on close            |
+| `computeTocWidth()` | `components/Toc/tocWidth.ts`        | Panel width from the longest entry (clamped 200-500px)                              |
+| `extractHeadings()` | `components/Toc/extractHeadings.ts` | Markdown headings -> `TocEntry[]`, code-fence aware, `github-slugger` slugs         |
+
+Consumers: `FilePreviewToc` (markdown files) and `AIOverviewTab` (Director's Notes, both reading modes).
+
+Two things a host must get right:
+
+- **Anchors have to exist.** The default scroll path is `containerRef.querySelector('#slug')`. For rendered markdown that means passing `rehype-slug` so headings carry ids matching `extractHeadings`' slugs. For non-heading targets (Director's Notes' `SectionCard`s, the virtualized Fast tier) either put a matching `id` on the target or pass `onSelectEntry` and handle the scroll yourself.
+- **The keydown must reach the hook.** `handleKeyDown` fires from the element that has DOM focus, and keys bubble UP. If an ancestor owns focus, the hook never sees the hotkey. Focus the scroll region itself - in Director's Notes the tab exposes a `TabFocusHandle` whose `focus()` targets the content region for exactly this reason.
+
+Escape ordering is the host's call. On a layer-stack modal, delegate to `closeIfOpen()` first and only close the modal when it returns false, so Escape dismisses the panel before the modal.
+
+---
+
 ## Tab System
 
 Each agent supports multiple AI tabs within its workspace. Tab management hooks live in `src/renderer/hooks/tabs/`.
