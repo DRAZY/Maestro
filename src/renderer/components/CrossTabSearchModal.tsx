@@ -4,6 +4,7 @@ import type { AITab, LogEntry, Shortcut, Theme } from '../types';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { useListNavigation } from '../hooks';
 import { useDebouncedValue } from '../hooks/utils/useThrottle';
+import { useFocusOnMount } from '../hooks/utils/useFocusAfterRender';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { formatRelativeTime } from '../utils/formatters';
@@ -111,9 +112,10 @@ export function CrossTabSearchModal({
 
 	useModalLayer(MODAL_PRIORITIES.CROSS_TAB_SEARCH, 'Search Messages (All Agent Tabs)', onClose);
 
-	useEffect(() => {
-		inputRef.current?.focus();
-	}, []);
+	// Land the caret in the search box however the modal was opened: keyboard
+	// shortcut, tab-bar popover, or command palette. Deferred, because the
+	// surface that opened us restores focus on its way out in the same commit.
+	useFocusOnMount(inputRef);
 
 	// PERF: the corpus is every log entry in every open tab, so don't re-scan on
 	// each keystroke.
