@@ -1768,7 +1768,7 @@ describe('MainPanel', () => {
 			expect(writeText).toHaveBeenCalledWith('main');
 		});
 
-		it('should open git log when clicking on SSH remote git badge', async () => {
+		it('should open the git menu when clicking on SSH remote git badge', async () => {
 			const setGitLogOpen = vi.fn();
 			const session = createSession({
 				isGitRepo: true,
@@ -1788,8 +1788,11 @@ describe('MainPanel', () => {
 				expect(screen.getByText('my-ssh-remote')).toBeInTheDocument();
 			});
 
+			// The pill now opens the git dropdown; the log is one entry in it.
 			fireEvent.click(screen.getByText('my-ssh-remote'));
+			expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
 
+			fireEvent.click(screen.getByTestId('git-pill-menu-log'));
 			expect(setGitLogOpen).toHaveBeenCalledWith(true);
 		});
 

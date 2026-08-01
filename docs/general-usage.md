@@ -27,6 +27,27 @@ Each agent shows a color-coded status indicator:
 - 🟠 **Pulsing Orange** - Attempting to establish connection
 - 🔴 **Red Badge** - Unread messages (small red dot overlapping top-right of status indicator, iPhone-style)
 
+## Git Actions
+
+For agents whose working directory is a git repository, the same set of git actions is reachable two ways:
+
+- **Header branch pill** - click the pill showing the current branch name.
+- **Left Bar right-click** - right-click the agent in the agent list.
+
+| Action                  | What it does                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **View Git Log**        | Opens the commit history viewer.                                                                              |
+| **Git Pull**            | Runs `git pull` and shows the live command output in a dismissible modal. Badged with how far behind you are. |
+| **Git Push**            | Runs `git push` the same way. Badged with how many commits you're ahead.                                      |
+| **Change Branch**       | Opens a fuzzy branch picker. Type to filter, Enter to check out.                                              |
+| **Create Pull Request** | Opens the PR composer for the current branch (needs the GitHub CLI).                                          |
+
+The header pill always acts on the agent you're looking at. The right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it first.
+
+Pull and push stream their output as it happens, so you can watch the transfer and read git's error message if it fails. Dismissing the modal leaves the command running; **Cancel** stops it. When a push fails because the branch has no upstream, the modal offers a one-click **Push and Set Upstream** retry.
+
+Hovering the pill (instead of clicking) still shows the branch, origin, and working-tree summary, along with worktree actions.
+
 ## File Explorer and Preview
 
 The **File Explorer** (Right Panel → Files tab) lets you browse project files. Click any file to open it in the **File Preview** view.
@@ -537,9 +558,15 @@ Right-click any agent for quick actions:
 - **Edit Agent...** - Open configuration modal
 - **Add/Remove Bookmark** - Toggle bookmark status
 - **Move to Group** - Organize into groups
+- **Move to Window** - Send the agent to another Maestro window
+- **View Git Log / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
 - **Create Worktree** - Create a git worktree sub-agent (if configured)
 - **Configure Worktrees** - Set up worktree configuration
+- **Configure Maestro Cue** - Set up event-driven automation for this agent
+- **Copy Agent GUID to Clipboard** - Copy the agent's unique identifier
 - **Remove Agent** - Delete the agent from Maestro
+
+The git actions here act on the agent you right-clicked, so you can pull or inspect the log of a background agent without switching to it first.
 
 ### Sidebar Width
 

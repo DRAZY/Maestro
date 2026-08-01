@@ -272,6 +272,18 @@ export const MODAL_PRIORITIES = {
 	/** Settings modal */
 	SETTINGS: 450,
 
+	/** Header git pill dropdown - above the modals it launches so Escape closes
+	 * the menu first. */
+	GIT_PILL_MENU: 220,
+
+	/** Branch switcher (fuzzy branch picker from the header git pill) - above the
+	 * git viewers so it layers on top when opened while one is showing. */
+	BRANCH_SWITCHER: 210,
+
+	/** Streaming git command console (pull / push) - above the branch switcher,
+	 * which is what launches a checkout that can spill into it. */
+	GIT_COMMAND_RUNNER: 215,
+
 	/** Git diff preview overlay */
 	GIT_DIFF: 200,
 

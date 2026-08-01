@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
 	Wand2,
 	ExternalLink,
@@ -20,7 +20,9 @@ import { Spinner } from '../ui/Spinner';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 import { remoteUrlToBrowserUrl } from '../../../shared/gitUtils';
 import { GitStatusWidget } from '../GitStatusWidget';
+import { GitPillMenu } from '../GitPillMenu';
 import { useHoverTooltip } from '../../hooks';
+import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Session, Theme, BatchRunState, AITab } from '../../types';
@@ -113,8 +115,59 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	const showBatchUsage = activeSession?.toolType === 'claude-code';
 
 	const headerRef = useRef<HTMLDivElement>(null);
+	// Anchors the git menu and excludes both pills (SSH host + branch) from the
+	// menu's click-outside handling, so clicking a pill toggles instead of
+	// closing-then-reopening.
+	const gitPillRef = useRef<HTMLDivElement>(null);
 	const gitTooltip = useHoverTooltip(150);
 	const contextTooltip = useHoverTooltip(150);
+	const [gitMenuOpen, setGitMenuOpen] = useState(false);
+
+	// Clicking the pill opens the git menu. The hover card keeps showing branch
+	// details, but it's suppressed while the menu is open so the two don't stack
+	// on top of each other.
+	const handleGitPillClick = useCallback(
+		(e: React.MouseEvent) => {
+			e.stopPropagation();
+			if (!activeSession.isGitRepo) return;
+			refreshGitStatus(); // Refresh git info immediately on click
+			gitTooltip.close();
+			setGitMenuOpen((open) => !open);
+		},
+		[activeSession.isGitRepo, refreshGitStatus, gitTooltip]
+	);
+
+	// Same action set the Left Bar's right-click menu uses, so the two entry
+	// points can't drift apart.
+	const gitActions = useGitAgentActions(activeSession);
+
+	// Each action closes the menu before it opens its modal.
+	const runAction = useCallback(
+		(action: () => void) => () => {
+			setGitMenuOpen(false);
+			action();
+		},
+		[]
+	);
+
+	const gitPillMenu = gitMenuOpen ? (
+		<GitPillMenu
+			theme={theme}
+			anchorRef={gitPillRef}
+			ahead={gitInfo?.ahead ?? gitActions.ahead}
+			behind={gitInfo?.behind ?? gitActions.behind}
+			onViewLog={runAction(() => {
+				// The header always targets the active agent, which is what the
+				// prop-driven viewer already shows.
+				setGitLogOpen?.(true);
+			})}
+			onPull={runAction(gitActions.pull)}
+			onPush={runAction(gitActions.push)}
+			onSwitchBranch={runAction(gitActions.switchBranch)}
+			onCreatePR={gitActions.canCreatePR ? runAction(gitActions.createPR) : undefined}
+			onClose={() => setGitMenuOpen(false)}
+		/>
+	) : null;
 
 	return (
 		<div
@@ -141,6 +194,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 						/>
 					)}
 					<div
+						ref={gitPillRef}
 						className="relative shrink-0 flex items-center gap-2"
 						onMouseEnter={
 							activeSession.isGitRepo ? gitTooltip.triggerHandlers.onMouseEnter : undefined
@@ -159,13 +213,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 									activeSession.isGitRepo ? 'cursor-pointer hover:bg-purple-500/20' : ''
 								}`}
 								title={`SSH Remote: ${sshRemoteName}${activeSession.isGitRepo && gitInfo?.branch ? ` (${gitInfo.branch})` : ''}`}
-								onClick={(e) => {
-									e.stopPropagation();
-									if (activeSession.isGitRepo) {
-										refreshGitStatus(); // Refresh git info immediately on click
-										setGitLogOpen?.(true);
-									}
-								}}
+								onClick={handleGitPillClick}
 							>
 								<Server className="w-3 h-3 shrink-0" />
 								<span className="truncate uppercase">{sshRemoteName}</span>
@@ -177,14 +225,10 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 										? 'border-orange-500/30 text-orange-500 bg-orange-500/10 hover:bg-orange-500/20'
 										: 'border-blue-500/30 text-blue-500 bg-blue-500/10'
 								}`}
-								onClick={(e) => {
-									e.stopPropagation();
-									if (activeSession.isGitRepo) {
-										refreshGitStatus(); // Refresh git info immediately on click
-										setGitLogOpen?.(true);
-									}
-								}}
+								onClick={handleGitPillClick}
 								title={activeSession.isGitRepo && gitInfo?.branch ? gitInfo.branch : undefined}
+								aria-haspopup="menu"
+								aria-expanded={gitMenuOpen}
 							>
 								{activeSession.isGitRepo ? (
 									<>
@@ -209,11 +253,9 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 								<button
 									className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border border-orange-500/30 text-orange-500 bg-orange-500/10 hover:bg-orange-500/20 cursor-pointer outline-none"
 									title={gitInfo?.branch || undefined}
-									onClick={(e) => {
-										e.stopPropagation();
-										refreshGitStatus(); // Refresh git info immediately on click
-										setGitLogOpen?.(true);
-									}}
+									onClick={handleGitPillClick}
+									aria-haspopup="menu"
+									aria-expanded={gitMenuOpen}
 								>
 									<GitBranch className="w-3 h-3 shrink-0" />
 									{/* Hide branch name text at narrow widths via CSS container query */}
@@ -222,7 +264,8 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 									</span>
 								</button>
 							)}
-						{activeSession.isGitRepo && gitTooltip.isOpen && gitInfo && (
+						{gitPillMenu}
+						{activeSession.isGitRepo && gitTooltip.isOpen && !gitMenuOpen && gitInfo && (
 							<>
 								{/* Invisible bridge to prevent hover gap */}
 								<div

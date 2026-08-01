@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useModalStore } from '../../stores/modalStore';
+import type { GitLogModalData } from '../../stores/modalStore';
 import type {
 	Theme,
 	Session,
@@ -173,6 +174,7 @@ export interface AppModalsProps {
 	onCloseCreateWorktreeModal: () => void;
 	onCreateWorktree: (branchName: string) => Promise<void>;
 	createPRSession: Session | null;
+	createPRSourceBranch?: string;
 	onCloseCreatePRModal: () => void;
 	onPRCreated: (prDetails: PRDetails) => void;
 	deleteWorktreeSession: Session | null;
@@ -504,6 +506,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		autoRunSetupModalOpen,
 		batchRunnerModalOpen,
 		gitLogOpen,
+		gitLogTarget,
 		showNewGroupChatModal,
 		showGroupChatInfo,
 		leaderboardRegistrationOpen,
@@ -579,6 +582,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 			autoRunSetupModalOpen: s.modals.get('autoRunSetup')?.open ?? false,
 			batchRunnerModalOpen: s.modals.get('batchRunner')?.open ?? false,
 			gitLogOpen: s.modals.get('gitLog')?.open ?? false,
+			gitLogTarget: (s.modals.get('gitLog')?.data as GitLogModalData | undefined) ?? null,
 			showNewGroupChatModal: s.modals.get('newGroupChat')?.open ?? false,
 			showGroupChatInfo: s.modals.get('groupChatInfo')?.open ?? false,
 			leaderboardRegistrationOpen: s.modals.get('leaderboard')?.open ?? false,
@@ -661,6 +665,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onCloseCreateWorktreeModal,
 		onCreateWorktree,
 		createPRSession,
+		createPRSourceBranch,
 		onCloseCreatePRModal,
 		onPRCreated,
 		deleteWorktreeSession,
@@ -1003,6 +1008,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onCreateWorktree={onCreateWorktree}
 				createPRModalOpen={createPRModalOpen}
 				createPRSession={createPRSession}
+				createPRSourceBranch={createPRSourceBranch}
 				onCloseCreatePRModal={onCloseCreatePRModal}
 				onPRCreated={onPRCreated}
 				deleteWorktreeModalOpen={deleteWorktreeModalOpen}
@@ -1125,6 +1131,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				gitViewerCwd={gitViewerCwd}
 				onCloseGitDiff={onCloseGitDiff}
 				gitLogOpen={gitLogOpen}
+				gitLogTarget={gitLogTarget}
 				onCloseGitLog={onCloseGitLog}
 				onOpenGitFile={onOpenGitFile}
 				autoRunSetupModalOpen={autoRunSetupModalOpen}

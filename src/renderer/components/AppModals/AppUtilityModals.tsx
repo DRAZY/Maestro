@@ -194,6 +194,8 @@ export interface AppUtilityModalsProps {
 
 	// GitLogViewer
 	gitLogOpen: boolean;
+	/** Explicit repo to show, when opened for a non-active agent. */
+	gitLogTarget?: { cwd: string; sshRemoteId?: string } | null;
 	onCloseGitLog: () => void;
 
 	// Shared by both git viewers: open a clicked file path as a preview tab.
@@ -439,6 +441,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onCloseGitDiff,
 	// GitLogViewer
 	gitLogOpen,
+	gitLogTarget,
 	onCloseGitLog,
 	onOpenGitFile,
 	// AutoRunSetupModal
@@ -690,20 +693,24 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 				</Suspense>
 			)}
 
-			{/* --- GIT LOG VIEWER (lazy-loaded) --- */}
-			{gitLogOpen && activeSession && (
+			{/* --- GIT LOG VIEWER (lazy-loaded) ---
+			    `gitLogTarget` is set when the log was opened for a specific agent
+			    (Left Bar right-click); otherwise it follows the active agent. */}
+			{gitLogOpen && (gitLogTarget || activeSession) && (
 				<Suspense fallback={null}>
 					<GitLogViewer
-						cwd={gitViewerCwd}
+						cwd={gitLogTarget?.cwd ?? gitViewerCwd}
 						theme={theme}
 						onClose={onCloseGitLog}
 						onOpenFile={onOpenGitFile}
 						sshRemoteId={
-							activeSession?.sshRemoteId ||
-							(activeSession?.sessionSshRemoteConfig?.enabled
-								? activeSession.sessionSshRemoteConfig.remoteId
-								: undefined) ||
-							undefined
+							gitLogTarget
+								? gitLogTarget.sshRemoteId
+								: activeSession?.sshRemoteId ||
+									(activeSession?.sessionSshRemoteConfig?.enabled
+										? activeSession.sessionSshRemoteConfig.remoteId
+										: undefined) ||
+									undefined
 						}
 					/>
 				</Suspense>

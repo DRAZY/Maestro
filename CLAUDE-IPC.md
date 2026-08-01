@@ -28,6 +28,7 @@ The `window.maestro` API exposes the following namespaces:
 - `git` - Status, diff, isRepo, numstat, branches, tags, info
 - `git` - Worktree support: worktreeInfo, getRepoRoot, worktreeSetup, worktreeCheckout
 - `git` - PR creation: createPR, checkGhCli, getDefaultBranch
+- `git` - Remote sync: runCommand/cancelCommand/onCommandOutput (streaming pull/push/fetch), checkoutBranch
 
 ## Web & Live Sessions
 

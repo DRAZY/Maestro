@@ -40,6 +40,30 @@ vi.mock('../../../../renderer/components/GitStatusWidget', () => ({
 	GitStatusWidget: () => React.createElement('div', { 'data-testid': 'git-status-widget' }),
 }));
 
+// The dropdown registers with the layer stack, which has no provider here.
+vi.mock('../../../../renderer/contexts/LayerStackContext', () => ({
+	useLayerStack: () => ({
+		registerLayer: vi.fn().mockReturnValue('mock-layer-id'),
+		unregisterLayer: vi.fn(),
+		updateLayerHandler: vi.fn(),
+	}),
+}));
+
+// useGitAgentActions reads polled branch state from this context.
+const DEFAULT_BRANCH_INFO = { branch: 'main', remote: '', ahead: 0, behind: 0 };
+const mockGetBranchInfo = vi.fn(() => DEFAULT_BRANCH_INFO);
+vi.mock('../../../../renderer/contexts/GitStatusContext', () => ({
+	useGitBranch: () => ({ getBranchInfo: mockGetBranchInfo }),
+}));
+
+const mockOpenModal = vi.fn();
+vi.mock('../../../../renderer/stores/modalStore', () => ({
+	useModalStore: Object.assign(
+		vi.fn((selector) => selector({ openModal: mockOpenModal })),
+		{ getState: () => ({ openModal: mockOpenModal }) }
+	),
+}));
+
 function makeSession(overrides: Partial<Session> = {}): Session {
 	return {
 		id: 'session-1',
@@ -111,6 +135,7 @@ const defaultProps = {
 describe('MainPanelHeader', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockGetBranchInfo.mockReturnValue(DEFAULT_BRANCH_INFO);
 	});
 
 	it('renders session name', () => {
@@ -288,6 +313,95 @@ describe('MainPanelHeader', () => {
 	it('renders data-tour attribute for guided tours', () => {
 		const { container } = render(<MainPanelHeader {...defaultProps} />);
 		expect(container.querySelector('[data-tour="header-controls"]')).toBeInTheDocument();
+	});
+
+	describe('git pill menu', () => {
+		it('opens the git menu on pill click instead of jumping to the log', () => {
+			const setGitLogOpen = vi.fn();
+			render(<MainPanelHeader {...defaultProps} setGitLogOpen={setGitLogOpen} />);
+
+			fireEvent.click(screen.getByText('main'));
+
+			expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+			expect(setGitLogOpen).not.toHaveBeenCalled();
+			// Clicking refreshes git info so the menu's ahead/behind badges are current.
+			expect(defaultProps.refreshGitStatus).toHaveBeenCalled();
+		});
+
+		it('opens the git log from the menu', () => {
+			const setGitLogOpen = vi.fn();
+			render(<MainPanelHeader {...defaultProps} setGitLogOpen={setGitLogOpen} />);
+
+			fireEvent.click(screen.getByText('main'));
+			fireEvent.click(screen.getByTestId('git-pill-menu-log'));
+
+			expect(setGitLogOpen).toHaveBeenCalledWith(true);
+			expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+		});
+
+		it('opens the streaming command modal for pull and push', () => {
+			render(<MainPanelHeader {...defaultProps} />);
+
+			fireEvent.click(screen.getByText('main'));
+			fireEvent.click(screen.getByTestId('git-pill-menu-pull'));
+
+			expect(mockOpenModal).toHaveBeenCalledWith(
+				'gitCommandRunner',
+				expect.objectContaining({ operation: 'pull', cwd: '/test', branch: 'main' })
+			);
+		});
+
+		it('opens the create-PR modal from the menu', () => {
+			render(<MainPanelHeader {...defaultProps} />);
+
+			fireEvent.click(screen.getByText('main'));
+			fireEvent.click(screen.getByTestId('git-pill-menu-create-pr'));
+
+			expect(mockOpenModal).toHaveBeenCalledWith(
+				'createPR',
+				expect.objectContaining({ session: expect.objectContaining({ id: 'session-1' }) })
+			);
+		});
+
+		it('hides create PR when the branch is unknown', () => {
+			mockGetBranchInfo.mockReturnValue({ branch: '', remote: '', ahead: 0, behind: 0 });
+			render(
+				<MainPanelHeader
+					{...defaultProps}
+					activeSession={makeSession({ worktreeBranch: undefined } as any)}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('main'));
+
+			expect(screen.queryByTestId('git-pill-menu-create-pr')).not.toBeInTheDocument();
+		});
+
+		it('opens the branch switcher from the menu', () => {
+			render(<MainPanelHeader {...defaultProps} />);
+
+			fireEvent.click(screen.getByText('main'));
+			fireEvent.click(screen.getByTestId('git-pill-menu-switch-branch'));
+
+			expect(mockOpenModal).toHaveBeenCalledWith(
+				'branchSwitcher',
+				expect.objectContaining({ cwd: '/test', currentBranch: 'main' })
+			);
+		});
+
+		it('does not open the menu for a non-git agent', () => {
+			render(
+				<MainPanelHeader
+					{...defaultProps}
+					activeSession={makeSession({ isGitRepo: false })}
+					gitInfo={null}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('LOCAL'));
+
+			expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+		});
 	});
 
 	it('renders ahead/behind indicators', () => {

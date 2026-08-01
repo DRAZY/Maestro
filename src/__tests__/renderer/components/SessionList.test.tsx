@@ -81,6 +81,12 @@ vi.mock('lucide-react', () => ({
 	Zap: ({ title, style }: { title?: string; style?: Record<string, string> }) => (
 		<span data-testid="icon-zap" title={title} style={style} />
 	),
+	// Git action icons in the session context menu
+	History: () => <span data-testid="icon-history" />,
+	ArrowDown: () => <span data-testid="icon-arrow-down" />,
+	ArrowUp: () => <span data-testid="icon-arrow-up" />,
+	ArrowDownToLine: () => <span data-testid="icon-arrow-down-to-line" />,
+	ArrowUpFromLine: () => <span data-testid="icon-arrow-up-from-line" />,
 }));
 
 // Mock gitService
