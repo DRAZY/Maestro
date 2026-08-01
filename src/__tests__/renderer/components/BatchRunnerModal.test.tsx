@@ -3260,4 +3260,31 @@ describe('BatchRunnerModal - per-run model/effort override', () => {
 		expect(screen.queryByLabelText('Model for this run')).not.toBeInTheDocument();
 		expect(screen.queryByLabelText('Reasoning effort for this run')).not.toBeInTheDocument();
 	});
+
+	it('renders the section last in both Spec-Driven and Goal-Driven mode', async () => {
+		render(<BatchRunnerModal {...createDefaultProps()} />);
+
+		await waitFor(() => {
+			expect(screen.getByLabelText('Model for this run')).toBeInTheDocument();
+		});
+
+		// Spec-Driven: below the Agent Prompt editor, the last block in that mode.
+		const promptEditor = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		expect(
+			promptEditor.compareDocumentPosition(screen.getByLabelText('Model for this run')) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+
+		// Goal-Driven: below the goal config, same as before.
+		fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+		await waitFor(() => {
+			expect(screen.getByText('Iteration Limit')).toBeInTheDocument();
+		});
+		expect(
+			screen
+				.getByText('Iteration Limit')
+				.compareDocumentPosition(screen.getByLabelText('Model for this run')) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+	});
 });

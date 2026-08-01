@@ -861,72 +861,11 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						/>
 					)}
 
-					{/* Per-run model / effort override. Applies to every agent spawn this
-					    run makes (both modes, and worktree-dispatched runs), and dies with
-					    the run - the agent's own configured model is left alone. Each
-					    picker is hidden when its provider exposes no options. */}
-					{(availableModels.length > 0 || availableEfforts.length > 0) && (
-						<div className="flex flex-col gap-2">
-							<div
-								className="text-[10px] font-bold uppercase"
-								style={{ color: theme.colors.textDim }}
-							>
-								Model for this run
-							</div>
-							<div className="flex items-center gap-2">
-								{availableModels.length > 0 && (
-									<select
-										value={runModel}
-										onChange={(e) => setRunModel(e.target.value)}
-										aria-label="Model for this run"
-										className="flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
-										style={{
-											backgroundColor: theme.colors.bgMain,
-											borderColor: theme.colors.border,
-											color: theme.colors.textMain,
-										}}
-									>
-										<option value="">Use agent default</option>
-										{availableModels.map((m) => (
-											<option key={m} value={m}>
-												{m}
-											</option>
-										))}
-									</select>
-								)}
-								{availableEfforts.length > 0 && (
-									<select
-										value={runEffort}
-										onChange={(e) => setRunEffort(e.target.value)}
-										aria-label="Reasoning effort for this run"
-										className="flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
-										style={{
-											backgroundColor: theme.colors.bgMain,
-											borderColor: theme.colors.border,
-											color: theme.colors.textMain,
-										}}
-									>
-										<option value="">Default effort</option>
-										{availableEfforts.map((e) => (
-											<option key={e} value={e}>
-												{e}
-											</option>
-										))}
-									</select>
-								)}
-							</div>
-							<p className="text-[10px]" style={{ color: theme.colors.textDim }}>
-								Overrides the agent&apos;s configured model for this run only. The agent&apos;s own
-								settings and its interactive tabs are unchanged.
-							</p>
-						</div>
-					)}
-
 					{/* Spec-Driven config: Fresh-context selector + Agent Prompt. Hidden in
 					    goal mode, where the agent prompt is built internally by the goal
 					    runner and "Fresh context per" has no meaning without documents. */}
 					{!goalMode && (
-						<div className="flex flex-col gap-2">
+						<div className="mb-6 flex flex-col gap-2">
 							{/* Fresh-context-per selector - drives {{TASK_SELECTION_BLOCK}}.
 							    Hidden until at least one document is selected; the mode is then
 							    auto-chosen from the docs' task counts and the agent context window. */}
@@ -1126,6 +1065,68 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 									&quot;- [ ]&quot; or the phrase &quot;markdown task&quot;).
 								</div>
 							)}
+						</div>
+					)}
+
+					{/* Per-run model / effort override. Applies to every agent spawn this
+					    run makes (both modes, and worktree-dispatched runs), and dies with
+					    the run - the agent's own configured model is left alone. Each
+					    picker is hidden when its provider exposes no options. Lives last in
+					    both modes so the two layouts stay consistent. */}
+					{(availableModels.length > 0 || availableEfforts.length > 0) && (
+						<div className="flex flex-col gap-2">
+							<div
+								className="text-[10px] font-bold uppercase"
+								style={{ color: theme.colors.textDim }}
+							>
+								Model for this run
+							</div>
+							<div className="flex items-center gap-2">
+								{availableModels.length > 0 && (
+									<select
+										value={runModel}
+										onChange={(e) => setRunModel(e.target.value)}
+										aria-label="Model for this run"
+										className="flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+										style={{
+											backgroundColor: theme.colors.bgMain,
+											borderColor: theme.colors.border,
+											color: theme.colors.textMain,
+										}}
+									>
+										<option value="">Use agent default</option>
+										{availableModels.map((m) => (
+											<option key={m} value={m}>
+												{m}
+											</option>
+										))}
+									</select>
+								)}
+								{availableEfforts.length > 0 && (
+									<select
+										value={runEffort}
+										onChange={(e) => setRunEffort(e.target.value)}
+										aria-label="Reasoning effort for this run"
+										className="flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+										style={{
+											backgroundColor: theme.colors.bgMain,
+											borderColor: theme.colors.border,
+											color: theme.colors.textMain,
+										}}
+									>
+										<option value="">Default effort</option>
+										{availableEfforts.map((e) => (
+											<option key={e} value={e}>
+												{e}
+											</option>
+										))}
+									</select>
+								)}
+							</div>
+							<p className="text-[10px]" style={{ color: theme.colors.textDim }}>
+								Overrides the agent&apos;s configured model for this run only. The agent&apos;s own
+								settings and its interactive tabs are unchanged.
+							</p>
 						</div>
 					)}
 				</div>
