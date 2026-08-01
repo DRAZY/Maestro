@@ -82,6 +82,7 @@ import { ImageSaveModal } from './ImageSaveModal';
 import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
 import { getParentDir, getBasename } from '../../../shared/formatters';
 import { FilePreviewToc } from './FilePreviewToc';
+import { computeTocWidth } from '../Toc';
 import { MarkdownEditor } from './markdownEditor';
 import type { MarkdownEditorHandle } from './markdownEditor';
 import {
@@ -577,23 +578,9 @@ export const FilePreview = React.memo(
 			return extractHeadings(file.content);
 		}, [isMarkdown, file?.content]);
 
-		// Compute dynamic ToC overlay width based on longest heading text
-		const tocWidth = useMemo(() => {
-			if (tocEntries.length === 0) return 200;
-			const MIN_WIDTH = 200;
-			const MAX_WIDTH = 500;
-			const CHAR_WIDTH = 7.5; // approximate px per character at ~0.8rem
-			const BASE_PADDING = 24; // px padding inside buttons
-			const HEADER_EXTRA = 100; // "CONTENTS" header + headings count badge
-
-			let maxNeeded = HEADER_EXTRA;
-			for (const entry of tocEntries) {
-				const indent = (entry.level - 1) * 12 + 8;
-				const textWidth = entry.text.length * CHAR_WIDTH;
-				maxNeeded = Math.max(maxNeeded, indent + textWidth + BASE_PADDING);
-			}
-			return Math.min(Math.max(Math.ceil(maxNeeded), MIN_WIDTH), MAX_WIDTH);
-		}, [tocEntries]);
+		// Dynamic ToC overlay width - shared with Director's Notes so an equally
+		// long heading yields an equally wide panel on both surfaces.
+		const tocWidth = useMemo(() => computeTocWidth(tocEntries), [tocEntries]);
 
 		const scrollMarkdownToBoundary = useCallback((direction: 'top' | 'bottom') => {
 			// Use contentRef which is the actual scrollable container

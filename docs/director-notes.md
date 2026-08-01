@@ -101,6 +101,18 @@ The AI Overview renders the same synopsis two ways, switchable with the **Rich /
 
 You can set which mode opens by default in **Settings > Encore Features > Director's Notes**; the in-tab toggle overrides it for the current session.
 
+#### Jumping between sections
+
+Both reading modes carry the same table of contents as the Markdown file preview, in the same place (the round button at the bottom right) with the same behavior:
+
+- Toggle it with the **Table of Contents** shortcut (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>\</kbd>) or by clicking the button.
+- The first entry is focused when it opens, so <kbd>↑</kbd> / <kbd>↓</kbd> (plus <kbd>Home</kbd> / <kbd>End</kbd>) move through sections and scroll as you go.
+- Clicking an entry scrolls to that section and leaves the panel open, so you can jump a few times in a row.
+- **Top** and **Bottom** jump to the ends of the report.
+- <kbd>Esc</kbd> or a click outside dismisses it, leaving Director's Notes open.
+
+Rich mode lists the dashboard widgets followed by the narrative sections; Plain mode lists the narrative headings.
+
 #### When the AI's output cannot be parsed
 
 The synopsis agent returns a structured narrative, and both reading modes render from it. If a run comes back malformed (cut off mid-response, or with formatting the parser rejects), Maestro salvages the readable portion and shows it with a banner saying what had to be recovered - a partial report is never presented as a complete one. When nothing usable survives, both modes show a parse-failure banner with the raw output preserved behind **View raw output**. Neither mode ever renders the raw structured output as if it were the report.
