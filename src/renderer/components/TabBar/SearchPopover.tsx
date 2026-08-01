@@ -57,13 +57,28 @@ export const SearchPopover = memo(function SearchPopover({
 		return () => document.removeEventListener('mousedown', handler);
 	}, [popoverOpen]);
 
-	// Auto-focus popover when opened, restore focus to button when closed
+	// Tracks whether the popover has ever been open, so the close branch below
+	// can't fire on mount and yank focus out of whatever the user was typing in.
+	const wasOpenRef = useRef(false);
+	// Set when a menu item is chosen: the item opens a modal that owns focus, so
+	// handing focus back to the trigger would leave the user typing nowhere.
+	const actionTakenRef = useRef(false);
+
+	// Auto-focus popover when opened, restore focus to the button when the user
+	// dismisses it (Escape / outside click) without picking anything.
 	useEffect(() => {
 		if (popoverOpen) {
+			wasOpenRef.current = true;
 			requestAnimationFrame(() => popoverRef.current?.focus());
-		} else {
-			btnRef.current?.focus();
+			return;
 		}
+		if (!wasOpenRef.current) return;
+		wasOpenRef.current = false;
+		if (actionTakenRef.current) {
+			actionTakenRef.current = false;
+			return;
+		}
+		btnRef.current?.focus();
 	}, [popoverOpen]);
 
 	const handleClick = useCallback(() => {
@@ -75,6 +90,7 @@ export const SearchPopover = memo(function SearchPopover({
 	}, []);
 
 	const closeAndDo = useCallback((action: () => void) => {
+		actionTakenRef.current = true;
 		setPopoverOpen(false);
 		action();
 	}, []);
