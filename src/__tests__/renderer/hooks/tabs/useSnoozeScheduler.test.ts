@@ -235,6 +235,48 @@ describe('useSnoozeScheduler', () => {
 		setSessionsSpy.mockRestore();
 	});
 
+	it('releases the transcript mirror when a tab wakes', () => {
+		// The snooze held Maestro's own copy of the transcript; waking hands it
+		// back. The main process rehydrates before dropping it, so this call is
+		// what restores a conversation the provider aged out mid-snooze.
+		const release = window.maestro.agentSessions.releaseSnoozedTranscript as ReturnType<
+			typeof vi.fn
+		>;
+		release.mockClear();
+
+		seedSession({ projectRoot: '/proj', toolType: 'claude-code' });
+		useSessionStore.setState({
+			sessions: [
+				{
+					...currentSession(),
+					aiTabs: [
+						createMockAITab({ id: 'a' }),
+						createMockAITab({ id: 'b', agentSessionId: 'provider-session-1' }),
+					],
+				},
+			],
+		});
+		snoozeInStore('b', Date.now() - 1000);
+
+		renderHook(() => useSnoozeScheduler());
+
+		expect(release).toHaveBeenCalledWith('claude-code', '/proj', 'provider-session-1');
+	});
+
+	it('does not try to release a mirror for a tab that never ran', () => {
+		// No agentSessionId means no provider transcript to preserve.
+		const release = window.maestro.agentSessions.releaseSnoozedTranscript as ReturnType<
+			typeof vi.fn
+		>;
+		release.mockClear();
+
+		seedSession({ projectRoot: '/proj' });
+		snoozeInStore('b', Date.now() - 1000);
+		renderHook(() => useSnoozeScheduler());
+
+		expect(release).not.toHaveBeenCalled();
+	});
+
 	it('stops sweeping after unmount', () => {
 		seedSession();
 		const { unmount } = renderHook(() => useSnoozeScheduler());

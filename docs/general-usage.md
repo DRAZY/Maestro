@@ -636,6 +636,8 @@ When the time arrives, the tab reappears and Maestro raises a notification that 
 Wakes are delivered by the running app. If Maestro is closed when a snooze comes due, the tab returns the next time you launch - overdue reminders are never silently dropped.
 </Note>
 
+**Long snoozes are safe.** Your AI provider owns the conversation transcript and eventually ages old ones out, which would leave a tab snoozed for months coming back empty. Maestro keeps its own copy for the length of every snooze, exactly as it does for [starred sessions](#session-management), and restores it when the tab wakes. That copy is held until the snooze ends, so unstarring a snoozed session does not discard it either.
+
 **Managing snoozed tabs**
 
 Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, or run **See All Snoozed Tabs** from Quick Actions. It shows every snoozed tab across all agents, soonest first, with its note and a countdown. Each row offers:
