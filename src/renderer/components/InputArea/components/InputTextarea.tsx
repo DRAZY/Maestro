@@ -31,19 +31,26 @@ export const InputTextarea = memo(function InputTextarea({
 	handlePaste,
 	handleDrop,
 }: InputTextareaProps) {
+	// Command mode: a draft starting with `!` runs as a shell command instead of
+	// going to the agent. Show the same `$` affordance the terminal composer uses
+	// so the switch is visible before you hit Enter.
+	const isShellCommandDraft = !isTerminalMode && inputValue.trimStart().startsWith('!');
+	const showShellPrefix = isTerminalMode || isShellCommandDraft;
+
 	return (
 		<div className="flex items-start">
-			{isTerminalMode && (
+			{showShellPrefix && (
 				<span
 					className="text-sm font-mono font-bold select-none pl-3 pt-3"
 					style={{ color: theme.colors.accent }}
+					title={isShellCommandDraft ? 'Command mode: runs in the shell, not the agent' : undefined}
 				>
 					$
 				</span>
 			)}
 			<textarea
 				ref={inputRef}
-				className={`flex-1 bg-transparent text-sm outline-none ${isTerminalMode ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 resize-none min-h-[3.5rem] scrollbar-thin`}
+				className={`flex-1 bg-transparent text-sm outline-none ${showShellPrefix ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 resize-none min-h-[3.5rem] scrollbar-thin`}
 				style={{ color: theme.colors.textMain, maxHeight: '11rem' }}
 				placeholder={
 					isTerminalMode

@@ -10,7 +10,7 @@ The `window.maestro` API exposes the following namespaces:
 
 - `settings` - Get/set app settings
 - `sessions` / `groups` - Agent and group persistence
-- `process` - Spawn, write, kill, resize
+- `process` - Spawn, write, kill, resize, runCommand/cancelCommand (one-off commands)
 - `fs` - readDir, readFile
 - `dialog` - Folder selection
 - `shells` - Detect available shells

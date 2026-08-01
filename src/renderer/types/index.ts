@@ -259,6 +259,24 @@ export interface LogEntry {
 	// card collapses all subsequent auto-retry attempts into a single live stat
 	// readout (attempt count, elapsed, next-retry countdown, Retry now / Stop).
 	retryOutageId?: string;
+	// Command mode: anchors the live output card for a `!command` the user ran
+	// from the AI composer. The command never reaches the agent - Maestro runs
+	// it directly and streams stdout/stderr into `text`. See
+	// services/shellCommand.ts and components/ShellCommandCard.tsx.
+	shellCommand?: {
+		/** The command as typed, without the leading `!`. */
+		command: string;
+		/** Directory the command ran in (the agent's cwd, or the SSH remote's). */
+		cwd: string;
+		/** SSH remote name when the agent runs remotely, else undefined. */
+		remoteName?: string;
+		status: 'running' | 'finished' | 'cancelled';
+		exitCode?: number;
+		/** Wall-clock duration in ms, set on finish. */
+		durationMs?: number;
+		/** True when output hit the size cap and was cut short. */
+		truncated?: boolean;
+	};
 }
 
 // Queued item for the session-level execution queue

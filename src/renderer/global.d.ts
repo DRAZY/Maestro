@@ -255,6 +255,8 @@ interface MaestroAPI {
 				syncHistory?: boolean;
 			};
 		}) => Promise<{ exitCode: number }>;
+		/** Terminate an in-flight `runCommand`. False when nothing is running under that id. */
+		cancelCommand: (sessionId: string) => Promise<boolean>;
 		getActiveProcesses: () => Promise<
 			Array<{
 				sessionId: string;

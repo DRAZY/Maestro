@@ -14,6 +14,8 @@ import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
 import { filterYoloArgs } from '../../utils/agentArgs';
 import { hasCapabilityCached } from '../agent/useAgentCapabilities';
+import { parseShellCommandInput, stripShellCommandEscape } from '../../utils/shellCommandInput';
+import { runShellCommand } from '../../services/shellCommand';
 import { gitService } from '../../services/git';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { logger } from '../../utils/logger';
@@ -190,7 +192,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			// This ensures AI output appears before the user's new message
 			flushBatchedUpdates?.();
 
-			const effectiveInputValue = overrideInputValue ?? getInputValue();
+			// `let` because command mode's escape (`\!foo`) is unwrapped in place
+			// below once we know we're in AI mode.
+			let effectiveInputValue = overrideInputValue ?? getInputValue();
 			// When the caller passes explicit images (e.g. Force Send button replaying a
 			// queued item), use those instead of the active tab's stagedImages. This avoids
 			// the stale-closure race when the caller does setStagedImages() right before
@@ -210,6 +214,60 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					logger.info('[ForcedParallel] Early return: no session or empty input');
 				}
 				return;
+			}
+
+			// Handle command mode: `!<command>` runs a shell command instead of
+			// talking to the agent. Checked before everything else because the
+			// agent is bypassed entirely - no queueing, no busy state, no spawn.
+			// The command runs immediately even while the agent is working, which
+			// is the point: check something without interrupting the turn.
+			if (activeSession.inputMode === 'ai' && !isWizardActive) {
+				const shellCommand = parseShellCommandInput(effectiveInputValue);
+				if (shellCommand) {
+					const targetTab = getActiveTab(activeSession);
+					if (!targetTab) {
+						logger.error('[processInput] Command mode: no active tab to render output into');
+						return;
+					}
+
+					const rawCommand = effectiveInputValue.trim();
+					setInputValue('');
+					setSlashCommandOpen(false);
+					syncAiInputToSession('');
+					if (inputRef.current) inputRef.current.style.height = 'auto';
+
+					// Record the raw `!command` so up-arrow recalls it like any other input.
+					setSessions((prev) =>
+						prev.map((s) =>
+							s.id === activeSessionId
+								? {
+										...s,
+										aiCommandHistory: [
+											...(s.aiCommandHistory || []).filter((c) => c !== rawCommand),
+											rawCommand,
+										].slice(-50),
+									}
+								: s
+						)
+					);
+
+					runShellCommand({
+						session: activeSession,
+						tabId: targetTab.id,
+						command: shellCommand,
+					}).catch((error) => {
+						logger.error('[processInput] Command mode run failed:', undefined, error);
+					});
+					return;
+				}
+			}
+
+			if (activeSession.inputMode === 'ai') {
+				// Not command mode, so unwrap the escape: `\!foo` was the user asking
+				// for a literal `!foo` message. Done after the check above so the
+				// escaped form never reaches the shell. AI mode only - in the shell,
+				// `\!` is the shell's own escape and must survive untouched.
+				effectiveInputValue = stripShellCommandEscape(effectiveInputValue);
 			}
 
 			// Handle slash commands
@@ -1321,6 +1379,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			flushBatchedUpdates,
 			onHistoryCommand,
 			onWizardCommand,
+			isWizardActive,
 		]
 	);
 

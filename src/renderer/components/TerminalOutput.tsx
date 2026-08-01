@@ -33,6 +33,7 @@ import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { QueuedItemsList } from './QueuedItemsList';
 import { LogFilterControls } from './LogFilterControls';
+import { ShellCommandCard } from './ShellCommandCard';
 import { SaveMarkdownModal } from './SaveMarkdownModal';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
 import { linkifyNode } from '../utils/linkify';
@@ -467,6 +468,30 @@ const LogItemComponent = memo(
 		const isReversed = isUserMessage
 			? userMessageAlignment === 'left'
 			: userMessageAlignment === 'right';
+
+		// Command mode: a `!command` run renders as its own terminal-output card
+		// (monospace, ANSI preserved) rather than a markdown chat bubble.
+		if (log.shellCommand) {
+			return (
+				<div
+					ref={logItemRef}
+					className="flex gap-4 px-6 py-2"
+					data-log-index={index}
+					data-log-id={log.id}
+					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
+				>
+					<div className="w-20 shrink-0" />
+					<div className="flex-1 min-w-0">
+						<ShellCommandCard
+							log={log}
+							theme={theme}
+							fontFamily={fontFamily}
+							ansiConverter={ansiConverter}
+						/>
+					</div>
+				</div>
+			);
+		}
 
 		// Agent Resilience: an outage marker renders as a live status card in a
 		// clean row (no error-tinted bubble chrome), left gutter kept for alignment.

@@ -99,6 +99,24 @@ Exported as `processService` object.
 
 ---
 
+### shellCommand.ts (~200 lines)
+
+Command mode ("bang commands"): running a `!command` typed in the AI composer and streaming its output into the transcript. The agent is bypassed entirely - never spawned, never written to, never shown the command or its output.
+
+**Key exports:**
+
+- `runShellCommand({ session, tabId, command })` - append a live output card to the tab and run the command; resolves on exit
+- `cancelShellCommand(logId)` - stop a running command by its card's log id (the card's Stop button)
+- `isShellCommandRunning(logId)`, `buildShellRunSessionId(sessionId, runId)`, `SHELL_COMMAND_OUTPUT_LIMIT`
+
+**Why a synthetic session id.** `process.runCommand` keys its `data` / `stderr` / `command-exit` events by sessionId. Reusing the agent's real id would route shell output straight into `useAgentDataListener` / `useAgentStderrListener` / `useAgentCommandExitListener`, appending it to the tab as agent output and flipping session state. Each run instead gets `{sessionId}-shell-{runId}`, which matches none of those listeners' patterns (no `-ai-` segment, no `-terminal` suffix, no `-batch-` segment) and no session in the store, so they all no-op and this module owns the stream. Do NOT "simplify" this to the plain session id.
+
+Output is buffered and flushed on an animation frame (one store write per frame, not per chunk) and capped at `SHELL_COMMAND_OUTPUT_LIMIT` characters, because transcript logs are persisted to the sessions file.
+
+Rendered by `components/ShellCommandCard.tsx`, anchored by `LogEntry.shellCommand`. Input detection lives in `utils/shellCommandInput.ts` (`parseShellCommandInput`, `stripShellCommandEscape`); routing happens at the top of `useInputProcessing.processInput`.
+
+---
+
 ### contextGroomer.ts (~430 lines)
 
 Manages merging multiple conversation contexts across agents.

@@ -227,6 +227,35 @@ Reference files in your AI prompts using `@` mentions:
 2. Select from the autocomplete dropdown
 3. The file path is inserted, giving the AI context about that file
 
+## Command Mode (`!`)
+
+Start a message with `!` and Maestro runs the rest as a shell command instead of sending it to the agent. It is a way to check something without leaving the chat: `!git pull`, `!ls`, `!npm test`.
+
+```
+!git status
+```
+
+A `$` appears at the left of the composer as soon as your draft starts with `!`, so you can see which way the message is going before you press Enter.
+
+**How it behaves:**
+
+- **The agent is bypassed entirely.** It is never spawned, never written to, and never sees the command or its output. Nothing you run this way enters the agent's context - if you want the agent to see the result, copy it into a message.
+- **It runs immediately, even while the agent is working.** Command mode does not queue and does not interrupt the turn in progress, so you can check `!git log` while the agent is mid-edit.
+- **It runs in the agent's working directory** (on the agent's SSH remote, if it has one). Each command is independent - there is no persistent shell, so `!cd src` on its own does nothing. Chain instead: `!cd src && ls`.
+- **Output streams into the transcript** as a card showing the command, where it ran, and a live spinner while it works. When it finishes, the card shows the exit code and how long it took, with a button to copy the output.
+
+**Stopping a command:** a running command's card has a **Stop** button. Reach for it if you start something long or something that waits for input.
+
+<Note>
+Command mode has no keyboard - nothing is connected to the command's stdin. Programs that prompt for input (`sudo`, an editor opened by `git commit`, an interactive installer) will hang until you press **Stop**. Run those in a [Command Terminal](#command-terminal) tab instead.
+</Note>
+
+Very large output is capped so a runaway command cannot bloat your transcript; the card says so when it truncates.
+
+**Sending a literal `!` to the agent:** prefix the message with a backslash. `\!important` reaches the agent as `!important`.
+
+Command mode is AI-chat only. In a terminal tab or the legacy terminal mode you are already at a shell, so `!` is passed through untouched.
+
 ## Prompt Composer
 
 For complex prompts that need more editing space, use the **Prompt Composer** - a fullscreen editing modal.
