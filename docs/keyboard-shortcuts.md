@@ -256,6 +256,18 @@ the full walkthrough.
 | Scroll                              | `Up/Down Arrow` | `Up/Down Arrow` |
 | Close                               | `Esc`           | `Esc`           |
 
+### CSV Row Detail
+
+Available while previewing a `.csv` or `.tsv` file. See
+[CSV and TSV Tables](./general-usage#csv-and-tsv-tables) for the full
+walkthrough.
+
+| Action               | macOS           | Windows/Linux   |
+| -------------------- | --------------- | --------------- |
+| Open row detail view | `Double-click`  | `Double-click`  |
+| Previous / next row  | `Up/Down Arrow` | `Up/Down Arrow` |
+| Close row detail     | `Esc`           | `Esc`           |
+
 ## Document Graph
 
 | Action                        | Key          |
