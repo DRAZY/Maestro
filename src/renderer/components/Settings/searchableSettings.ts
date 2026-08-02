@@ -1468,6 +1468,26 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'alpha',
 		],
 	},
+	{
+		id: 'encore-director-notes-ideal-end-state',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Ideal End State (Director's Notes)",
+		description:
+			'Describe the projects in flight and what done looks like; notes prioritize them and add a progress section',
+		keywords: [
+			'ideal',
+			'end state',
+			'goal',
+			'target',
+			'objective',
+			'progress',
+			'director',
+			'notes',
+			'projects',
+			'roadmap',
+		],
+	},
 ];
 
 // ---------------------------------------------------------------------------

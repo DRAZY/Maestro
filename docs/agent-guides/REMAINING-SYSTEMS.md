@@ -41,8 +41,8 @@ The underlying data comes from `useGitStatusPolling` hook which polls via IPC.
 
 ### useGitAgentActions (`src/renderer/hooks/git/useGitAgentActions.ts`)
 
-The per-agent git action set (View Git Log, Git Pull, Git Push, Change Branch,
-Create Pull Request), shared by the two surfaces that offer it: the header
+The per-agent git action set (View Git Log, View Git Diff, Git Pull, Git Push,
+Change Branch, Create Pull Request), shared by the two surfaces that offer it: the header
 branch pill dropdown (`GitPillMenu`) and the Left Bar right-click menu
 (`SessionContextMenu`). **Do not re-derive these actions in a third place** -
 add to this hook so every menu stays in sync.
@@ -53,10 +53,13 @@ if (!git.isGitRepo) return null;
 git.pull(); // opens the streaming runner for THIS session's repo
 ```
 
-Returns `{ isGitRepo, branch, ahead, behind, canCreatePR, viewLog, pull, push, switchBranch, createPR }`.
+Returns `{ isGitRepo, branch, ahead, behind, canCreatePR, viewLog, viewDiff, pull, push, switchBranch, createPR }`.
 Every action opens its modal through the modal store directly, so callers need
 no prop drilling and can act on an agent that isn't the active one. Branch and
 ahead/behind come from `useGitBranch()`, falling back to `session.worktreeBranch`.
+`viewDiff` is the only async one - it has to read the diff before there is
+anything to show, and flashes "No diff to examine" (re-syncing stale polling
+stats) rather than opening an empty viewer.
 
 Two exported helpers resolve the git target and are reused elsewhere:
 `resolveGitCwd(session)` (terminal agents' live `shellCwd` wins over `cwd`) and

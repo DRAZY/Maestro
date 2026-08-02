@@ -1419,6 +1419,16 @@ export interface DirectorNotesSettings {
 	defaultLookbackDays: number;
 	/** Default AI Overview reading mode (Rich widget dashboard vs Plain markdown). Defaults to 'rich'. */
 	defaultMode?: 'rich' | 'plain';
+	/**
+	 * Free-form description of where the fleet is trying to get to: the active
+	 * projects, which agents belong to each, and what "done" looks like.
+	 *
+	 * Optional and empty by default. When blank the synopsis prompt is byte-for-byte
+	 * what it has always been. When filled it is injected into the prompt, which
+	 * prioritizes the named projects when reading history and asks for an extra
+	 * `progress` narrative section measuring distance to the target.
+	 */
+	idealEndState?: string;
 	/** Custom path to the agent binary */
 	customPath?: string;
 	/** Custom arguments for the agent */

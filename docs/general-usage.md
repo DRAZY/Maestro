@@ -37,16 +37,19 @@ For agents whose working directory is a git repository, the same set of git acti
 | Action                  | What it does                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **View Git Log**        | Opens the commit history viewer.                                                                              |
+| **View Git Diff**       | Opens the working-tree diff. Flashes "No diff to examine" when the tree is clean.                             |
 | **Git Pull**            | Runs `git pull` and shows the live command output in a dismissible modal. Badged with how far behind you are. |
 | **Git Push**            | Runs `git push` the same way. Badged with how many commits you're ahead.                                      |
 | **Change Branch**       | Opens a fuzzy branch picker. Type to filter, Enter to check out.                                              |
 | **Create Pull Request** | Opens the PR composer for the current branch (needs the GitHub CLI).                                          |
 
+The header menu also shows the current **branch** and **origin** at the top. Each has a copy button, and clicking the origin opens the repository in your browser. Below the actions it offers **Configure Worktrees**.
+
 The header pill always acts on the agent you're looking at. The right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it first.
 
 Pull and push stream their output as it happens, so you can watch the transfer and read git's error message if it fails. Dismissing the modal leaves the command running; **Cancel** stops it. When a push fails because the branch has no upstream, the modal offers a one-click **Push and Set Upstream** retry.
 
-Hovering the pill (instead of clicking) still shows the branch, origin, and working-tree summary, along with worktree actions.
+Working-tree changes are shown by the **git status widget** beside the pill (`+` additions, `−` deletions, `~` modified). Hover it for a list of changed files with diff bars, plus shortcuts to the full diff and the log.
 
 ## File Explorer and Preview
 
@@ -612,7 +615,7 @@ Right-click any agent for quick actions:
 - **Add/Remove Bookmark** - Toggle bookmark status
 - **Move to Group** - Organize into groups
 - **Move to Window** - Send the agent to another Maestro window
-- **View Git Log / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
+- **View Git Log / View Git Diff / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
 - **Create Worktree** - Create a git worktree sub-agent (if configured)
 - **Configure Worktrees** - Set up worktree configuration
 - **Configure Maestro Cue** - Set up event-driven automation for this agent
