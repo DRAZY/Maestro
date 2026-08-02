@@ -18,7 +18,13 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useSessionStore } from '../../stores/sessionStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { useEventListener } from '../utils/useEventListener';
-import { wakeSnoozedTab, getDueSnoozes, getSnoozedTabLabel } from '../../utils/snoozeHelpers';
+import {
+	wakeSnoozedTab,
+	getDueSnoozes,
+	getSnoozedTabLabel,
+	buildSnoozeHistoryRecord,
+} from '../../utils/snoozeHelpers';
+import { recordSnoozeResolution } from '../../stores/snoozeHistoryStore';
 import { releaseSnoozedTranscript } from '../../utils/snoozeTranscriptMirror';
 import { logger } from '../../utils/logger';
 import type { Session, SnoozedTabEntry } from '../../types';
@@ -97,6 +103,11 @@ export function useSnoozeScheduler(): void {
 			// mirror. This rehydrates first, restoring the conversation if the
 			// provider aged it out while the tab was away.
 			releaseSnoozedTranscript(wake.session, wake.entry);
+
+			// Log the completed snooze so the note outlives the notification.
+			recordSnoozeResolution(
+				buildSnoozeHistoryRecord(wake.entry, 'woke', wake.session, wake.tabId)
+			);
 
 			notifyToast({
 				color: 'theme',

@@ -45,6 +45,11 @@ import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
+import {
+	useSnoozeHistoryStore,
+	sanitizeSnoozeHistory,
+	SNOOZE_HISTORY_SETTINGS_KEY,
+} from './snoozeHistoryStore';
 import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
 import { sanitizeModalSizes } from '../utils/modalSizing';
 import type { TextareaHeights, TextareaSizeKey } from '../utils/textareaSizing';
@@ -2574,6 +2579,15 @@ export async function loadAllSettings(): Promise<void> {
 		)
 			useUIStore.setState({
 				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
+			});
+
+		// Resolved-snooze history lives in snoozeHistoryStore (it's appended from
+		// the wake scheduler and the Snoozed Tabs modal, not from Settings), so its
+		// persisted array hydrates directly there. Sanitized first: entries are
+		// read straight back from disk and rendered.
+		if (allSettings[SNOOZE_HISTORY_SETTINGS_KEY] !== undefined)
+			useSnoozeHistoryStore.setState({
+				entries: sanitizeSnoozeHistory(allSettings[SNOOZE_HISTORY_SETTINGS_KEY]),
 			});
 
 		// Floating media player geometry lives in mediaPlaybackStore so the

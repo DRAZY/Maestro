@@ -68,6 +68,13 @@ export interface ModalProps {
 	customHeader?: ReactNode;
 	/** Optional icon to display before the title */
 	headerIcon?: ReactNode;
+	/**
+	 * Optional content rendered in the header, just before the close button.
+	 * For secondary affordances that belong to the modal as a whole (a "View
+	 * History" link, a filter toggle) rather than to its body. Use this instead
+	 * of `customHeader` when you only want to ADD to the standard header.
+	 */
+	headerActions?: ReactNode;
 	/** Modal width in pixels. Defaults to 400 */
 	width?: number;
 	/**
@@ -137,6 +144,7 @@ export function Modal({
 	footer,
 	customHeader,
 	headerIcon,
+	headerActions,
 	width = 400,
 	scaleWidthWithFont = true,
 	maxWidthCss = '95vw',
@@ -269,15 +277,18 @@ export function Modal({
 									{title}
 								</h2>
 							</div>
-							{showCloseButton && (
-								<GhostIconButton
-									onClick={onClose}
-									ariaLabel="Close modal"
-									color={theme.colors.textDim}
-								>
-									<X className="w-4 h-4" />
-								</GhostIconButton>
-							)}
+							<div className="flex items-center gap-2">
+								{headerActions}
+								{showCloseButton && (
+									<GhostIconButton
+										onClick={onClose}
+										ariaLabel="Close modal"
+										color={theme.colors.textDim}
+									>
+										<X className="w-4 h-4" />
+									</GhostIconButton>
+								)}
+							</div>
 						</div>
 					))}
 

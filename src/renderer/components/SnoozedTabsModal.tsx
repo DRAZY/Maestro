@@ -10,7 +10,7 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import { Clock, RotateCcw, CalendarClock, X, StickyNote } from 'lucide-react';
+import { Clock, RotateCcw, CalendarClock, X, StickyNote, History } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal } from './ui';
@@ -18,7 +18,13 @@ import { SnoozeTabModal } from './SnoozeTabModal';
 import { useSessionStore } from '../stores/sessionStore';
 import { useTabStore } from '../stores/tabStore';
 import { notifyToast } from '../stores/notificationStore';
-import { collectSnoozedTabs, getSnoozedTabLabel } from '../utils/snoozeHelpers';
+import {
+	collectSnoozedTabs,
+	getSnoozedTabLabel,
+	buildSnoozeHistoryRecord,
+} from '../utils/snoozeHelpers';
+import { recordSnoozeResolution, useSnoozeHistoryStore } from '../stores/snoozeHistoryStore';
+import { SnoozeHistoryModal } from './SnoozeHistoryModal';
 import { releaseSnoozedTranscript } from '../utils/snoozeTranscriptMirror';
 import { formatSnoozeTarget, formatSnoozeCountdown } from '../../shared/snooze';
 
@@ -37,6 +43,8 @@ export function SnoozedTabsModal({ theme, onClose, onJumpToTab }: SnoozedTabsMod
 
 	// Snooze currently being rescheduled, if any.
 	const [editing, setEditing] = useState<{ sessionId: string; snoozeId: string } | null>(null);
+	const [historyOpen, setHistoryOpen] = useState(false);
+	const historyCount = useSnoozeHistoryStore((state) => state.entries.length);
 
 	const items = useMemo(() => collectSnoozedTabs(sessions), [sessions]);
 
@@ -59,7 +67,10 @@ export function SnoozedTabsModal({ theme, onClose, onJumpToTab }: SnoozedTabsMod
 			// Tab is back, so the snooze can let go of its transcript mirror. This
 			// rehydrates first, so a transcript the provider aged out during the
 			// snooze is restored rather than lost.
-			if (entry) releaseSnoozedTranscript(session, entry);
+			if (entry) {
+				releaseSnoozedTranscript(session, entry);
+				recordSnoozeResolution(buildSnoozeHistoryRecord(entry, 'unsnoozed', session, result.tabId));
+			}
 			onJumpToTab?.(sessionId, result.tabId);
 			onClose();
 		},
@@ -74,7 +85,10 @@ export function SnoozedTabsModal({ theme, onClose, onJumpToTab }: SnoozedTabsMod
 			// Dismiss discards Maestro's tab, not the conversation - rehydrate the
 			// provider file before releasing so it stays reachable from the Session
 			// Explorer, as the docs promise.
-			if (entry) releaseSnoozedTranscript(session, entry);
+			if (entry) {
+				releaseSnoozedTranscript(session, entry);
+				recordSnoozeResolution(buildSnoozeHistoryRecord(entry, 'dismissed', session));
+			}
 			notifyToast({
 				color: 'theme',
 				title: 'Snooze dismissed',
@@ -102,6 +116,26 @@ export function SnoozedTabsModal({ theme, onClose, onJumpToTab }: SnoozedTabsMod
 				priority={MODAL_PRIORITIES.SNOOZED_TABS}
 				onClose={onClose}
 				width={560}
+				headerActions={
+					<button
+						type="button"
+						onClick={() => setHistoryOpen(true)}
+						className="flex items-center gap-1.5 px-2 py-1 rounded text-xs hover:bg-white/10 transition-colors"
+						style={{ color: theme.colors.textDim }}
+						title="Snoozes that have already come back or been dismissed"
+					>
+						<History className="w-3.5 h-3.5" />
+						View History
+						{historyCount > 0 && (
+							<span
+								className="text-[10px] px-1.5 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity }}
+							>
+								{historyCount}
+							</span>
+						)}
+					</button>
+				}
 			>
 				{/* Click-driven list: suppress drag-select, opt content back in per row. */}
 				<div className="select-none">
@@ -206,6 +240,8 @@ export function SnoozedTabsModal({ theme, onClose, onJumpToTab }: SnoozedTabsMod
 					)}
 				</div>
 			</Modal>
+
+			{historyOpen && <SnoozeHistoryModal theme={theme} onClose={() => setHistoryOpen(false)} />}
 
 			{editingItem && (
 				<SnoozeTabModal

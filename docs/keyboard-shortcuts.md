@@ -113,6 +113,7 @@ Toggle states are saved per-tab. See [Input Toggles](./general-usage#input-toggl
 | Focus Browser Address Bar | `Cmd+L`                 | `Ctrl+L`                  |
 | Find in Browser Tab       | `Cmd+F`                 | `Ctrl+F`                  |
 | Focus Active Tab          | `Opt+Cmd+Up`            | `Alt+Ctrl+Up`             |
+| Snooze Tab                | `Opt+Cmd+S`             | `Alt+Ctrl+S`              |
 | Close Tab                 | `Cmd+W`                 | `Ctrl+W`                  |
 | Close All Tabs            | `Cmd+Shift+W`           | `Ctrl+Shift+W`            |
 | Close Other Tabs          | `Opt+Cmd+W`             | `Alt+Ctrl+W`              |

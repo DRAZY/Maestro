@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useSnoozeScheduler } from '../../../../renderer/hooks/tabs/useSnoozeScheduler';
 import { useSessionStore } from '../../../../renderer/stores/sessionStore';
 import { snoozeTab } from '../../../../renderer/utils/snoozeHelpers';
+import { useSnoozeHistoryStore } from '../../../../renderer/stores/snoozeHistoryStore';
 import { createMockSession } from '../../../helpers/mockSession';
 import { createMockAITab } from '../../../helpers/mockTab';
 import type { Session } from '../../../../renderer/types';
@@ -275,6 +276,25 @@ describe('useSnoozeScheduler', () => {
 		renderHook(() => useSnoozeScheduler());
 
 		expect(release).not.toHaveBeenCalled();
+	});
+
+	it('logs the completed snooze to history, note included', () => {
+		// The sticky toast is transient; the history entry is what lets the user
+		// find the note again next week.
+		useSnoozeHistoryStore.setState({ entries: [] });
+		seedSession();
+		snoozeInStore('b', Date.now() - 1000, 'check the build');
+
+		renderHook(() => useSnoozeScheduler());
+
+		const entries = useSnoozeHistoryStore.getState().entries;
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			label: 'Bravo',
+			note: 'check the build',
+			sessionName: 'Atlas',
+			resolution: 'woke',
+		});
 	});
 
 	it('stops sweeping after unmount', () => {

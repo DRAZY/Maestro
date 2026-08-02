@@ -135,6 +135,9 @@ export const MODAL_PRIORITIES = {
 	/** Snoozed tabs list modal (shows every agent's snoozed tabs) */
 	SNOOZED_TABS: 704,
 
+	/** Snooze history log (opens above the snoozed tabs list) */
+	SNOOZE_HISTORY: 703,
+
 	/** Prompt composer modal for long prompts */
 	PROMPT_COMPOSER: 725,
 

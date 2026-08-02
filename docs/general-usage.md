@@ -674,7 +674,7 @@ You can always rename tabs manually:
 
 Snooze hides an AI tab until a moment you choose, then brings it back with a notification you have to dismiss. It's the email-snooze idea applied to conversations: park work you can't act on yet without closing it or letting it clutter the tab bar.
 
-Hover a tab and choose **Snooze Tab**, or run **Snooze Tab** from Quick Actions (`Cmd+K` / `Ctrl+K`). Snoozing is available on AI tabs only.
+Hover a tab and choose **Snooze Tab**, press `Opt+Cmd+S` / `Alt+Ctrl+S`, or run **Snooze Tab** from Quick Actions (`Cmd+K` / `Ctrl+K`). Snoozing is available on AI tabs only.
 
 **Choosing when it comes back**
 
@@ -720,6 +720,12 @@ Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, 
 - **Unsnooze** - bring the tab back right now
 - **Reschedule** - pick a new time or edit the note
 - **Dismiss** - drop the snooze and the tab, for when you no longer care
+
+**Snooze history**
+
+Click **View History** in the Snoozed Tabs header to see snoozes that have already finished. It is one chronological list across every agent, newest first, and each entry keeps the note you left yourself along with when it was due and when it actually came back. Entries are marked by how they ended: came back on schedule, brought back early, or dismissed.
+
+The log keeps the most recent 100 entries; older ones drop off as new ones arrive.
 
 <Note>
 Dismissing only discards Maestro's tab. The underlying conversation is still on disk and can be reopened from the Session Explorer.
