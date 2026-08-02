@@ -24,6 +24,7 @@ import {
 	ArrowUpFromLine,
 	Copy,
 	ExternalLink,
+	FileDiff,
 	GitBranch,
 	GitPullRequest,
 	History,
@@ -57,6 +58,7 @@ export interface GitPillMenuProps {
 	/** Commits behind upstream - badged on Pull. */
 	behind: number;
 	onViewLog: () => void;
+	onViewDiff: () => void;
 	onPull: () => void;
 	onPush: () => void;
 	onSwitchBranch: () => void;
@@ -102,6 +104,7 @@ export const GitPillMenu = memo(function GitPillMenu({
 	ahead,
 	behind,
 	onViewLog,
+	onViewDiff,
 	onPull,
 	onPush,
 	onSwitchBranch,
@@ -224,6 +227,13 @@ export const GitPillMenu = memo(function GitPillMenu({
 					icon={<History className="w-3.5 h-3.5" style={iconStyle} />}
 					label="View Git Log"
 					onClick={onViewLog}
+				/>
+				<MenuRow
+					theme={theme}
+					testId="git-pill-menu-diff"
+					icon={<FileDiff className="w-3.5 h-3.5" style={iconStyle} />}
+					label="View Git Diff"
+					onClick={onViewDiff}
 				/>
 				<MenuRow
 					theme={theme}

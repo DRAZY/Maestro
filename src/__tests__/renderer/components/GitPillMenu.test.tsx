@@ -29,6 +29,7 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof GitPillMenu>>
 		ahead: 0,
 		behind: 0,
 		onViewLog: vi.fn(),
+		onViewDiff: vi.fn(),
 		onPull: vi.fn(),
 		onPush: vi.fn(),
 		onSwitchBranch: vi.fn(),
@@ -48,9 +49,10 @@ describe('GitPillMenu', () => {
 		vi.clearAllMocks();
 	});
 
-	it('renders all six actions', () => {
+	it('renders all seven actions', () => {
 		renderMenu();
 		expect(screen.getByText('View Git Log')).toBeInTheDocument();
+		expect(screen.getByText('View Git Diff')).toBeInTheDocument();
 		expect(screen.getByText('Git Pull')).toBeInTheDocument();
 		expect(screen.getByText('Git Push')).toBeInTheDocument();
 		expect(screen.getByText('Change Branch')).toBeInTheDocument();
@@ -133,6 +135,9 @@ describe('GitPillMenu', () => {
 
 		fireEvent.click(screen.getByTestId('git-pill-menu-log'));
 		expect(props.onViewLog).toHaveBeenCalled();
+
+		fireEvent.click(screen.getByTestId('git-pill-menu-diff'));
+		expect(props.onViewDiff).toHaveBeenCalled();
 
 		fireEvent.click(screen.getByTestId('git-pill-menu-pull'));
 		expect(props.onPull).toHaveBeenCalled();

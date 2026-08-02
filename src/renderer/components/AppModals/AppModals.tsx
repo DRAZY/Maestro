@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useModalStore } from '../../stores/modalStore';
-import type { GitLogModalData } from '../../stores/modalStore';
+import type { GitDiffModalData, GitLogModalData } from '../../stores/modalStore';
 import type {
 	Theme,
 	Session,
@@ -507,6 +507,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		batchRunnerModalOpen,
 		gitLogOpen,
 		gitLogTarget,
+		gitDiffCwd,
 		showNewGroupChatModal,
 		showGroupChatInfo,
 		leaderboardRegistrationOpen,
@@ -583,6 +584,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 			batchRunnerModalOpen: s.modals.get('batchRunner')?.open ?? false,
 			gitLogOpen: s.modals.get('gitLog')?.open ?? false,
 			gitLogTarget: (s.modals.get('gitLog')?.data as GitLogModalData | undefined) ?? null,
+			gitDiffCwd: (s.modals.get('gitDiff')?.data as GitDiffModalData | undefined)?.cwd ?? null,
 			showNewGroupChatModal: s.modals.get('newGroupChat')?.open ?? false,
 			showGroupChatInfo: s.modals.get('groupChatInfo')?.open ?? false,
 			leaderboardRegistrationOpen: s.modals.get('leaderboard')?.open ?? false,
@@ -1128,6 +1130,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onDeleteLightboxImage={onDeleteLightboxImage}
 				onUpdateLightboxImage={onUpdateLightboxImage}
 				gitDiffPreview={gitDiffPreview}
+				gitDiffCwd={gitDiffCwd}
 				gitViewerCwd={gitViewerCwd}
 				onCloseGitDiff={onCloseGitDiff}
 				gitLogOpen={gitLogOpen}

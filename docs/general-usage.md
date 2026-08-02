@@ -37,6 +37,7 @@ For agents whose working directory is a git repository, the same set of git acti
 | Action                  | What it does                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **View Git Log**        | Opens the commit history viewer.                                                                              |
+| **View Git Diff**       | Opens the working-tree diff. Flashes "No diff to examine" when the tree is clean.                             |
 | **Git Pull**            | Runs `git pull` and shows the live command output in a dismissible modal. Badged with how far behind you are. |
 | **Git Push**            | Runs `git push` the same way. Badged with how many commits you're ahead.                                      |
 | **Change Branch**       | Opens a fuzzy branch picker. Type to filter, Enter to check out.                                              |
@@ -609,7 +610,7 @@ Right-click any agent for quick actions:
 - **Add/Remove Bookmark** - Toggle bookmark status
 - **Move to Group** - Organize into groups
 - **Move to Window** - Send the agent to another Maestro window
-- **View Git Log / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
+- **View Git Log / View Git Diff / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
 - **Create Worktree** - Create a git worktree sub-agent (if configured)
 - **Configure Worktrees** - Set up worktree configuration
 - **Configure Maestro Cue** - Set up event-driven automation for this agent

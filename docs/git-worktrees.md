@@ -13,7 +13,7 @@ Every agent whose working directory is a git repository has a git menu, reachabl
 - **Header branch pill** - click the pill showing the current branch name.
 - **Left Bar right-click** - right-click the agent in the agent list.
 
-Both offer the same actions: **View Git Log**, **Git Pull**, **Git Push**, **Change Branch**, and **Create Pull Request**. Pull and Push are badged with how many commits you're behind and ahead. The header menu additionally shows the current branch and origin (each with a copy button, and the origin clickable to open the repo in your browser) and a **Configure Worktrees** entry.
+Both offer the same actions: **View Git Log**, **View Git Diff**, **Git Pull**, **Git Push**, **Change Branch**, and **Create Pull Request**. Pull and Push are badged with how many commits you're behind and ahead. The header menu additionally shows the current branch and origin (each with a copy button, and the origin clickable to open the repo in your browser) and a **Configure Worktrees** entry.
 
 The header pill acts on the agent you're looking at; the right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it.
 
@@ -45,7 +45,7 @@ The diff viewer displays:
 - **Syntax highlighting** matched to file type
 - **Line-by-line changes** with additions and deletions clearly marked
 
-Access diffs from the git log viewer by clicking any commit, or use **Command Palette** → "Git Diff".
+Access the working-tree diff from the git menu (branch pill or right-click) → **View Git Diff**, **Command Palette** (`Cmd+K` / `Ctrl+K`) → "Git Diff", or `Cmd+Shift+D` / `Ctrl+Shift+D`. Clicking any commit in the git log viewer opens that commit's diff instead.
 
 ---
 

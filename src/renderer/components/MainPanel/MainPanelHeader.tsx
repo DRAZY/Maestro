@@ -118,11 +118,13 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	// points can't drift apart.
 	const gitActions = useGitAgentActions(activeSession);
 
-	// Each action closes the menu before it opens its modal.
+	// Each action closes the menu before it opens its modal. Async actions (the
+	// diff has to be fetched first) are fire-and-forget - the menu shouldn't
+	// linger while git runs.
 	const runAction = useCallback(
-		(action: () => void) => () => {
+		(action: () => void | Promise<void>) => () => {
 			setGitMenuOpen(false);
-			action();
+			void action();
 		},
 		[]
 	);
@@ -140,6 +142,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 				// prop-driven viewer already shows.
 				setGitLogOpen?.(true);
 			})}
+			onViewDiff={runAction(gitActions.viewDiff)}
 			onPull={runAction(gitActions.pull)}
 			onPush={runAction(gitActions.push)}
 			onSwitchBranch={runAction(gitActions.switchBranch)}

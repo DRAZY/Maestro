@@ -83,6 +83,7 @@ vi.mock('lucide-react', () => ({
 	),
 	// Git action icons in the session context menu
 	History: () => <span data-testid="icon-history" />,
+	FileDiff: () => <span data-testid="icon-file-diff" />,
 	ArrowDown: () => <span data-testid="icon-arrow-down" />,
 	ArrowUp: () => <span data-testid="icon-arrow-up" />,
 	ArrowDownToLine: () => <span data-testid="icon-arrow-down-to-line" />,

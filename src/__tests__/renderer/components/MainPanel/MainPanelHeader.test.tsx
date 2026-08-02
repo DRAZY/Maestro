@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MainPanelHeader } from '../../../../renderer/components/MainPanel/MainPanelHeader';
 import type { Session, Theme, AITab } from '../../../../renderer/types';
 
@@ -36,6 +36,14 @@ vi.mock('../../../../renderer/hooks', () => ({
 	}),
 }));
 
+vi.mock('../../../../renderer/services/git', () => ({
+	gitService: { getDiff: vi.fn().mockResolvedValue({ diff: 'diff --git a/x b/x' }) },
+}));
+
+vi.mock('../../../../renderer/stores/centerFlashStore', () => ({
+	notifyCenterFlash: vi.fn(),
+}));
+
 vi.mock('../../../../renderer/components/GitStatusWidget', () => ({
 	GitStatusWidget: () => React.createElement('div', { 'data-testid': 'git-status-widget' }),
 }));
@@ -52,8 +60,10 @@ vi.mock('../../../../renderer/contexts/LayerStackContext', () => ({
 // useGitAgentActions reads polled branch state from this context.
 const DEFAULT_BRANCH_INFO = { branch: 'main', remote: '', ahead: 0, behind: 0 };
 const mockGetBranchInfo = vi.fn(() => DEFAULT_BRANCH_INFO);
+const mockRefreshGitStatus = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../../renderer/contexts/GitStatusContext', () => ({
 	useGitBranch: () => ({ getBranchInfo: mockGetBranchInfo }),
+	useGitDetail: () => ({ refreshGitStatus: mockRefreshGitStatus }),
 }));
 
 const mockOpenModal = vi.fn();
@@ -337,6 +347,22 @@ describe('MainPanelHeader', () => {
 
 			expect(setGitLogOpen).toHaveBeenCalledWith(true);
 			expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+		});
+
+		it('opens the git diff from the menu', async () => {
+			render(<MainPanelHeader {...defaultProps} />);
+
+			fireEvent.click(screen.getByText('main'));
+			fireEvent.click(screen.getByTestId('git-pill-menu-diff'));
+
+			// Menu closes immediately; the diff modal opens once git responds.
+			expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+			await waitFor(() =>
+				expect(mockOpenModal).toHaveBeenCalledWith(
+					'gitDiff',
+					expect.objectContaining({ cwd: '/test' })
+				)
+			);
 		});
 
 		it('opens the streaming command modal for pull and push', () => {
