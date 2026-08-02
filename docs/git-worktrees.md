@@ -13,7 +13,7 @@ Every agent whose working directory is a git repository has a git menu, reachabl
 - **Header branch pill** - click the pill showing the current branch name.
 - **Left Bar right-click** - right-click the agent in the agent list.
 
-Both offer the same actions: **View Git Log**, **Git Pull**, **Git Push**, **Change Branch**, and **Create Pull Request**. Pull and Push are badged with how many commits you're behind and ahead.
+Both offer the same actions: **View Git Log**, **Git Pull**, **Git Push**, **Change Branch**, and **Create Pull Request**. Pull and Push are badged with how many commits you're behind and ahead. The header menu additionally shows the current branch and origin (each with a copy button, and the origin clickable to open the repo in your browser) and a **Configure Worktrees** entry.
 
 The header pill acts on the agent you're looking at; the right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it.
 
@@ -71,10 +71,8 @@ There are two ways to access worktree configuration:
 **From the Header (Main Panel):**
 
 1. Select an agent that's in a git repository
-2. **Hover** over the **branch pill** in the header (shows the current branch name, e.g., "main")
-3. In the hover overlay, click **"Configure Worktrees"**
-
-Hovering the pill shows this overlay with the branch details and worktree actions; _clicking_ it opens the git menu described above.
+2. Click the **branch pill** in the header (shows the current branch name, e.g., "main")
+3. In the menu, click **"Configure Worktrees"**
 
 **From the Context Menu (Left Bar):**
 

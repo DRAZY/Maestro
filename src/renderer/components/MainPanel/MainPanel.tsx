@@ -111,7 +111,6 @@ export const MainPanel = React.memo(
 			isMobileLandscape = false,
 			showFlashNotification,
 			onOpenWorktreeConfig,
-			onOpenCreatePR,
 			isWorktreeChild,
 			onSummarizeAndContinue,
 			onMergeWith,
@@ -829,7 +828,6 @@ export const MainPanel = React.memo(
 								setActiveAgentSessionId={setActiveAgentSessionId}
 								onStopBatchRun={onStopBatchRun}
 								onOpenWorktreeConfig={onOpenWorktreeConfig}
-								onOpenCreatePR={onOpenCreatePR}
 								hasCapability={hasCapability}
 							/>
 						)}

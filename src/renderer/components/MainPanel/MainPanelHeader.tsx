@@ -1,24 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
-import {
-	Wand2,
-	ExternalLink,
-	Columns,
-	Copy,
-	GitBranch,
-	ArrowUp,
-	ArrowDown,
-	FileEdit,
-	List,
-	GitPullRequest,
-	Settings2,
-	Server,
-	Bookmark,
-	Brain,
-} from 'lucide-react';
-import { GhostIconButton } from '../ui/GhostIconButton';
+import { Wand2, Columns, GitBranch, List, Server, Bookmark, Brain } from 'lucide-react';
 import { Spinner } from '../ui/Spinner';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
-import { remoteUrlToBrowserUrl } from '../../../shared/gitUtils';
 import { GitStatusWidget } from '../GitStatusWidget';
 import { GitPillMenu } from '../GitPillMenu';
 import { useHoverTooltip } from '../../hooks';
@@ -27,7 +10,6 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Session, Theme, BatchRunState, AITab } from '../../types';
 import type { AgentCapabilities } from '../../hooks/agent/useAgentCapabilities';
-import { openUrl } from '../../utils/openUrl';
 import { calculateDisplayInputTokens } from '../../utils/contextUsage';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { safeClipboardWrite } from '../../utils/clipboard';
@@ -66,7 +48,6 @@ export interface MainPanelHeaderProps {
 	setActiveAgentSessionId: (id: string | null) => void;
 	onStopBatchRun?: (sessionId?: string) => void;
 	onOpenWorktreeConfig?: () => void;
-	onOpenCreatePR?: () => void;
 	hasCapability: (cap: keyof AgentCapabilities) => boolean;
 }
 
@@ -93,7 +74,6 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	setActiveAgentSessionId,
 	onStopBatchRun,
 	onOpenWorktreeConfig,
-	onOpenCreatePR,
 	hasCapability,
 }: MainPanelHeaderProps) {
 	const shortcuts = useSettingsStore((s) => s.shortcuts);
@@ -119,22 +99,19 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	// menu's click-outside handling, so clicking a pill toggles instead of
 	// closing-then-reopening.
 	const gitPillRef = useRef<HTMLDivElement>(null);
-	const gitTooltip = useHoverTooltip(150);
 	const contextTooltip = useHoverTooltip(150);
 	const [gitMenuOpen, setGitMenuOpen] = useState(false);
 
-	// Clicking the pill opens the git menu. The hover card keeps showing branch
-	// details, but it's suppressed while the menu is open so the two don't stack
-	// on top of each other.
+	// Clicking the pill opens the git menu, which also carries the branch/origin
+	// detail the pill's hover card used to show.
 	const handleGitPillClick = useCallback(
 		(e: React.MouseEvent) => {
 			e.stopPropagation();
 			if (!activeSession.isGitRepo) return;
 			refreshGitStatus(); // Refresh git info immediately on click
-			gitTooltip.close();
 			setGitMenuOpen((open) => !open);
 		},
-		[activeSession.isGitRepo, refreshGitStatus, gitTooltip]
+		[activeSession.isGitRepo, refreshGitStatus]
 	);
 
 	// Same action set the Left Bar's right-click menu uses, so the two entry
@@ -154,6 +131,8 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 		<GitPillMenu
 			theme={theme}
 			anchorRef={gitPillRef}
+			branch={gitInfo?.branch || gitActions.branch}
+			remote={gitInfo?.remote || undefined}
 			ahead={gitInfo?.ahead ?? gitActions.ahead}
 			behind={gitInfo?.behind ?? gitActions.behind}
 			onViewLog={runAction(() => {
@@ -165,6 +144,11 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 			onPush={runAction(gitActions.push)}
 			onSwitchBranch={runAction(gitActions.switchBranch)}
 			onCreatePR={gitActions.canCreatePR ? runAction(gitActions.createPR) : undefined}
+			// Worktree children can't own a worktree config, so the row is hidden
+			// for them - matching what the old hover card did.
+			onConfigureWorktrees={
+				!isWorktreeChild && onOpenWorktreeConfig ? runAction(onOpenWorktreeConfig) : undefined
+			}
 			onClose={() => setGitMenuOpen(false)}
 		/>
 	) : null;
@@ -193,16 +177,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 							data-testid="bookmark-icon"
 						/>
 					)}
-					<div
-						ref={gitPillRef}
-						className="relative shrink-0 flex items-center gap-2"
-						onMouseEnter={
-							activeSession.isGitRepo ? gitTooltip.triggerHandlers.onMouseEnter : undefined
-						}
-						onMouseLeave={gitTooltip.triggerHandlers.onMouseLeave}
-						onFocus={activeSession.isGitRepo ? gitTooltip.triggerHandlers.onMouseEnter : undefined}
-						onBlur={gitTooltip.triggerHandlers.onMouseLeave}
-					>
+					<div ref={gitPillRef} className="relative shrink-0 flex items-center gap-2">
 						{/* SSH Host Pill - show SSH remote name when running remotely (replaces the
 						    GIT/LOCAL badge). For git repos the branch name is rendered in a separate
 						    badge just after this pill (see below) so SSH/container agents still surface
@@ -265,181 +240,6 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 								</button>
 							)}
 						{gitPillMenu}
-						{activeSession.isGitRepo && gitTooltip.isOpen && !gitMenuOpen && gitInfo && (
-							<>
-								{/* Invisible bridge to prevent hover gap */}
-								<div
-									className="absolute left-0 right-0 h-3 pointer-events-auto"
-									style={{ top: '100%' }}
-									{...gitTooltip.contentHandlers}
-								/>
-								<div
-									className="absolute top-full left-0 pt-2 w-96 z-50 pointer-events-auto"
-									{...gitTooltip.contentHandlers}
-								>
-									<div
-										className="rounded shadow-xl"
-										style={{
-											backgroundColor: theme.colors.bgSidebar,
-											border: `1px solid ${theme.colors.border}`,
-										}}
-									>
-										{/* Branch / Origin / Status */}
-										<div
-											className="p-3 space-y-2 border-b"
-											style={{ borderColor: theme.colors.border }}
-										>
-											{/* Branch row */}
-											<div className="flex items-center gap-2">
-												<span
-													className="text-[10px] uppercase font-bold w-14 shrink-0"
-													style={{ color: theme.colors.textDim }}
-												>
-													Branch
-												</span>
-												<GitBranch className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-												<span
-													className="text-xs font-mono font-medium truncate"
-													style={{ color: theme.colors.textMain }}
-												>
-													{gitInfo.branch}
-												</span>
-												<div className="flex items-center gap-1.5 ml-auto shrink-0">
-													{gitInfo.ahead > 0 && (
-														<span className="flex items-center gap-0.5 text-xs text-green-500">
-															<ArrowUp className="w-3 h-3" />
-															{gitInfo.ahead}
-														</span>
-													)}
-													{gitInfo.behind > 0 && (
-														<span className="flex items-center gap-0.5 text-xs text-red-500">
-															<ArrowDown className="w-3 h-3" />
-															{gitInfo.behind}
-														</span>
-													)}
-													<GhostIconButton
-														onClick={async (e) => {
-															e.stopPropagation();
-															if (await safeClipboardWrite(gitInfo.branch)) {
-																flashCopiedToClipboard(gitInfo.branch, 'Branch Name Copied');
-															}
-														}}
-														title="Copy branch name"
-														ariaLabel="Copy branch name"
-													>
-														<Copy className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-													</GhostIconButton>
-												</div>
-											</div>
-
-											{/* Origin row */}
-											{gitInfo.remote && (
-												<div className="flex items-center gap-2">
-													<span
-														className="text-[10px] uppercase font-bold w-14 shrink-0"
-														style={{ color: theme.colors.textDim }}
-													>
-														Origin
-													</span>
-													<ExternalLink
-														className="w-3 h-3 shrink-0"
-														style={{ color: theme.colors.textDim }}
-													/>
-													<button
-														onClick={(e) => {
-															e.stopPropagation();
-															const url = remoteUrlToBrowserUrl(gitInfo.remote);
-															if (url) openUrl(url);
-														}}
-														className="text-xs font-mono truncate hover:underline text-left"
-														style={{ color: theme.colors.textMain }}
-														title={`Open ${gitInfo.remote}`}
-													>
-														{gitInfo.remote.replace(/^https?:\/\//, '').replace(/\.git$/, '')}
-													</button>
-													<button
-														onClick={async (e) => {
-															e.stopPropagation();
-															if (await safeClipboardWrite(gitInfo.remote)) {
-																flashCopiedToClipboard(gitInfo.remote);
-															}
-														}}
-														className="p-1 rounded hover:bg-white/10 transition-colors ml-auto shrink-0"
-														title="Copy remote URL"
-													>
-														<Copy className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-													</button>
-												</div>
-											)}
-
-											{/* Status row */}
-											<div className="flex items-center gap-2">
-												<span
-													className="text-[10px] uppercase font-bold w-14 shrink-0"
-													style={{ color: theme.colors.textDim }}
-												>
-													Status
-												</span>
-												{gitInfo.uncommittedChanges > 0 ? (
-													<span
-														className="flex items-center gap-1.5 text-xs"
-														style={{ color: theme.colors.textMain }}
-													>
-														<FileEdit className="w-3 h-3 text-orange-500" />
-														{gitInfo.uncommittedChanges} uncommitted{' '}
-														{gitInfo.uncommittedChanges === 1 ? 'change' : 'changes'}
-													</span>
-												) : (
-													<span className="flex items-center gap-1.5 text-xs text-green-500">
-														Working tree clean
-													</span>
-												)}
-											</div>
-										</div>
-
-										{/* Worktree Actions */}
-										<div className="p-2 space-y-1">
-											{/* Configure Worktrees - only for parent sessions (not worktree children) */}
-											{!isWorktreeChild && onOpenWorktreeConfig && (
-												<button
-													onClick={(e) => {
-														e.stopPropagation();
-														onOpenWorktreeConfig();
-														gitTooltip.close();
-													}}
-													className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs hover:bg-white/10 transition-colors"
-													style={{ color: theme.colors.textDim }}
-												>
-													<Settings2
-														className="w-3.5 h-3.5"
-														style={{ color: theme.colors.textDim }}
-													/>
-													Configure Worktrees
-												</button>
-											)}
-											{/* Create PR - only for worktree children */}
-											{isWorktreeChild && onOpenCreatePR && (
-												<button
-													onClick={(e) => {
-														e.stopPropagation();
-														onOpenCreatePR();
-														gitTooltip.close();
-													}}
-													className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs hover:bg-white/10 transition-colors"
-													style={{ color: theme.colors.textDim }}
-												>
-													<GitPullRequest
-														className="w-3.5 h-3.5"
-														style={{ color: theme.colors.textDim }}
-													/>
-													Create Pull Request
-												</button>
-											)}
-										</div>
-									</div>
-								</div>
-							</>
-						)}
 					</div>
 				</div>
 
