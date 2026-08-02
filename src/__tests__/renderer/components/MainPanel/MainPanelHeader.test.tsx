@@ -351,6 +351,24 @@ describe('MainPanelHeader', () => {
 			);
 		});
 
+		it('renders the menu outside the header, not nested inside it', () => {
+			// Regression: the menu used to render inline next to the pill, inside
+			// the header's two `overflow-hidden` wrappers. Those boxes are only as
+			// tall as the pill, so the dropdown was clipped to nothing - it was in
+			// the document (which the other tests assert) but invisible on screen.
+			// jsdom can't measure clipping, so pin the structural fix instead: the
+			// menu must be portaled out of the header subtree.
+			const { container } = render(<MainPanelHeader {...defaultProps} />);
+
+			fireEvent.click(screen.getByText('main'));
+
+			const menu = screen.getByTestId('git-pill-menu');
+			const header = container.querySelector('[data-tour="header-controls"]');
+			expect(header).not.toBeNull();
+			expect(header!.contains(menu)).toBe(false);
+			expect(menu.parentElement).toBe(document.body);
+		});
+
 		it('opens the create-PR modal from the menu', () => {
 			render(<MainPanelHeader {...defaultProps} />);
 

@@ -2,11 +2,21 @@
  * GitPillMenu - dropdown for the header git/branch pill.
  *
  * Clicking the pill used to jump straight to the git log. It now opens this
- * menu: log, pull, push, and branch switching, all from the one control that
- * already represents "this agent's repo".
+ * menu: log, pull, push, branch switching, and PR creation, all from the one
+ * control that already represents "this agent's repo".
+ *
+ * Rendered through a portal, NOT inline next to the pill. The header wraps its
+ * left cluster in two `overflow-hidden` divs (they exist for the container-query
+ * responsive behavior), and those boxes are only as tall as the pill itself, so
+ * an absolutely-positioned dropdown hanging below the pill is clipped to
+ * nothing. `.header-container` also sets `container-type: inline-size`, which
+ * implies `contain: layout` and would make even a `position: fixed` child
+ * position against the header instead of the viewport. Escaping to document.body
+ * sidesteps both.
  */
 
-import { memo, useRef } from 'react';
+import { memo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
 	ArrowDown,
 	ArrowDownToLine,
@@ -17,13 +27,21 @@ import {
 	History,
 } from 'lucide-react';
 import { useClickOutside } from '../hooks/ui/useClickOutside';
+import { useContextMenuPosition } from '../hooks/ui/useContextMenuPosition';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import type { Theme } from '../types';
 
+/** Gap between the bottom of the pill and the top of the menu. */
+const ANCHOR_GAP_PX = 6;
+
 export interface GitPillMenuProps {
 	theme: Theme;
-	/** Ref of the pill button, so clicking it again toggles instead of re-opening. */
+	/**
+	 * The pill element. Used both to place the menu beneath it and to exclude it
+	 * from click-outside, so clicking the pill again toggles instead of
+	 * closing-then-reopening.
+	 */
 	anchorRef: React.RefObject<HTMLElement | null>;
 	/** Commits ahead of upstream - badged on Push. */
 	ahead: number;
@@ -79,17 +97,30 @@ export const GitPillMenu = memo(function GitPillMenu({
 }: GitPillMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 
+	// Measure the pill during the first render rather than in an effect. The
+	// menu only mounts once the pill has been clicked, so the anchor is already
+	// laid out - reading it here avoids a frame at the wrong position.
+	const [anchor] = useState(() => {
+		const rect = anchorRef.current?.getBoundingClientRect();
+		return rect ? { x: rect.left, y: rect.bottom + ANCHOR_GAP_PX } : { x: 0, y: 0 };
+	});
+	// Keeps the menu inside the viewport (same helper the right-click menus use).
+	const { left, top, ready } = useContextMenuPosition(menuRef, anchor.x, anchor.y);
+
 	// Escape closes the menu before any modal underneath it.
 	useModalLayer(MODAL_PRIORITIES.GIT_PILL_MENU, 'Git Pill Menu', onClose);
 	useClickOutside([menuRef, anchorRef], onClose, true, { delay: true, eventType: 'click' });
 
 	const iconStyle = { color: theme.colors.textDim };
 
-	return (
+	return createPortal(
 		<div
 			ref={menuRef}
-			className="absolute top-full left-0 mt-2 z-50 rounded shadow-xl overflow-hidden whitespace-nowrap select-none"
+			className="fixed z-[100] rounded shadow-xl overflow-hidden whitespace-nowrap select-none"
 			style={{
+				left,
+				top,
+				opacity: ready ? 1 : 0,
 				backgroundColor: theme.colors.bgSidebar,
 				border: `1px solid ${theme.colors.border}`,
 				minWidth: '12rem',
@@ -153,7 +184,8 @@ export const GitPillMenu = memo(function GitPillMenu({
 					/>
 				)}
 			</div>
-		</div>
+		</div>,
+		document.body
 	);
 });
 
