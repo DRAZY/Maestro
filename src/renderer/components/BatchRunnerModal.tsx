@@ -659,9 +659,13 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 					{/* Playbook Section - Spec-Driven only; playbooks are checklist
 					    documents, which have no meaning in Goal-Driven mode. */}
 					{!goalMode && (
-						<div className="mb-6 flex items-center justify-between">
-							{/* Left side: Load Playbook and Playbook Exchange buttons */}
-							<div className="flex items-center gap-2">
+						<div className="mb-6 flex flex-wrap items-center justify-center gap-2">
+							{/* The two groups below are `contents`, so their buttons are direct
+							    flex items of this centered row rather than two edge-anchored
+							    clusters. The whole set stays centered and wraps as buttons
+							    appear and disappear with the playbook state. */}
+							{/* Load / Import / Playbook Exchange */}
+							<div className="contents">
 								{/* Load Playbook Dropdown - only show when playbooks exist or one is loaded */}
 								{(playbooks.length > 0 || loadedPlaybook) && (
 									<div className="relative" ref={playbackDropdownRef}>
@@ -767,8 +771,8 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 								)}
 							</div>
 
-							{/* Right side: Save as Playbook OR Save Update/Discard buttons */}
-							<div className="flex items-center gap-2">
+							{/* Save as Playbook OR Save Update / Save as New / Discard */}
+							<div className="contents">
 								{/* Save as Playbook button - shown when >1 doc and no playbook loaded */}
 								{documents.length > 1 && !loadedPlaybook && (
 									<button

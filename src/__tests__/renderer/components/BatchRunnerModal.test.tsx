@@ -937,6 +937,35 @@ describe('BatchRunnerModal', () => {
 			});
 		});
 
+		// The playbook actions used to be two edge-anchored clusters
+		// (justify-between). They now sit in one centered, wrapping row so the
+		// set re-centers as buttons appear and disappear with playbook state.
+		it('centers the playbook action buttons in a single flex row', async () => {
+			(window.maestro as Record<string, unknown>).playbooks = {
+				list: vi.fn().mockResolvedValue({ success: true, playbooks: [createMockPlaybook()] }),
+				create: vi.fn(),
+				update: vi.fn(),
+				delete: vi.fn(),
+				export: vi.fn(),
+				import: vi.fn(),
+			};
+
+			render(<BatchRunnerModal {...createDefaultProps()} onOpenMarketplace={vi.fn()} />);
+
+			const importBtn = await screen.findByRole('button', { name: 'Import Playbook' });
+			const row = importBtn.closest('div.flex-wrap');
+
+			expect(row).not.toBeNull();
+			expect(row).toHaveClass('justify-center');
+			// Every action is a flex item of that one row - the group wrappers are
+			// `contents`, so no button is anchored to an edge by a sub-flex parent.
+			for (const name of ['Load Playbook', 'Import Playbook', 'Playbook Exchange']) {
+				const btn = screen.getByRole('button', { name });
+				expect(row).toContainElement(btn);
+				expect(btn.parentElement?.closest('div.flex')).toBe(row);
+			}
+		});
+
 		it('marks missing documents when loading playbook', async () => {
 			const mockPlaybook = createMockPlaybook({
 				documents: [
