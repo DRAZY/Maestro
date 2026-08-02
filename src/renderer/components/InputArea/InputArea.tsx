@@ -28,6 +28,9 @@ import { SlashCommandPopover } from './overlays/SlashCommandPopover';
 import { TabCompletionPopover } from './overlays/TabCompletionPopover';
 import type { InputAreaProps } from './types';
 import { filterCommandHistory, getCurrentCommandHistory } from './utils/commandHistory';
+import { isShellCommandDraft } from '../../utils/shellCommandInput';
+import { resolveCommandCwd } from '../../services/shellCommand';
+import { CommandModeBar } from './components/CommandModeBar';
 
 export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	const {
@@ -186,6 +189,12 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	const inputValue = useComposerInputStore(
 		isTerminalMode ? selectTerminalComposerValue : selectAiComposerValue
 	);
+
+	// Command mode: an AI draft starting with `!` is a shell command line, so the
+	// composer picks up the terminal's CLI affordances (the `$` prefix and Tab
+	// completion over files, dirs, branches, tags, and prior commands).
+	const isCommandModeDraft = !isTerminalMode && isShellCommandDraft(inputValue);
+	const isShellInput = isTerminalMode || isCommandModeDraft;
 
 	// thinkingItems is now passed directly from App.tsx (pre-filtered) for better performance
 
@@ -410,7 +419,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
 			<TabCompletionPopover
 				isOpen={tabCompletionOpen}
-				isTerminalMode={isTerminalMode}
+				isShellInput={isShellInput}
 				isGitRepo={session.isGitRepo}
 				suggestions={tabCompletionSuggestions}
 				selectedIndex={selectedTabCompletionIndex}
@@ -453,10 +462,20 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 								: theme.colors.bgMain,
 						}}
 					>
+						{isCommandModeDraft && (
+							<CommandModeBar
+								theme={theme}
+								cwd={resolveCommandCwd(session)}
+								remoteName={session.sshRemote?.name}
+								isGitRepo={session.isGitRepo}
+							/>
+						)}
+
 						<InputTextarea
 							session={session}
 							theme={theme}
 							isTerminalMode={isTerminalMode}
+							isCommandModeDraft={isCommandModeDraft}
 							inputValue={inputValue}
 							spellCheckEnabled={spellCheckEnabled}
 							inputRef={inputRef}

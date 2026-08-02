@@ -235,7 +235,7 @@ Start a message with `!` and Maestro runs the rest as a shell command instead of
 !git status
 ```
 
-A `$` appears at the left of the composer as soon as your draft starts with `!`, so you can see which way the message is going before you press Enter.
+The moment you type `!` the composer switches into command mode: a `$` appears at the left of the input and a **COMMAND MODE** strip above it names the directory the command will run in, so you can see which way the message is going before you press Enter.
 
 **How it behaves:**
 
@@ -243,6 +243,25 @@ A `$` appears at the left of the composer as soon as your draft starts with `!`,
 - **It runs immediately, even while the agent is working.** Command mode does not queue and does not interrupt the turn in progress, so you can check `!git log` while the agent is mid-edit.
 - **It runs in the agent's working directory** (on the agent's SSH remote, if it has one). Each command is independent - there is no persistent shell, so `!cd src` on its own does nothing. Chain instead: `!cd src && ls`.
 - **Output streams into the transcript** as a card showing the command, where it ran, and a live spinner while it works. When it finishes, the card shows the exit code and how long it took, with a button to copy the output.
+
+### Tab Completion in Command Mode
+
+Command mode gets the same `Tab` completion the [Command Terminal](#command-terminal) has, so you are not typing paths from memory:
+
+| Press `Tab` after... | You get                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `!` (nothing else)   | The bang commands you have run before in this agent           |
+| `!cat pack`          | Matching files - `!cat package.json`                          |
+| `!ls sr`             | Matching directories, with a trailing slash - `!ls src/`      |
+| `!cat src/comp`      | Files inside that directory, one level at a time              |
+| `!git checkout ma`   | Matching git branches - `!git checkout main` (git repos only) |
+| `!git checkout v2`   | Matching git tags (git repos only)                            |
+
+One match completes in place. Several open a picker: `↑` / `↓` to move, `Enter` to accept, `Esc` to dismiss. In a git repo, `Tab` inside the picker cycles the category filter (All, History, Branches, Tags, Files) and `Shift+Tab` cycles back.
+
+Completion resolves from the **agent's working directory**, which is where the command will actually run. This is deliberately not the Command Terminal's directory - `cd`-ing in a terminal tab does not move where your bang commands run, so it must not move where completion looks either.
+
+`@` file mentions are suppressed in command mode. An `@` in a shell line is ordinary text (an `scp` target, an email in a commit message), not a file reference for the agent.
 
 **Stopping a command:** a running command's card has a **Stop** button. Reach for it if you start something long or something that waits for input.
 

@@ -18,6 +18,29 @@ export const SHELL_COMMAND_PREFIX = '!';
 export const SHELL_COMMAND_ESCAPE = '\\!';
 
 /**
+ * True while a draft is in command mode - it starts with `!` (and is not the
+ * `\!` escape). Unlike `parseShellCommandInput`, this is true for a bare `!`
+ * with nothing typed after it yet, because the composer switches into its
+ * CLI affordances (the `$` prefix, Tab completion over files/dirs/branches)
+ * the moment you type the bang, before there is a command to run.
+ */
+export function isShellCommandDraft(raw: string): boolean {
+	return raw.trimStart().startsWith(SHELL_COMMAND_PREFIX);
+}
+
+/**
+ * Strips the command-mode prefix from a draft, returning the command body as
+ * typed (leading whitespace removed, but NOT trailing - a trailing space is
+ * what tells completion the user has finished a word and wants the next one).
+ * Returns null when the draft is not in command mode.
+ */
+export function getShellCommandBody(raw: string): string | null {
+	const trimmed = raw.trimStart();
+	if (!trimmed.startsWith(SHELL_COMMAND_PREFIX)) return null;
+	return trimmed.slice(SHELL_COMMAND_PREFIX.length);
+}
+
+/**
  * Returns the shell command for a bang-prefixed input, or null when the input
  * is an ordinary message for the agent.
  *

@@ -6,6 +6,12 @@ interface InputTextareaProps {
 	session: Session;
 	theme: Theme;
 	isTerminalMode: boolean;
+	/**
+	 * True while an AI-mode draft is in command mode (starts with `!`). Derived
+	 * once by InputArea, which also uses it to gate Tab completion, so both
+	 * affordances can never disagree about whether this is a shell line.
+	 */
+	isCommandModeDraft: boolean;
 	inputValue: string;
 	spellCheckEnabled: boolean;
 	inputRef: React.RefObject<HTMLTextAreaElement>;
@@ -21,6 +27,7 @@ export const InputTextarea = memo(function InputTextarea({
 	session,
 	theme,
 	isTerminalMode,
+	isCommandModeDraft,
 	inputValue,
 	spellCheckEnabled,
 	inputRef,
@@ -31,11 +38,9 @@ export const InputTextarea = memo(function InputTextarea({
 	handlePaste,
 	handleDrop,
 }: InputTextareaProps) {
-	// Command mode: a draft starting with `!` runs as a shell command instead of
-	// going to the agent. Show the same `$` affordance the terminal composer uses
-	// so the switch is visible before you hit Enter.
-	const isShellCommandDraft = !isTerminalMode && inputValue.trimStart().startsWith('!');
-	const showShellPrefix = isTerminalMode || isShellCommandDraft;
+	// Command mode borrows the terminal composer's `$` affordance so the switch
+	// is visible before you hit Enter.
+	const showShellPrefix = isTerminalMode || isCommandModeDraft;
 
 	return (
 		<div className="flex items-start">
@@ -43,7 +48,7 @@ export const InputTextarea = memo(function InputTextarea({
 				<span
 					className="text-sm font-mono font-bold select-none pl-3 pt-3"
 					style={{ color: theme.colors.accent }}
-					title={isShellCommandDraft ? 'Command mode: runs in the shell, not the agent' : undefined}
+					title={isCommandModeDraft ? 'Command mode: runs in the shell, not the agent' : undefined}
 				>
 					$
 				</span>

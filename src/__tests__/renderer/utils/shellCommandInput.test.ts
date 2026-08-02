@@ -7,6 +7,8 @@ import { describe, test, expect } from 'vitest';
 import {
 	parseShellCommandInput,
 	stripShellCommandEscape,
+	isShellCommandDraft,
+	getShellCommandBody,
 } from '../../../renderer/utils/shellCommandInput';
 
 describe('parseShellCommandInput', () => {
@@ -47,6 +49,55 @@ describe('parseShellCommandInput', () => {
 
 	test('returns null for empty input', () => {
 		expect(parseShellCommandInput('')).toBeNull();
+	});
+});
+
+describe('isShellCommandDraft', () => {
+	test('is true for a bare bang, before any command is typed', () => {
+		// The composer switches into CLI mode on the keystroke, not on the first
+		// complete command - this is what parseShellCommandInput does NOT cover.
+		expect(isShellCommandDraft('!')).toBe(true);
+		expect(parseShellCommandInput('!')).toBeNull();
+	});
+
+	test('is true for a bang command', () => {
+		expect(isShellCommandDraft('!git status')).toBe(true);
+	});
+
+	test('tolerates leading whitespace', () => {
+		expect(isShellCommandDraft('   !ls')).toBe(true);
+	});
+
+	test('is false for an ordinary message', () => {
+		expect(isShellCommandDraft('fix the login bug')).toBe(false);
+		expect(isShellCommandDraft('')).toBe(false);
+	});
+
+	test('is false for a non-leading bang', () => {
+		expect(isShellCommandDraft('do it now! please')).toBe(false);
+	});
+
+	test('is false for the escape form', () => {
+		expect(isShellCommandDraft('\\!important')).toBe(false);
+	});
+});
+
+describe('getShellCommandBody', () => {
+	test('returns the body after the bang', () => {
+		expect(getShellCommandBody('!git status')).toBe('git status');
+	});
+
+	test('returns an empty body for a bare bang', () => {
+		expect(getShellCommandBody('!')).toBe('');
+	});
+
+	test('preserves a trailing space, which marks a finished word', () => {
+		expect(getShellCommandBody('!git checkout ')).toBe('git checkout ');
+	});
+
+	test('returns null for a non-command draft', () => {
+		expect(getShellCommandBody('fix the bug')).toBeNull();
+		expect(getShellCommandBody('\\!important')).toBeNull();
 	});
 });
 

@@ -45,8 +45,15 @@ export function buildShellRunSessionId(sessionId: string, runId: string): string
 	return `${sessionId}-shell-${runId}`;
 }
 
-/** Resolve the directory a bang command should run in. */
-function resolveCommandCwd(session: Session): string {
+/**
+ * Resolve the directory a bang command will run in.
+ *
+ * Deliberately NOT `shellCwd`: only terminal mode's `cd` moves that, and a bang
+ * command is a fresh shell at the agent's own working directory. Exported so
+ * the composer's command-mode bar and Tab completion resolve the same place the
+ * command will actually run.
+ */
+export function resolveCommandCwd(session: Session): string {
 	const isRemote = !!session.sshRemoteId || !!session.sessionSshRemoteConfig?.enabled;
 	if (isRemote) {
 		return session.sessionSshRemoteConfig?.workingDirOverride || session.cwd;

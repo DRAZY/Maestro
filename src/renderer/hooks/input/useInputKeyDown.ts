@@ -20,6 +20,7 @@ import { filterSlashCommands } from '../../utils/search';
 import { logger } from '../../utils/logger';
 import { trackShortcutUsage } from '../../utils/shortcutTracking';
 import { outputSearchKeyFor } from '../../utils/outputSearch';
+import { isShellCommandDraft } from '../../utils/shellCommandInput';
 
 // ============================================================================
 // Dependencies interface
@@ -131,8 +132,15 @@ export function useInputKeyDown(deps: InputKeyDownDeps): InputKeyDownReturn {
 				return; // Let the modal handle keys
 			}
 
-			// Handle tab completion dropdown (terminal mode only)
-			if (tabCompletionOpen && activeSession?.inputMode === 'terminal') {
+			// Tab completion serves both shell surfaces: the terminal composer, and
+			// an AI-composer draft in command mode (`!cmd`), which is a shell line
+			// even though the tab is in AI mode.
+			const isShellInput =
+				activeSession?.inputMode === 'terminal' ||
+				(activeSession?.inputMode === 'ai' && isShellCommandDraft(inputValue));
+
+			// Handle tab completion dropdown
+			if (tabCompletionOpen && isShellInput) {
 				if (e.key === 'ArrowDown') {
 					e.preventDefault();
 					const newIndex = Math.min(
@@ -330,7 +338,9 @@ export function useInputKeyDown(deps: InputKeyDownDeps): InputKeyDownReturn {
 			} else if (e.key === 'Tab') {
 				e.preventDefault();
 
-				if (activeSession?.inputMode === 'terminal' && !slashCommandOpen) {
+				if (isShellInput && !slashCommandOpen) {
+					// A bare `!` is a valid trigger - it means "what have I run before".
+					// Everywhere else there must be something to complete against.
 					if (inputValue.trim()) {
 						const suggestions = getTabCompletionSuggestions(inputValue);
 						if (suggestions.length > 0) {

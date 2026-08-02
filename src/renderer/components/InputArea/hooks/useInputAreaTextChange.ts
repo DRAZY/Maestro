@@ -2,6 +2,7 @@ import { startTransition, useCallback } from 'react';
 import type React from 'react';
 import { KEYSTROKE_TEXTAREA_MAX_HEIGHT, resizeTextareaToContent } from '../utils/textareaSizing';
 import { getAtMentionTrigger, shouldOpenSlashCommand } from '../utils/inputTriggers';
+import { isShellCommandDraft } from '../../../utils/shellCommandInput';
 
 interface UseInputAreaTextChangeArgs {
 	isTerminalMode: boolean;
@@ -57,7 +58,14 @@ export function useInputAreaTextChange({
 					setAtMentionStartIndex &&
 					setSelectedAtMentionIndex
 				) {
-					const trigger = getAtMentionTrigger(value, cursorPosition);
+					// @-mentions inject file paths for the agent to read. In command mode
+					// the draft is a shell line the agent never sees, and `@` there is
+					// ordinary shell text (an scp target, an email in a commit message),
+					// so suppress the popover - and close it if typing the `!` is what
+					// just switched modes out from under an open one.
+					const trigger = isShellCommandDraft(value)
+						? null
+						: getAtMentionTrigger(value, cursorPosition);
 					if (trigger) {
 						setAtMentionOpen(true);
 						setAtMentionFilter(trigger.filter);
