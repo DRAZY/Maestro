@@ -28,8 +28,10 @@ import type { CrossTabSearchJumpTarget } from '../CrossTabSearchModal';
 import { SnoozeTabModal } from '../SnoozeTabModal';
 import { SnoozedTabsModal } from '../SnoozedTabsModal';
 import { useTabStore } from '../../stores/tabStore';
+import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { formatSnoozeTarget } from '../../../shared/snooze';
+import { mirrorSnoozedTranscript } from '../../utils/snoozeTranscriptMirror';
 import { PromptComposerModal } from '../PromptComposerModal';
 import { ExecutionQueueBrowser } from '../ExecutionQueueBrowser';
 import { BatchRunnerModal } from '../BatchRunnerModal';
@@ -199,6 +201,8 @@ export interface AppUtilityModalsProps {
 
 	// GitLogViewer
 	gitLogOpen: boolean;
+	/** Explicit repo to show, when opened for a non-active agent. */
+	gitLogTarget?: { cwd: string; sshRemoteId?: string } | null;
 	onCloseGitLog: () => void;
 
 	// Shared by both git viewers: open a clicked file path as a preview tab.
@@ -450,6 +454,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onCloseGitDiff,
 	// GitLogViewer
 	gitLogOpen,
+	gitLogTarget,
 	onCloseGitLog,
 	onOpenGitFile,
 	// AutoRunSetupModal
@@ -542,8 +547,18 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	);
 
 	const handleSnoozeConfirm = useCallback((tabId: string, wakeAt: number, note: string) => {
+		// Capture the session BEFORE snoozing: the tab leaves aiTabs as part of the
+		// snooze, taking its agentSessionId with it.
+		const sessionBefore = selectActiveSession(useSessionStore.getState());
+		const tabBefore = sessionBefore?.aiTabs.find((t) => t.id === tabId);
+
 		const entry = useTabStore.getState().snoozeTab(tabId, wakeAt, note);
 		if (!entry) return;
+
+		// A snooze can outlive the provider's retention of the transcript, so keep
+		// our own copy for its duration - same protection starred sessions get.
+		mirrorSnoozedTranscript(sessionBefore, tabBefore);
+
 		notifyCenterFlash({
 			message: `Snoozed until ${formatSnoozeTarget(wakeAt)}`,
 			color: 'theme',
@@ -696,20 +711,24 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 				</Suspense>
 			)}
 
-			{/* --- GIT LOG VIEWER (lazy-loaded) --- */}
-			{gitLogOpen && activeSession && (
+			{/* --- GIT LOG VIEWER (lazy-loaded) ---
+			    `gitLogTarget` is set when the log was opened for a specific agent
+			    (Left Bar right-click); otherwise it follows the active agent. */}
+			{gitLogOpen && (gitLogTarget || activeSession) && (
 				<Suspense fallback={null}>
 					<GitLogViewer
-						cwd={gitViewerCwd}
+						cwd={gitLogTarget?.cwd ?? gitViewerCwd}
 						theme={theme}
 						onClose={onCloseGitLog}
 						onOpenFile={onOpenGitFile}
 						sshRemoteId={
-							activeSession?.sshRemoteId ||
-							(activeSession?.sessionSshRemoteConfig?.enabled
-								? activeSession.sessionSshRemoteConfig.remoteId
-								: undefined) ||
-							undefined
+							gitLogTarget
+								? gitLogTarget.sshRemoteId
+								: activeSession?.sshRemoteId ||
+									(activeSession?.sessionSshRemoteConfig?.enabled
+										? activeSession.sessionSshRemoteConfig.remoteId
+										: undefined) ||
+									undefined
 						}
 					/>
 				</Suspense>

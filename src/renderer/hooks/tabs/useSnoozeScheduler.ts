@@ -18,9 +18,16 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useSessionStore } from '../../stores/sessionStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { useEventListener } from '../utils/useEventListener';
-import { wakeSnoozedTab, getDueSnoozes, getSnoozedTabLabel } from '../../utils/snoozeHelpers';
+import {
+	wakeSnoozedTab,
+	getDueSnoozes,
+	getSnoozedTabLabel,
+	buildSnoozeHistoryRecord,
+} from '../../utils/snoozeHelpers';
+import { recordSnoozeResolution } from '../../stores/snoozeHistoryStore';
+import { releaseSnoozedTranscript } from '../../utils/snoozeTranscriptMirror';
 import { logger } from '../../utils/logger';
-import type { Session } from '../../types';
+import type { Session, SnoozedTabEntry } from '../../types';
 
 /** How often to check for due snoozes. */
 const SWEEP_INTERVAL_MS = 15_000;
@@ -33,6 +40,9 @@ interface PendingWake {
 	label: string;
 	note?: string;
 	wakeAt: number;
+	/** Session and entry as they were at wake time, for releasing the mirror. */
+	session: Session;
+	entry: SnoozedTabEntry;
 }
 
 export function useSnoozeScheduler(): void {
@@ -73,6 +83,8 @@ export function useSnoozeScheduler(): void {
 						label: getSnoozedTabLabel(entry),
 						note: entry.note,
 						wakeAt: entry.wakeAt,
+						session,
+						entry,
 					});
 				}
 				return next;
@@ -86,6 +98,17 @@ export function useSnoozeScheduler(): void {
 					wasOverdue ? ' (overdue - fired late after app restart)' : ''
 				}`
 			);
+
+			// The tab is back, so the snooze no longer needs to hold its transcript
+			// mirror. This rehydrates first, restoring the conversation if the
+			// provider aged it out while the tab was away.
+			releaseSnoozedTranscript(wake.session, wake.entry);
+
+			// Log the completed snooze so the note outlives the notification.
+			recordSnoozeResolution(
+				buildSnoozeHistoryRecord(wake.entry, 'woke', wake.session, wake.tabId)
+			);
+
 			notifyToast({
 				color: 'theme',
 				title: wake.label,

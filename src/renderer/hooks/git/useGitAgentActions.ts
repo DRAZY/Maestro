@@ -1,0 +1,141 @@
+/**
+ * useGitAgentActions - the git actions available for a single agent.
+ *
+ * Two surfaces offer the same set: the header branch pill dropdown
+ * (`GitPillMenu`) and the Left Bar right-click menu (`SessionContextMenu`).
+ * Both call this hook rather than re-deriving the repo path, the SSH remote,
+ * and the modal-opening calls, so the two menus can't drift apart.
+ *
+ * Every action opens a modal through the modal store directly, which keeps the
+ * callers free of prop drilling and lets the Left Bar act on an agent that
+ * isn't the active one.
+ */
+
+import { useCallback, useMemo } from 'react';
+import { useModalStore } from '../../stores/modalStore';
+import { useGitBranch } from '../../contexts/GitStatusContext';
+import type { GitStreamingOperation } from '../../../shared/gitUtils';
+import type { Session } from '../../types';
+
+export interface GitAgentActions {
+	/** False for non-git agents - callers should render nothing. */
+	isGitRepo: boolean;
+	/** Current branch, when git status polling has seen this agent. */
+	branch: string | undefined;
+	/** Commits ahead of upstream (0 when unknown). */
+	ahead: number;
+	/** Commits behind upstream (0 when unknown). */
+	behind: number;
+	/** Whether opening a PR makes sense for this agent (needs a branch). */
+	canCreatePR: boolean;
+	viewLog: () => void;
+	pull: () => void;
+	push: () => void;
+	switchBranch: () => void;
+	createPR: () => void;
+}
+
+/**
+ * Resolve the directory git commands should run in. Terminal-mode agents can
+ * have cd'd elsewhere, so their live shell cwd wins over the configured one.
+ */
+export function resolveGitCwd(session: Session): string {
+	return session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd;
+}
+
+/**
+ * Resolve the SSH remote id for an agent, covering both the legacy top-level
+ * field and the per-session config.
+ */
+export function resolveGitSshRemoteId(session: Session): string | undefined {
+	return (
+		session.sshRemoteId ||
+		(session.sessionSshRemoteConfig?.enabled
+			? session.sessionSshRemoteConfig.remoteId
+			: undefined) ||
+		undefined
+	);
+}
+
+export function useGitAgentActions(session: Session | null | undefined): GitAgentActions {
+	const { getBranchInfo } = useGitBranch();
+	const branchInfo = session ? getBranchInfo(session.id) : undefined;
+
+	const target = useMemo(() => {
+		if (!session) return null;
+		return {
+			sessionId: session.id,
+			cwd: resolveGitCwd(session),
+			sshRemoteId: resolveGitSshRemoteId(session),
+		};
+	}, [
+		session?.id,
+		session?.inputMode,
+		session?.shellCwd,
+		session?.cwd,
+		session?.sshRemoteId,
+		session?.sessionSshRemoteConfig?.enabled,
+		session?.sessionSshRemoteConfig?.remoteId,
+	]);
+
+	const branch = branchInfo?.branch || session?.worktreeBranch || undefined;
+
+	const viewLog = useCallback(() => {
+		if (!target) return;
+		// The viewer defaults to the active agent's repo; passing the path
+		// explicitly is what lets the Left Bar open the log for another agent.
+		useModalStore.getState().openModal('gitLog', {
+			cwd: target.cwd,
+			sshRemoteId: target.sshRemoteId,
+		});
+	}, [target]);
+
+	const runCommand = useCallback(
+		(operation: GitStreamingOperation) => {
+			if (!target) return;
+			useModalStore.getState().openModal('gitCommandRunner', {
+				sessionId: target.sessionId,
+				operation,
+				cwd: target.cwd,
+				sshRemoteId: target.sshRemoteId,
+				branch,
+			});
+		},
+		[target, branch]
+	);
+
+	const pull = useCallback(() => runCommand('pull'), [runCommand]);
+	const push = useCallback(() => runCommand('push'), [runCommand]);
+
+	const switchBranch = useCallback(() => {
+		if (!target) return;
+		useModalStore.getState().openModal('branchSwitcher', {
+			sessionId: target.sessionId,
+			cwd: target.cwd,
+			sshRemoteId: target.sshRemoteId,
+			currentBranch: branch,
+		});
+	}, [target, branch]);
+
+	const createPR = useCallback(() => {
+		if (!session) return;
+		// Pass the live branch: a plain git agent has no `worktreeBranch` for the
+		// PR modal to fall back on.
+		useModalStore.getState().openModal('createPR', { session, sourceBranch: branch });
+	}, [session, branch]);
+
+	return {
+		isGitRepo: Boolean(session?.isGitRepo),
+		branch,
+		ahead: branchInfo?.ahead ?? 0,
+		behind: branchInfo?.behind ?? 0,
+		// A PR needs a source branch to push. Worktree children always have one;
+		// plain git agents get theirs from status polling.
+		canCreatePR: Boolean(session?.isGitRepo && branch),
+		viewLog,
+		pull,
+		push,
+		switchBranch,
+		createPR,
+	};
+}

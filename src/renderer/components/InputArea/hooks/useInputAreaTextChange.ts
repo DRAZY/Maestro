@@ -7,6 +7,7 @@ import {
 } from '../utils/textareaSizing';
 import { getAtMentionTrigger, shouldOpenSlashCommand } from '../utils/inputTriggers';
 import type { MentionCategory } from '../../../hooks/input/useMentionPicker';
+import { isShellCommandDraft } from '../../../utils/shellCommandInput';
 
 interface UseInputAreaTextChangeArgs {
 	isTerminalMode: boolean;
@@ -67,7 +68,14 @@ export function useInputAreaTextChange({
 					setAtMentionStartIndex &&
 					setSelectedAtMentionIndex
 				) {
-					const trigger = getAtMentionTrigger(value, cursorPosition);
+					// @-mentions inject file paths for the agent to read. In command mode
+					// the draft is a shell line the agent never sees, and `@` there is
+					// ordinary shell text (an scp target, an email in a commit message),
+					// so suppress the popover - and close it if typing the `!` is what
+					// just switched modes out from under an open one.
+					const trigger = isShellCommandDraft(value)
+						? null
+						: getAtMentionTrigger(value, cursorPosition);
 					if (trigger) {
 						// Only reset the category on the closed->open transition so
 						// typing a filter inside (say) the Agents scope doesn't snap

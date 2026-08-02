@@ -6,7 +6,7 @@ import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { useResizableModal } from '../../hooks/ui/useResizableModal';
 import { useFocusAfterRender } from '../../hooks/utils/useFocusAfterRender';
 import { usePluginContributions } from '../../hooks/usePluginContributions';
-import { notifyToast } from '../../stores/notificationStore';
+import { notifyToast, useNotificationStore } from '../../stores/notificationStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { captureException } from '../../utils/sentry';
@@ -50,6 +50,7 @@ import { buildMoveToGroupCommands } from './commands/moveToGroupCommands';
 import { buildNavigationCommands } from './commands/navigationCommands';
 import { buildPluginCommandPaletteCommands } from './commands/pluginCommandPaletteCommands';
 import { mergePluginContributions } from '../../utils/pluginContributionMerge';
+import { buildNotificationCommands } from './commands/notificationCommands';
 import { buildRightPanelCommands } from './commands/rightPanelCommands';
 import { buildSearchCommands } from './commands/searchCommands';
 import {
@@ -224,6 +225,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const activeBatchSessionIds = useBatchStore(useShallow(selectActiveBatchSessionIds));
 	const canRestoreFloatingPlayer = useMediaPlaybackStore(selectCanRestoreFloatingPlayer);
 	const restoreFloatingPlayer = useMediaPlaybackStore((s) => s.restore);
+	const visibleToastCount = useNotificationStore((s) => s.toasts.length);
+	const clearToasts = useNotificationStore((s) => s.clearToasts);
 
 	const [search, setSearch] = useState('');
 	const [mode, setMode] = useState<'main' | 'move-to-group' | 'agents'>(initialMode);
@@ -443,6 +446,11 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		...buildMediaPlayerCommands({
 			canRestoreFloatingPlayer,
 			restoreFloatingPlayer,
+			setQuickActionOpen,
+		}),
+		...buildNotificationCommands({
+			visibleToastCount,
+			clearToasts,
 			setQuickActionOpen,
 		}),
 		...buildNavigationCommands({

@@ -16,7 +16,14 @@ vi.mock('../../../renderer/hooks/agent/useAgentCapabilities', async () => {
 	};
 });
 
+// Command mode routes to the shell-command service; assert the routing, not the run.
+vi.mock('../../../renderer/services/shellCommand', () => ({
+	runShellCommand: vi.fn().mockResolvedValue(undefined),
+	cancelShellCommand: vi.fn().mockResolvedValue(false),
+}));
+
 import { useInputProcessing } from '../../../renderer/hooks/input/useInputProcessing';
+import { runShellCommand } from '../../../renderer/services/shellCommand';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import type {
 	Session,
@@ -173,6 +180,95 @@ describe('useInputProcessing', () => {
 
 			// Should not call any state setters
 			expect(mockSetSessions).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('command mode (!)', () => {
+		it('runs a bang message as a shell command instead of sending it to the agent', async () => {
+			const deps = createDeps({ inputValue: '!git status' });
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).toHaveBeenCalledTimes(1);
+			expect(vi.mocked(runShellCommand).mock.calls[0][0]).toMatchObject({
+				command: 'git status',
+				tabId: deps.activeSession!.activeTabId,
+			});
+			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			expect(window.maestro.process.spawn).not.toHaveBeenCalled();
+		});
+
+		it('runs immediately even while the agent is busy', async () => {
+			const session = createMockSession({ state: 'busy' });
+			session.aiTabs[0].state = 'busy';
+			const deps = createDeps({ activeSession: session, inputValue: '!ls' });
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not intercept in terminal mode', async () => {
+			const session = createMockSession({ inputMode: 'terminal' });
+			const deps = createDeps({
+				activeSession: session,
+				inputValue: '!ls',
+				isAiMode: false,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).not.toHaveBeenCalled();
+		});
+
+		it('does not intercept while the wizard is active', async () => {
+			const deps = createDeps({ inputValue: '!ls', isWizardActive: true });
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).not.toHaveBeenCalled();
+		});
+
+		it('leaves ordinary messages alone', async () => {
+			const deps = createDeps({ inputValue: 'fix the bug' });
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).not.toHaveBeenCalled();
+		});
+
+		it('sends an escaped bang to the agent as a literal message', async () => {
+			const deps = createDeps({ inputValue: '\\!important note' });
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(runShellCommand).not.toHaveBeenCalled();
+
+			// The message is logged (and sent) without the escape backslash.
+			let sessions = [deps.activeSession!];
+			for (const [updater] of mockSetSessions.mock.calls) {
+				sessions = typeof updater === 'function' ? updater(sessions) : updater;
+			}
+			const logs = sessions[0].aiTabs.flatMap((t) => t.logs);
+			expect(logs.some((l) => l.source === 'user' && l.text === '!important note')).toBe(true);
 		});
 	});
 

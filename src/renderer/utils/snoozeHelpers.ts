@@ -11,7 +11,14 @@
 // removal to closeTab() and restoration to the same position math that
 // reopenUnifiedClosedTab() uses.
 
-import { Session, AITab, SnoozedTabEntry, UnifiedTabRef } from '../types';
+import {
+	Session,
+	AITab,
+	SnoozedTabEntry,
+	SnoozeHistoryEntry,
+	SnoozeResolution,
+	UnifiedTabRef,
+} from '../types';
 import { generateId } from './ids';
 import { closeTab, getRepairedUnifiedTabOrder, ensureInUnifiedTabOrder } from './tabHelpers';
 
@@ -243,6 +250,33 @@ export function collectSnoozedTabs(sessions: Session[]): SnoozedTabListItem[] {
 		}
 	}
 	return items.sort((a, b) => a.entry.wakeAt - b.entry.wakeAt);
+}
+
+/**
+ * Build the history record for a snooze that just ended.
+ *
+ * Shared by all three resolution paths (scheduled wake, manual unsnooze,
+ * dismiss) so the log reads consistently no matter how the snooze finished.
+ * Snapshots the label and agent name as they are now, since the tab may be
+ * closed or renamed by the time anyone reads the history.
+ */
+export function buildSnoozeHistoryRecord(
+	entry: SnoozedTabEntry,
+	resolution: SnoozeResolution,
+	session: Session | null | undefined,
+	tabId?: string
+): Omit<SnoozeHistoryEntry, 'id'> {
+	return {
+		label: getSnoozedTabLabel(entry),
+		sessionId: session?.id ?? '',
+		sessionName: session?.name ?? '',
+		tabId: tabId ?? entry.tab.id,
+		...(entry.note ? { note: entry.note } : {}),
+		snoozedAt: entry.snoozedAt,
+		wakeAt: entry.wakeAt,
+		resolvedAt: Date.now(),
+		resolution,
+	};
 }
 
 /**

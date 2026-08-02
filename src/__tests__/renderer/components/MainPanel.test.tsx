@@ -1911,61 +1911,7 @@ describe('MainPanel', () => {
 			expect(writeText).toHaveBeenCalledWith('main');
 		});
 
-		it('should open branch switcher when double-clicking on SSH remote git badge', async () => {
-			const session = createSession({
-				isGitRepo: true,
-				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
-			});
-
-			// Mock SSH remote name resolution
-			const mockGetConfigs = vi.fn().mockResolvedValue({
-				success: true,
-				configs: [{ id: 'ssh-remote-123', name: 'my-ssh-remote' }],
-			});
-			vi.mocked(window.maestro.sshRemote.getConfigs).mockImplementation(mockGetConfigs);
-
-			renderMainPanel({ activeSession: session });
-
-			await waitFor(() => {
-				expect(screen.getByText('my-ssh-remote')).toBeInTheDocument();
-			});
-
-			fireEvent.doubleClick(screen.getByText('my-ssh-remote'));
-
-			// Branch switcher dropdown opens (revealed by its filter input).
-			expect(await screen.findByPlaceholderText(/Filter branches/)).toBeInTheDocument();
-			expect(gitService.getBranches).toHaveBeenCalled();
-		});
-
-		it('should open branch switcher on Shift+Enter on SSH remote git badge (keyboard a11y)', async () => {
-			const session = createSession({
-				isGitRepo: true,
-				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
-			});
-
-			const mockGetConfigs = vi.fn().mockResolvedValue({
-				success: true,
-				configs: [{ id: 'ssh-remote-123', name: 'my-ssh-remote' }],
-			});
-			vi.mocked(window.maestro.sshRemote.getConfigs).mockImplementation(mockGetConfigs);
-
-			renderMainPanel({ activeSession: session });
-
-			await waitFor(() => {
-				expect(screen.getByText('my-ssh-remote')).toBeInTheDocument();
-			});
-
-			// The chip's button is the parent of the SSH remote name span.
-			const chipButton = screen.getByText('my-ssh-remote').closest('button');
-			expect(chipButton).not.toBeNull();
-			fireEvent.keyDown(chipButton!, { key: 'Enter', shiftKey: true });
-
-			// Branch switcher dropdown opens via the keyboard path.
-			expect(await screen.findByPlaceholderText(/Filter branches/)).toBeInTheDocument();
-			expect(gitService.getBranches).toHaveBeenCalled();
-		});
-
-		it('should open git log when single-clicking on SSH remote git badge', async () => {
+		it('should open the git menu when clicking on SSH remote git badge', async () => {
 			const setGitLogOpen = vi.fn();
 			const session = createSession({
 				isGitRepo: true,
@@ -1984,10 +1930,12 @@ describe('MainPanel', () => {
 				expect(screen.getByText('my-ssh-remote')).toBeInTheDocument();
 			});
 
+			// The pill now opens the git dropdown; the log is one entry in it.
 			fireEvent.click(screen.getByText('my-ssh-remote'));
+			expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
 
-			// Single click is debounced (~220ms) before opening git log.
-			await waitFor(() => expect(setGitLogOpen).toHaveBeenCalledWith(true), { timeout: 1000 });
+			fireEvent.click(screen.getByTestId('git-pill-menu-log'));
+			expect(setGitLogOpen).toHaveBeenCalledWith(true);
 		});
 
 		it('should call gitService.getDiff with SSH remote ID when session has SSH remote config enabled', async () => {

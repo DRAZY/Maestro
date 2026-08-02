@@ -300,6 +300,24 @@ export interface LogEntry {
 	// card collapses all subsequent auto-retry attempts into a single live stat
 	// readout (attempt count, elapsed, next-retry countdown, Retry now / Stop).
 	retryOutageId?: string;
+	// Command mode: anchors the live output card for a `!command` the user ran
+	// from the AI composer. The command never reaches the agent - Maestro runs
+	// it directly and streams stdout/stderr into `text`. See
+	// services/shellCommand.ts and components/ShellCommandCard.tsx.
+	shellCommand?: {
+		/** The command as typed, without the leading `!`. */
+		command: string;
+		/** Directory the command ran in (the agent's cwd, or the SSH remote's). */
+		cwd: string;
+		/** SSH remote name when the agent runs remotely, else undefined. */
+		remoteName?: string;
+		status: 'running' | 'finished' | 'cancelled';
+		exitCode?: number;
+		/** Wall-clock duration in ms, set on finish. */
+		durationMs?: number;
+		/** True when output hit the size cap and was cut short. */
+		truncated?: boolean;
+	};
 }
 
 // Queued item for the session-level execution queue
@@ -872,6 +890,33 @@ export type ClosedTabEntry =
  * Unlike `unifiedClosedTabHistory` (a runtime-only undo stack), this list IS
  * persisted: a snooze has to survive quitting the app.
  */
+/**
+ * How a snooze ended. All three mean "no longer snoozed", but the distinction
+ * is what makes the history readable: a tab that came back on schedule reads
+ * very differently from one the user gave up on.
+ */
+export type SnoozeResolution = 'woke' | 'unsnoozed' | 'dismissed';
+
+/**
+ * A completed snooze, kept for the history log.
+ *
+ * Deliberately a flat record rather than a reference to the tab: the tab may
+ * since have been closed, renamed, or had its agent deleted, and the history
+ * should still read correctly. It stores what was true when the snooze ended.
+ */
+export interface SnoozeHistoryEntry {
+	id: string; // History entry ID
+	label: string; // Tab label at resolution time
+	sessionId: string; // Owning agent (may no longer exist)
+	sessionName: string; // Agent name at resolution time
+	tabId: string; // Restored tab ID (stale once that tab is closed)
+	note?: string; // The reminder message, the reason this mattered
+	snoozedAt: number; // When the user snoozed it
+	wakeAt: number; // When it was scheduled to return
+	resolvedAt: number; // When it actually returned or was discarded
+	resolution: SnoozeResolution;
+}
+
 export interface SnoozedTabEntry {
 	id: string; // Snooze ID (stable across edits, used for list keys and wake dedupe)
 	tab: AITab; // The full tab, restored verbatim on wake

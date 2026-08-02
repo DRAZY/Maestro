@@ -327,6 +327,7 @@ function MaestroConsoleInner() {
 		// Worktree Modals
 		createWorktreeSession,
 		createPRSession,
+		createPRSourceBranch,
 		deleteWorktreeSession,
 		// Tab Switcher Modal
 		setTabSwitcherOpen,
@@ -3252,6 +3253,7 @@ function MaestroConsoleInner() {
 						onCloseCreateWorktreeModal={handleCloseCreateWorktreeModal}
 						onCreateWorktree={handleCreateWorktree}
 						createPRSession={createPRSession}
+						createPRSourceBranch={createPRSourceBranch}
 						onCloseCreatePRModal={handleCloseCreatePRModal}
 						onPRCreated={handlePRCreated}
 						deleteWorktreeSession={deleteWorktreeSession}

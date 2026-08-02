@@ -27,6 +27,27 @@ Each agent shows a color-coded status indicator:
 - 🟠 **Pulsing Orange** - Attempting to establish connection
 - 🔴 **Red Badge** - Unread messages (small red dot overlapping top-right of status indicator, iPhone-style)
 
+## Git Actions
+
+For agents whose working directory is a git repository, the same set of git actions is reachable two ways:
+
+- **Header branch pill** - click the pill showing the current branch name.
+- **Left Bar right-click** - right-click the agent in the agent list.
+
+| Action                  | What it does                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **View Git Log**        | Opens the commit history viewer.                                                                              |
+| **Git Pull**            | Runs `git pull` and shows the live command output in a dismissible modal. Badged with how far behind you are. |
+| **Git Push**            | Runs `git push` the same way. Badged with how many commits you're ahead.                                      |
+| **Change Branch**       | Opens a fuzzy branch picker. Type to filter, Enter to check out.                                              |
+| **Create Pull Request** | Opens the PR composer for the current branch (needs the GitHub CLI).                                          |
+
+The header pill always acts on the agent you're looking at. The right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it first.
+
+Pull and push stream their output as it happens, so you can watch the transfer and read git's error message if it fails. Dismissing the modal leaves the command running; **Cancel** stops it. When a push fails because the branch has no upstream, the modal offers a one-click **Push and Set Upstream** retry.
+
+Hovering the pill (instead of clicking) still shows the branch, origin, and working-tree summary, along with worktree actions.
+
 ## File Explorer and Preview
 
 The **File Explorer** (Right Panel → Files tab) lets you browse project files. Click any file to open it in the **File Preview** view.
@@ -207,6 +228,54 @@ Reference files in your AI prompts using `@` mentions:
 3. The file path is inserted, giving the AI context about that file
 
 The same `@` picker can also reference **other agents**. Alongside files, it has an **Agents** section - pick one to [consult it inline](./cross-agent-mentions) and stream its reply back into your chat. Maestro tells files and agents apart by shape: a path-like `@src/app.ts` is a file, while a bare `@codex` is an agent.
+
+## Command Mode (`!`)
+
+Start a message with `!` and Maestro runs the rest as a shell command instead of sending it to the agent. It is a way to check something without leaving the chat: `!git pull`, `!ls`, `!npm test`.
+
+```
+!git status
+```
+
+The moment you type `!` the composer switches into command mode: a `$` appears at the left of the input and a **COMMAND MODE** strip above it names the directory the command will run in, so you can see which way the message is going before you press Enter.
+
+**How it behaves:**
+
+- **The agent is bypassed entirely.** It is never spawned, never written to, and never sees the command or its output. Nothing you run this way enters the agent's context - if you want the agent to see the result, copy it into a message.
+- **It runs immediately, even while the agent is working.** Command mode does not queue and does not interrupt the turn in progress, so you can check `!git log` while the agent is mid-edit.
+- **It runs in the agent's working directory** (on the agent's SSH remote, if it has one). Each command is independent - there is no persistent shell, so `!cd src` on its own does nothing. Chain instead: `!cd src && ls`.
+- **Output streams into the transcript** as a card showing the command, where it ran, and a live spinner while it works. When it finishes, the card shows the exit code and how long it took, with a button to copy the output.
+
+### Tab Completion in Command Mode
+
+Command mode gets the same `Tab` completion the [Command Terminal](#command-terminal) has, so you are not typing paths from memory:
+
+| Press `Tab` after... | You get                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `!` (nothing else)   | The bang commands you have run before in this agent           |
+| `!cat pack`          | Matching files - `!cat package.json`                          |
+| `!ls sr`             | Matching directories, with a trailing slash - `!ls src/`      |
+| `!cat src/comp`      | Files inside that directory, one level at a time              |
+| `!git checkout ma`   | Matching git branches - `!git checkout main` (git repos only) |
+| `!git checkout v2`   | Matching git tags (git repos only)                            |
+
+One match completes in place. Several open a picker: `↑` / `↓` to move, `Enter` to accept, `Esc` to dismiss. In a git repo, `Tab` inside the picker cycles the category filter (All, History, Branches, Tags, Files) and `Shift+Tab` cycles back.
+
+Completion resolves from the **agent's working directory**, which is where the command will actually run. This is deliberately not the Command Terminal's directory - `cd`-ing in a terminal tab does not move where your bang commands run, so it must not move where completion looks either.
+
+`@` file mentions are suppressed in command mode. An `@` in a shell line is ordinary text (an `scp` target, an email in a commit message), not a file reference for the agent.
+
+**Stopping a command:** a running command's card has a **Stop** button. Reach for it if you start something long or something that waits for input.
+
+<Note>
+Command mode has no keyboard - nothing is connected to the command's stdin. Programs that prompt for input (`sudo`, an editor opened by `git commit`, an interactive installer) will hang until you press **Stop**. Run those in a [Command Terminal](#command-terminal) tab instead.
+</Note>
+
+Very large output is capped so a runaway command cannot bloat your transcript; the card says so when it truncates.
+
+**Sending a literal `!` to the agent:** prefix the message with a backslash. `\!important` reaches the agent as `!important`.
+
+Command mode is AI-chat only. In a terminal tab or the legacy terminal mode you are already at a shell, so `!` is passed through untouched.
 
 ## Prompt Composer
 
@@ -542,9 +611,15 @@ Right-click any agent for quick actions:
 - **Edit Agent...** - Open configuration modal
 - **Add/Remove Bookmark** - Toggle bookmark status
 - **Move to Group** - Organize into groups
+- **Move to Window** - Send the agent to another Maestro window
+- **View Git Log / Git Pull / Git Push / Change Branch / Create Pull Request** - the full [git menu](#git-actions), for git repositories only
 - **Create Worktree** - Create a git worktree sub-agent (if configured)
 - **Configure Worktrees** - Set up worktree configuration
+- **Configure Maestro Cue** - Set up event-driven automation for this agent
+- **Copy Agent GUID to Clipboard** - Copy the agent's unique identifier
 - **Remove Agent** - Delete the agent from Maestro
+
+The git actions here act on the agent you right-clicked, so you can pull or inspect the log of a background agent without switching to it first.
 
 ### Sidebar Width
 
@@ -604,7 +679,7 @@ You can always rename tabs manually:
 
 Snooze hides an AI tab until a moment you choose, then brings it back with a notification you have to dismiss. It's the email-snooze idea applied to conversations: park work you can't act on yet without closing it or letting it clutter the tab bar.
 
-Hover a tab and choose **Snooze Tab**, or run **Snooze Tab** from Quick Actions (`Cmd+K` / `Ctrl+K`). Snoozing is available on AI tabs only.
+Hover a tab and choose **Snooze Tab**, press `Opt+Cmd+S` / `Alt+Ctrl+S`, or run **Snooze Tab** from Quick Actions (`Cmd+K` / `Ctrl+K`). Snoozing is available on AI tabs only.
 
 **Choosing when it comes back**
 
@@ -641,6 +716,8 @@ When the time arrives, the tab reappears and Maestro raises a notification that 
 Wakes are delivered by the running app. If Maestro is closed when a snooze comes due, the tab returns the next time you launch - overdue reminders are never silently dropped.
 </Note>
 
+**Long snoozes are safe.** Your AI provider owns the conversation transcript and eventually ages old ones out, which would leave a tab snoozed for months coming back empty. Maestro keeps its own copy for the length of every snooze, exactly as it does for [starred sessions](#session-management), and restores it when the tab wakes. That copy is held until the snooze ends, so unstarring a snoozed session does not discard it either.
+
 **Managing snoozed tabs**
 
 Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, or run **See All Snoozed Tabs** from Quick Actions. It shows every snoozed tab across all agents, soonest first, with its note and a countdown. Each row offers:
@@ -648,6 +725,12 @@ Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, 
 - **Unsnooze** - bring the tab back right now
 - **Reschedule** - pick a new time or edit the note
 - **Dismiss** - drop the snooze and the tab, for when you no longer care
+
+**Snooze history**
+
+Click **View History** in the Snoozed Tabs header to see snoozes that have already finished. It is one chronological list across every agent, newest first, and each entry keeps the note you left yourself along with when it was due and when it actually came back. Entries are marked by how they ended: came back on schedule, brought back early, or dismissed.
+
+The log keeps the most recent 100 entries; older ones drop off as new ones arrive.
 
 <Note>
 Dismissing only discards Maestro's tab. The underlying conversation is still on disk and can be reopened from the Session Explorer.

@@ -113,6 +113,7 @@ Toggle states are saved per-tab. See [Input Toggles](./general-usage#input-toggl
 | Focus Browser Address Bar | `Cmd+L`                 | `Ctrl+L`                  |
 | Find in Browser Tab       | `Cmd+F`                 | `Ctrl+F`                  |
 | Focus Active Tab          | `Opt+Cmd+Up`            | `Alt+Ctrl+Up`             |
+| Snooze Tab                | `Opt+Cmd+S`             | `Alt+Ctrl+S`              |
 | Close Tab                 | `Cmd+W`                 | `Ctrl+W`                  |
 | Close All Tabs            | `Cmd+Shift+W`           | `Ctrl+Shift+W`            |
 | Close Other Tabs          | `Opt+Cmd+W`             | `Alt+Ctrl+W`              |
@@ -173,7 +174,7 @@ The bulk close operations (Close All, Close Others, Close Left, Close Right) are
 
 ### Tab Completion
 
-The Command Terminal provides intelligent tab completion for faster command entry:
+The Command Terminal - and the AI chat while in [command mode](./general-usage#command-mode), where the draft starts with `!` - provides intelligent tab completion for faster command entry:
 
 | Action                 | Key                                            |
 | ---------------------- | ---------------------------------------------- |
@@ -186,10 +187,12 @@ The Command Terminal provides intelligent tab completion for faster command entr
 
 **Completion Sources:**
 
-- **History** - Previous shell commands from your session
-- **Files/Folders** - Files and directories in your current working directory
+- **History** - Previous shell commands from your session. In command mode this is your prior `!` commands, so `!` + `Tab` lists what you have run before
+- **Files/Folders** - Files and directories in your current working directory. In command mode this is the agent's working directory, which is where a `!` command actually runs
 - **Git Branches** - Local and remote branches (git repos only)
 - **Git Tags** - Available tags (git repos only)
+
+Accepted completions keep the `!` prefix in command mode, so the draft stays runnable.
 
 In git repositories, filter buttons appear in the dropdown header allowing you to filter by type (All, History, Branches, Tags, Files). Use `Tab`/`Shift+Tab` to cycle through filters or click directly.
 
@@ -255,6 +258,18 @@ the full walkthrough.
 | Go Forward                          | `Cmd+Right`     | `Ctrl+Right`    |
 | Scroll                              | `Up/Down Arrow` | `Up/Down Arrow` |
 | Close                               | `Esc`           | `Esc`           |
+
+### CSV Row Detail
+
+Available while previewing a `.csv` or `.tsv` file. See
+[CSV and TSV Tables](./general-usage#csv-and-tsv-tables) for the full
+walkthrough.
+
+| Action               | macOS           | Windows/Linux   |
+| -------------------- | --------------- | --------------- |
+| Open row detail view | `Double-click`  | `Double-click`  |
+| Previous / next row  | `Up/Down Arrow` | `Up/Down Arrow` |
+| Close row detail     | `Esc`           | `Esc`           |
 
 ## Document Graph
 

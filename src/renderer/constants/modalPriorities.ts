@@ -138,6 +138,9 @@ export const MODAL_PRIORITIES = {
 	/** Snoozed tabs list modal (shows every agent's snoozed tabs) */
 	SNOOZED_TABS: 704,
 
+	/** Snooze history log (opens above the snoozed tabs list) */
+	SNOOZE_HISTORY: 703,
+
 	/** Prompt composer modal for long prompts */
 	PROMPT_COMPOSER: 725,
 
@@ -296,12 +299,22 @@ export const MODAL_PRIORITIES = {
 	/** Thought Stream introspection panel - floating, non-blocking; sits below
 	 * real modals so they take Escape/focus first, above git overlays. */
 	THOUGHT_STREAM: 210,
+	/** Header git pill dropdown - above the modals it launches so Escape closes
+	 * the menu first. */
+	GIT_PILL_MENU: 220,
+
+	/** Branch switcher (fuzzy branch picker from the header git pill) - above the
+	 * git viewers so it layers on top when opened while one is showing. 205, not
+	 * 210: THOUGHT_STREAM already owns 210, and the uniqueness guard in
+	 * modalPriorities.test.ts caps the tree at four duplicate values. */
+	BRANCH_SWITCHER: 205,
+
+	/** Streaming git command console (pull / push) - above the branch switcher,
+	 * which is what launches a checkout that can spill into it. */
+	GIT_COMMAND_RUNNER: 215,
 
 	/** Git diff preview overlay */
 	GIT_DIFF: 200,
-
-	/** Branch switcher dropdown (opens from header branch chip) */
-	BRANCH_SWITCHER: 195,
 
 	/** Git log viewer overlay */
 	GIT_LOG: 190,

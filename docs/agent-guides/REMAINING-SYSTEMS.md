@@ -34,10 +34,34 @@ Centralizes git status polling for all sessions. Splits data into three focused 
 
 - `useGitFileStatus` - 3 consumers (GitStatusWidget, MainPanel, SessionList)
 - `useGitDetail` - 2 consumers (GitStatusWidget, MainPanel)
-- `useGitBranch` - 1 consumer (MainPanel)
+- `useGitBranch` - 2 consumers (MainPanel, `useGitAgentActions`)
 - `useGitStatus` (legacy) - 0 external consumers (deprecated, safe to remove)
 
 The underlying data comes from `useGitStatusPolling` hook which polls via IPC.
+
+### useGitAgentActions (`src/renderer/hooks/git/useGitAgentActions.ts`)
+
+The per-agent git action set (View Git Log, Git Pull, Git Push, Change Branch,
+Create Pull Request), shared by the two surfaces that offer it: the header
+branch pill dropdown (`GitPillMenu`) and the Left Bar right-click menu
+(`SessionContextMenu`). **Do not re-derive these actions in a third place** -
+add to this hook so every menu stays in sync.
+
+```ts
+const git = useGitAgentActions(session);
+if (!git.isGitRepo) return null;
+git.pull(); // opens the streaming runner for THIS session's repo
+```
+
+Returns `{ isGitRepo, branch, ahead, behind, canCreatePR, viewLog, pull, push, switchBranch, createPR }`.
+Every action opens its modal through the modal store directly, so callers need
+no prop drilling and can act on an agent that isn't the active one. Branch and
+ahead/behind come from `useGitBranch()`, falling back to `session.worktreeBranch`.
+
+Two exported helpers resolve the git target and are reused elsewhere:
+`resolveGitCwd(session)` (terminal agents' live `shellCwd` wins over `cwd`) and
+`resolveGitSshRemoteId(session)` (top-level id, then the per-session config when
+enabled).
 
 ### InlineWizardContext.tsx (177 lines)
 

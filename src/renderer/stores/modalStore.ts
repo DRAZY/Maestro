@@ -16,6 +16,7 @@
 
 import { create } from 'zustand';
 import type { Session, SettingsTab, AgentError } from '../types';
+import type { GitStreamingOperation } from '../../shared/gitUtils';
 import type { SerializableWizardState } from '../components/Wizard';
 import type { ConductorBadge } from '../constants/conductorBadges';
 import { logger } from '../utils/logger';
@@ -192,6 +193,12 @@ export interface CueYamlEditorData {
 /** Worktree modal data (create/delete/PR) */
 export interface WorktreeModalData {
 	session: Session;
+	/**
+	 * PR only: the branch to open the PR from. Worktree children carry it on the
+	 * session, but a plain git agent doesn't - the opener knows the live branch,
+	 * so it passes it rather than making the modal host re-derive it.
+	 */
+	sourceBranch?: string;
 }
 
 /** Group chat modal data (delete/rename/edit) */
@@ -202,6 +209,35 @@ export interface GroupChatModalData {
 /** Git diff preview data */
 export interface GitDiffModalData {
 	diff: string;
+}
+
+/**
+ * Git log viewer data. Optional: opened without it (keyboard shortcut, command
+ * palette) the viewer follows the active agent. The Left Bar's right-click menu
+ * passes an explicit target so it can show the log of an agent that isn't active.
+ */
+export interface GitLogModalData {
+	cwd: string;
+	sshRemoteId?: string;
+}
+
+/** Git command runner data - which streaming operation the console modal runs */
+export interface GitCommandRunnerData {
+	sessionId: string;
+	operation: GitStreamingOperation;
+	/** Repo directory the command runs in (already resolved for terminal/worktree agents). */
+	cwd: string;
+	sshRemoteId?: string;
+	/** Current branch, shown in the modal title. */
+	branch?: string;
+}
+
+/** Branch switcher data - fuzzy branch picker for an agent's repo */
+export interface BranchSwitcherModalData {
+	sessionId: string;
+	cwd: string;
+	sshRemoteId?: string;
+	currentBranch?: string;
 }
 
 /** Tour modal data */
@@ -282,6 +318,8 @@ export type ModalId =
 	// Git
 	| 'gitDiff'
 	| 'gitLog'
+	| 'gitCommandRunner'
+	| 'branchSwitcher'
 	// Wizard & Tour
 	| 'wizardResume'
 	| 'tour'
@@ -345,6 +383,9 @@ export interface ModalDataMap {
 	renameGroupChat: GroupChatModalData;
 	editGroupChat: GroupChatModalData;
 	gitDiff: GitDiffModalData;
+	gitLog: GitLogModalData;
+	gitCommandRunner: GitCommandRunnerData;
+	branchSwitcher: BranchSwitcherModalData;
 	tour: TourModalData;
 	standingOvation: StandingOvationData;
 	firstRunCelebration: FirstRunCelebrationData;
@@ -932,6 +973,14 @@ export function getModalActions() {
 		// Git Log Viewer
 		setGitLogOpen: (open: boolean) => (open ? openModal('gitLog') : closeModal('gitLog')),
 
+		// Git command runner (streaming pull/push/fetch console)
+		openGitCommandRunner: (data: GitCommandRunnerData) => openModal('gitCommandRunner', data),
+		closeGitCommandRunner: () => closeModal('gitCommandRunner'),
+
+		// Branch switcher (fuzzy branch picker)
+		openBranchSwitcher: (data: BranchSwitcherModalData) => openModal('branchSwitcher', data),
+		closeBranchSwitcher: () => closeModal('branchSwitcher'),
+
 		// Tour Overlay
 		setTourOpen: (open: boolean) =>
 			open ? openModal('tour', { fromWizard: false }) : closeModal('tour'),
@@ -1054,6 +1103,7 @@ export function useModalActions() {
 	const groupChatInfoOpen = useModalStore(selectModalOpen('groupChatInfo'));
 	const gitDiffData = useModalStore(selectModalData('gitDiff'));
 	const gitLogOpen = useModalStore(selectModalOpen('gitLog'));
+	const gitLogData = useModalStore(selectModalData('gitLog'));
 	const tourOpen = useModalStore(selectModalOpen('tour'));
 	const tourData = useModalStore(selectModalData('tour'));
 	const symphonyModalOpen = useModalStore(selectModalOpen('symphony'));
@@ -1208,6 +1258,7 @@ export function useModalActions() {
 		createWorktreeSession: createWorktreeData?.session ?? null,
 		createPRModalOpen,
 		createPRSession: createPRData?.session ?? null,
+		createPRSourceBranch: createPRData?.sourceBranch,
 		deleteWorktreeModalOpen,
 		deleteWorktreeSession: deleteWorktreeData?.session ?? null,
 
@@ -1239,8 +1290,10 @@ export function useModalActions() {
 		// Git Diff Viewer
 		gitDiffPreview: gitDiffData?.diff ?? null,
 
-		// Git Log Viewer
+		// Git Log Viewer. The target is set only when the log was opened for a
+		// specific agent (Left Bar menu); otherwise the viewer follows the active one.
 		gitLogOpen,
+		gitLogTarget: gitLogData ?? null,
 
 		// Tour Overlay
 		tourOpen,

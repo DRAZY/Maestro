@@ -3,6 +3,7 @@ import type { Session, AITab, ThinkingMode } from '../../types';
 import { moveActiveUnifiedTabToEdge, toggleReadOnlyModeFields } from '../../utils/tabHelpers';
 import { resolveActiveTabRef, resolveTabRefRenameValue } from '../../utils/panelLayout';
 import { useModalStore } from '../../stores/modalStore';
+import { getTabDisplayName } from '../../utils/tabHelpers';
 import { selectActiveSession, useSessionStore } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { isActiveOutputSearchOpen } from '../../utils/outputSearch';
@@ -1041,6 +1042,21 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				}
 				// Bulk close shortcuts (AI mode only - terminal tabs don't have bulk close)
 				if (activeSession.inputMode === 'ai') {
+					// Snooze the active AI tab (Opt+Cmd+S). AI-only: file, terminal, and
+					// browser tabs have no conversation to come back to.
+					if (ctx.isTabShortcut(e, 'snoozeTab')) {
+						e.preventDefault();
+						const tab = activeSession.aiTabs?.find(
+							(t: AITab) => t.id === activeSession.activeTabId
+						);
+						if (tab) {
+							useModalStore.getState().openModal('snoozeTab', {
+								tabId: tab.id,
+								tabLabel: getTabDisplayName(tab, activeSession.agentSessionId),
+							});
+							trackShortcut('snoozeTab');
+						}
+					}
 					if (ctx.isTabShortcut(e, 'closeAllTabs')) {
 						e.preventDefault();
 						ctx.handleCloseAllTabs();

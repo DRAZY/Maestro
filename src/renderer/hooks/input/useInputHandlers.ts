@@ -29,6 +29,7 @@ import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { useInputContext } from '../../contexts/InputContext';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { setLiveDraft } from '../../utils/liveDraftStore';
+import { isShellCommandDraft } from '../../utils/shellCommandInput';
 import { useComposerInputStore } from '../../stores/composerInputStore';
 import { useDebouncedValue } from '../utils';
 import { useInputSync } from './useInputSync';
@@ -471,15 +472,22 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 	// ====================================================================
 
 	// Gated store subscription: returns '' (a stable primitive) unless the
-	// terminal tab-completion dropdown is open, so zustand's Object.is bail-out
-	// means normal typing does NOT re-render this hook. Only while the dropdown
-	// is open do we track the live text to refresh suggestions.
-	const tabCompletionInput = useComposerInputStore((s) =>
-		tabCompletionOpen ? s.terminalValue : ''
-	);
+	// tab-completion dropdown is open, so zustand's Object.is bail-out means
+	// normal typing does NOT re-render this hook. Only while the dropdown is
+	// open do we track the live text to refresh suggestions.
+	//
+	// Reads the AI draft in AI mode: completion also serves command mode
+	// (`!cmd`), where the shell draft lives in `aiValue`, not `terminalValue`.
+	const tabCompletionInput = useComposerInputStore((s) => {
+		if (!tabCompletionOpen) return '';
+		return activeSessionInputMode === 'terminal' ? s.terminalValue : s.aiValue;
+	});
 	const debouncedInputForTabCompletion = useDebouncedValue(tabCompletionInput, 50);
 	const tabCompletionSuggestions = useMemo(() => {
-		if (!tabCompletionOpen || !activeSessionId || activeSessionInputMode !== 'terminal') {
+		if (!tabCompletionOpen || !activeSessionId) return [];
+		// AI mode only gets completions for a command-mode draft; an ordinary
+		// message has nothing shell-shaped to complete against.
+		if (activeSessionInputMode !== 'terminal' && !isShellCommandDraft(tabCompletionInput)) {
 			return [];
 		}
 		return getTabCompletionSuggestions(debouncedInputForTabCompletion, tabCompletionFilter);
@@ -487,6 +495,7 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		tabCompletionOpen,
 		activeSessionId,
 		activeSessionInputMode,
+		tabCompletionInput,
 		debouncedInputForTabCompletion,
 		tabCompletionFilter,
 		getTabCompletionSuggestions,
@@ -530,7 +539,9 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 			if (!suggestion || suggestion.type === 'history' || flatFileList.length === 0) return;
 
 			const targetPath = suggestion.value.replace(/\/$/, '');
-			const pathOnly = targetPath.split(/\s+/).pop() || targetPath;
+			// Strip the command-mode bang so a single-token completion (`!src/`)
+			// still resolves to a real path in the file tree.
+			const pathOnly = (targetPath.split(/\s+/).pop() || targetPath).replace(/^!/, '');
 			const matchIndex = flatFileList.findIndex((item) => item.fullPath === pathOnly);
 
 			if (matchIndex >= 0) {

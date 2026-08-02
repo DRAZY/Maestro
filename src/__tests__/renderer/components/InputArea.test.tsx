@@ -1214,6 +1214,58 @@ describe('InputArea', () => {
 		});
 	});
 
+	describe('Command Mode (!)', () => {
+		it('shows the command mode bar once the draft starts with !', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai', cwd: '/Users/test/project' }),
+				inputValue: '!git status',
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.getByText('Command Mode')).toBeInTheDocument();
+		});
+
+		it('shows the bar on a bare bang, before a command is typed', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai' }),
+				inputValue: '!',
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.getByText('Command Mode')).toBeInTheDocument();
+		});
+
+		it('hides the bar for an ordinary AI message', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai' }),
+				inputValue: 'fix the login bug',
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.queryByText('Command Mode')).not.toBeInTheDocument();
+		});
+
+		it('hides the bar for the escaped form', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai' }),
+				inputValue: '\\!important',
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.queryByText('Command Mode')).not.toBeInTheDocument();
+		});
+
+		it('does not show the bar in terminal mode, which is already a shell', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'terminal' }),
+				inputValue: '!oops',
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.queryByText('Command Mode')).not.toBeInTheDocument();
+		});
+	});
+
 	describe('Tab Completion', () => {
 		it('shows tab completion in terminal mode when open', () => {
 			const props = createDefaultProps({
@@ -1232,15 +1284,32 @@ describe('InputArea', () => {
 			expect(screen.getByText('main')).toBeInTheDocument();
 		});
 
-		it('does NOT show tab completion in AI mode', () => {
+		it('does NOT show tab completion for an ordinary AI message', () => {
 			const props = createDefaultProps({
 				session: createMockSession({ inputMode: 'ai' }),
+				inputValue: 'fix the login bug',
 				tabCompletionOpen: true,
 				tabCompletionSuggestions: [{ value: 'ls', type: 'history', displayText: 'ls' }],
 			});
 			render(<InputArea {...props} />);
 
 			expect(screen.queryByText('Tab Completion')).not.toBeInTheDocument();
+		});
+
+		it('DOES show tab completion for an AI-mode command-mode draft', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai', isGitRepo: true }),
+				inputValue: '!git checkout ma',
+				tabCompletionOpen: true,
+				tabCompletionSuggestions: [
+					{ value: '!git checkout main', type: 'branch', displayText: 'main' },
+				],
+				setTabCompletionFilter: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.getByText('Tab Completion')).toBeInTheDocument();
+			expect(screen.getByText('main')).toBeInTheDocument();
 		});
 
 		it('shows filter buttons for git repos', () => {

@@ -53,6 +53,12 @@ export type {
 	UseResizableModalOptions,
 	UseResizableModalReturn,
 } from './useResizableModal';
+// Remembered height for user-resized textareas
+export { useResizableTextarea } from './useResizableTextarea';
+export type {
+	UseResizableTextareaOptions,
+	UseResizableTextareaReturn,
+} from './useResizableTextarea';
 
 // App-level handlers (drag, file, folder operations)
 export { useAppHandlers } from './useAppHandlers';

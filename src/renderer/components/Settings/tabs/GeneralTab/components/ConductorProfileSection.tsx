@@ -1,6 +1,7 @@
 import { User } from 'lucide-react';
 import type { Theme } from '../../../../../types';
 import { SettingsSectionHeading } from '../../../SettingsSectionHeading';
+import { useResizableTextarea } from '../../../../../hooks/ui/useResizableTextarea';
 
 interface ConductorProfileSectionProps {
 	theme: Theme;
@@ -13,6 +14,11 @@ export function ConductorProfileSection({
 	conductorProfile,
 	setConductorProfile,
 }: ConductorProfileSectionProps) {
+	const conductorProfileResize = useResizableTextarea({
+		sizeKey: 'settings-conductor-profile',
+		minHeight: 100,
+	});
+
 	return (
 		<div data-setting-id="general-conductor-profile">
 			<SettingsSectionHeading icon={User}>Conductor Profile (aka, About Me)</SettingsSectionHeading>
@@ -22,6 +28,7 @@ export function ConductorProfileSection({
 				(Optional, max 5000 characters)
 			</p>
 			<textarea
+				ref={conductorProfileResize.textareaRef}
 				aria-label="Conductor Profile"
 				value={conductorProfile}
 				onChange={(e) => setConductorProfile(e.target.value)}
@@ -31,6 +38,7 @@ export function ConductorProfileSection({
 					borderColor: theme.colors.border,
 					color: theme.colors.textMain,
 					minHeight: '100px',
+					...conductorProfileResize.style,
 				}}
 				maxLength={5000}
 			/>
