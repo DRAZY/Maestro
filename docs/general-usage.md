@@ -82,12 +82,20 @@ and each value has a copy button on hover.
 
 Inside that view:
 
-- The **filter box** narrows to fields whose name or value matches what you type.
-- **Up and Down arrows**, or the chevrons in the header, step through rows
+- **Left and Right arrows**, or the chevrons in the header, step through rows
   without closing the modal. Navigation follows whatever the table is currently
   showing, so it respects your active sort and search.
+- **Up and Down arrows** scroll the field list, with `PageUp` / `PageDown` for
+  whole screens and `Home` / `End` to jump to the top or bottom. Handy when a
+  row has more fields than fit at once.
+- `/` jumps to the **filter box**, which narrows to fields whose name or value
+  matches what you type. `Enter` hands focus back to the field list so the
+  arrows resume stepping through rows.
 - Drag any edge or corner to resize. The size is remembered for next time.
 - `Esc` closes the row view and leaves the file open.
+
+The field list takes focus the moment the view opens, so every one of those
+keys works without clicking first.
 
 ### Audio and Video Playback
 

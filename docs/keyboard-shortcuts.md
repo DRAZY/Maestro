@@ -263,11 +263,18 @@ Available while previewing a `.csv` or `.tsv` file. See
 [CSV and TSV Tables](./general-usage#csv-and-tsv-tables) for the full
 walkthrough.
 
-| Action               | macOS           | Windows/Linux   |
-| -------------------- | --------------- | --------------- |
-| Open row detail view | `Double-click`  | `Double-click`  |
-| Previous / next row  | `Up/Down Arrow` | `Up/Down Arrow` |
-| Close row detail     | `Esc`           | `Esc`           |
+The field list is focused on open, so these work without clicking first.
+
+| Action               | macOS                 | Windows/Linux         |
+| -------------------- | --------------------- | --------------------- |
+| Open row detail view | `Double-click`        | `Double-click`        |
+| Previous / next row  | `Left/Right Arrow`    | `Left/Right Arrow`    |
+| Scroll fields        | `Up/Down Arrow`       | `Up/Down Arrow`       |
+| Scroll by screen     | `PageUp` / `PageDown` | `PageUp` / `PageDown` |
+| Jump to top / bottom | `Home` / `End`        | `Home` / `End`        |
+| Focus the filter     | `/`                   | `/`                   |
+| Leave the filter     | `Enter`               | `Enter`               |
+| Close row detail     | `Esc`                 | `Esc`                 |
 
 ## Document Graph
 
