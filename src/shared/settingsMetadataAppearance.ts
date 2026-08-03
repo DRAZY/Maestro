@@ -206,7 +206,7 @@ export const APPEARANCE_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	},
 	filePreviewToolbarVisibility: {
 		description:
-			'Per-button visibility map for the file preview / edit toolbar. Keys: save, wordWrap, remoteImages, htmlRender, openInBrowser, previewTier, editToggle, editImage, copyContent, publishGist, documentGraph, openInDefault, copyPath.',
+			'Per-button visibility map for the file preview / edit toolbar. Keys: save, wordWrap, remoteImages, htmlRender, openInBrowser, previewTier, editToggle, editImage, copyContent, publishGist, documentGraph, openInDefault, revealInFolder, copyPath.',
 		type: 'object',
 		default: {
 			save: true,
@@ -221,6 +221,7 @@ export const APPEARANCE_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 			publishGist: true,
 			documentGraph: true,
 			openInDefault: true,
+			revealInFolder: true,
 			copyPath: true,
 		},
 		category: 'appearance',
@@ -259,20 +260,21 @@ export const APPEARANCE_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	},
 	annotatorThinning: {
 		description:
-			'Image annotator stroke thinning (0–1). Controls how much pressure affects stroke width.',
+			'Image annotator stroke thinning (0 to 1). Controls how much pressure affects stroke width.',
 		type: 'number',
 		default: 0.5,
 		category: 'appearance',
 	},
 	annotatorSmoothing: {
-		description: 'Image annotator stroke smoothing (0–1). Higher values produce smoother curves.',
+		description:
+			'Image annotator stroke smoothing (0 to 1). Higher values produce smoother curves.',
 		type: 'number',
 		default: 0.5,
 		category: 'appearance',
 	},
 	annotatorStreamline: {
 		description:
-			'Image annotator stroke streamline (0–1). Higher values dampen pointer jitter for steadier lines.',
+			'Image annotator stroke streamline (0 to 1). Higher values dampen pointer jitter for steadier lines.',
 		type: 'number',
 		default: 0.5,
 		category: 'appearance',
