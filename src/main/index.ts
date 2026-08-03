@@ -3404,7 +3404,6 @@ function setupIpcHandlers() {
 		// the bus is created during plugin init and re-authorizes every delivery
 		// against live grants, so this is a no-op when plugins are disabled.
 		emitPluginEvent: (event) => pluginEventBus?.emit(event),
-		safeSend,
 	});
 	// Wire the plugin focus verbs into the persistence layer's session.activated
 	// dedupe so the two emit paths share one last-emitted id.

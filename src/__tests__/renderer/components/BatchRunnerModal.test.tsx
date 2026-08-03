@@ -937,6 +937,35 @@ describe('BatchRunnerModal', () => {
 			});
 		});
 
+		// The playbook actions used to be two edge-anchored clusters
+		// (justify-between). They now sit in one centered, wrapping row so the
+		// set re-centers as buttons appear and disappear with playbook state.
+		it('centers the playbook action buttons in a single flex row', async () => {
+			(window.maestro as Record<string, unknown>).playbooks = {
+				list: vi.fn().mockResolvedValue({ success: true, playbooks: [createMockPlaybook()] }),
+				create: vi.fn(),
+				update: vi.fn(),
+				delete: vi.fn(),
+				export: vi.fn(),
+				import: vi.fn(),
+			};
+
+			render(<BatchRunnerModal {...createDefaultProps()} onOpenMarketplace={vi.fn()} />);
+
+			const importBtn = await screen.findByRole('button', { name: 'Import Playbook' });
+			const row = importBtn.closest('div.flex-wrap');
+
+			expect(row).not.toBeNull();
+			expect(row).toHaveClass('justify-center');
+			// Every action is a flex item of that one row - the group wrappers are
+			// `contents`, so no button is anchored to an edge by a sub-flex parent.
+			for (const name of ['Load Playbook', 'Import Playbook', 'Playbook Exchange']) {
+				const btn = screen.getByRole('button', { name });
+				expect(row).toContainElement(btn);
+				expect(btn.parentElement?.closest('div.flex')).toBe(row);
+			}
+		});
+
 		it('marks missing documents when loading playbook', async () => {
 			const mockPlaybook = createMockPlaybook({
 				documents: [
@@ -3259,5 +3288,32 @@ describe('BatchRunnerModal - per-run model/effort override', () => {
 		});
 		expect(screen.queryByLabelText('Model for this run')).not.toBeInTheDocument();
 		expect(screen.queryByLabelText('Reasoning effort for this run')).not.toBeInTheDocument();
+	});
+
+	it('renders the section last in both Spec-Driven and Goal-Driven mode', async () => {
+		render(<BatchRunnerModal {...createDefaultProps()} />);
+
+		await waitFor(() => {
+			expect(screen.getByLabelText('Model for this run')).toBeInTheDocument();
+		});
+
+		// Spec-Driven: below the Agent Prompt editor, the last block in that mode.
+		const promptEditor = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		expect(
+			promptEditor.compareDocumentPosition(screen.getByLabelText('Model for this run')) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+
+		// Goal-Driven: below the goal config, same as before.
+		fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+		await waitFor(() => {
+			expect(screen.getByText('Iteration Limit')).toBeInTheDocument();
+		});
+		expect(
+			screen
+				.getByText('Iteration Limit')
+				.compareDocumentPosition(screen.getByLabelText('Model for this run')) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
 	});
 });

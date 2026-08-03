@@ -142,6 +142,66 @@ The shared `<Modal>` component wires this up automatically via `resizable`/`resi
 
 When two toggleable states of the same modal need independent footprints (e.g. Prompt Composer's compact vs. fullscreen), use two distinct `resizeKey`s (`prompt-composer-compact` / `prompt-composer-fullscreen`) rather than one shared key with a mode-dependent `defaultSize` - `defaultSize` is only consulted before the first saved size exists, so a single key would let one mode's manual resize silently pin the other mode's size too.
 
+### Modals Opened From Inside the Main Panel
+
+A modal rendered from a component that lives inside the Main Panel (file
+preview renderers, terminal views, chat surfaces) MUST pass `portal` to
+`<Modal>`:
+
+```tsx
+<Modal theme={theme} title="Row 1" priority={MODAL_PRIORITIES.CSV_ROW_DETAIL} portal>
+```
+
+`MainPanel.tsx` wraps the session view in `isolate` (`isolation: isolate`),
+which creates a stacking context. A `fixed inset-0` backdrop rendered inside
+that subtree is still full-viewport in size, but its `z-index: 9999` only ranks
+it _within_ MainPanel's context. The Left Bar (`SessionList.tsx`, `relative
+z-20`) and the Right Panel (later in DOM order) are siblings of that context, so
+they paint on top: the center dims while both side panels stay fully lit, and
+the modal looks clipped to the middle of the window.
+
+No z-index fixes this - ranking never crosses a stacking context. Rendering into
+`document.body` is the only escape, which is what `portal` does. Most modals
+mount at the App root already and don't need it, which is why it is opt-in.
+
+Because jsdom has no layout engine, a test asserting `toBeInTheDocument()`
+passes whether or not the modal escaped. Assert it is **not** a descendant of
+its host subtree instead:
+
+```tsx
+expect(container.querySelector('.csv-table-renderer')).not.toContainElement(modal);
+expect(modal.parentElement).toBe(document.body);
+```
+
+React context flows through portals, so `useModalLayer` registration, Escape
+handling, and theming are unaffected by the relocation.
+
+### Resizable Textareas
+
+Any textarea with a native `resize-y` grip should remember the height the user drags it to. A size someone picked by hand is a preference, so snapping back to the default on the next open (or the next app launch) is a bug, not a reset.
+
+```tsx
+const resize = useResizableTextarea({
+	sizeKey: 'settings-conductor-profile', // stable, unique
+	minHeight: 100, // floor for a remembered height
+});
+
+<textarea
+	ref={resize.textareaRef}
+	className="... resize-y"
+	style={{ borderColor: theme.colors.border, minHeight: '100px', ...resize.style }}
+/>;
+```
+
+How it works:
+
+- `useResizableTextarea` (`src/renderer/hooks/ui/useResizableTextarea.ts`) observes the element and persists the dragged height, debounced. Heights live in one `textareaHeights` map in `settingsStore`, keyed by `sizeKey`, written through to settings and hydrated by `loadAllSettings` on startup.
+- The native grip writes the dragged height onto the element's inline `style.height` - the same property the hook writes when restoring one. The observer just compares the current inline height against the last applied height, so a user drag is the only thing it can see (content, font size and viewport width never move an explicit height).
+- Omit `defaultHeight` to leave the textarea at whatever its `rows` / CSS `min-height` already give it until the user resizes it. Pass one only when the textarea has no natural size worth keeping.
+- `minHeight` / `maxHeight` bound what can be remembered; heights are also clamped to the viewport at read time, so a textarea sized on a large display still opens sanely on a laptop.
+- Spread `resize.style` LAST in the `style` prop, after the caller's own `minHeight`, or the inline height gets overwritten.
+- Pass `externalRef` when the component already owns a ref on the textarea (autocomplete, focus-on-open). Do NOT add a second ref or a second `ResizeObserver`.
+
 ### Escape Key Flow
 
 1. `LayerStackProvider` attaches a **capture-phase** `keydown` listener on `window`.
@@ -176,6 +236,29 @@ In development mode, `window.__MAESTRO_DEBUG__.layers` provides:
 - `top()` - log the topmost layer
 - `simulate.escape()` - dispatch an Escape event
 - `simulate.closeAll()` - clear the entire stack
+
+### Every Modal Needs a Graphical Exit (`<EscCloseButton>`)
+
+**Rule:** a modal, palette, or find bar must always be dismissable with the pointer alone. Escape is not enough: remote desktop sessions swallow it, tablets driving the web interface have no key to send, and a keyboard-only exit reads as "stuck" to the user.
+
+The `ESC` pill is that exit. Use `<EscCloseButton>` (`src/renderer/components/ui/EscCloseButton.tsx`) - do NOT hand-roll the `px-2 py-0.5 rounded text-xs font-bold` pill again. It was previously copy-pasted as an inert `<div>` (three of them with `pointer-events-none`) in nine places, so every one of those surfaces advertised an exit that did nothing on click.
+
+```tsx
+// Header pill, sitting in the search row
+<EscCloseButton theme={theme} onClose={onClose} />
+
+// Adornment pill, absolutely positioned inside a `relative` input wrapper
+<EscCloseButton
+	theme={theme}
+	variant="adornment"
+	label="Close filter (Esc)"
+	onClose={handleFilterEscape}
+/>
+```
+
+`onClose` must do **exactly** what pressing Escape does. When the Escape path lives in a `useModalLayer` / `registerLayer` callback, extract it into a named `useCallback` and pass the same function to both, rather than duplicating the body (see `TerminalOutput`'s `closeOutputSearch` and `QuickActionsModal`'s `handleEscape`).
+
+Tests: query the pill by role, not by index. It is a real `<button>` now, so `getAllByRole('button')[n]` in a modal test counts it - scope list assertions to the rows themselves (e.g. `[data-action-label]`).
 
 ### Text Selection in Modals
 
@@ -1049,6 +1132,28 @@ Which opener to use depends on how the SVG got into the DOM:
 The second case is the one that gets missed: an SVG appended with `appendChild` never passes through React's element tree, so a component map override (like the chat markdown `svg:` renderer) will never see it. Hang the handler off the container instead.
 
 `copySvgToClipboard()` returns `'image' | 'markup' | 'failed'` - flash accordingly. A blanket "Copied to Clipboard" is wrong when rasterization fell back to copying markup as text, and silence is wrong when it failed outright.
+
+---
+
+## Table of Contents (`components/Toc`)
+
+Any long scrollable surface that wants a jump list uses the shared TOC. Do NOT re-implement the floating button, the panel, or its keyboard handling: users have muscle memory from File Preview, and a second copy drifts from it.
+
+| Piece               | Location                            | Responsibility                                                                      |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
+| `<TocOverlay>`      | `components/Toc/TocOverlay.tsx`     | The button + panel, entry rendering, Arrow/Home/End navigation, focus-first-on-open |
+| `useTocOverlay()`   | `hooks/ui/useTocOverlay.ts`         | Open state, toggle hotkey, Escape, click-outside, focus restore on close            |
+| `computeTocWidth()` | `components/Toc/tocWidth.ts`        | Panel width from the longest entry (clamped 200-500px)                              |
+| `extractHeadings()` | `components/Toc/extractHeadings.ts` | Markdown headings -> `TocEntry[]`, code-fence aware, `github-slugger` slugs         |
+
+Consumers: `FilePreviewToc` (markdown files) and `AIOverviewTab` (Director's Notes, both reading modes).
+
+Two things a host must get right:
+
+- **Anchors have to exist.** The default scroll path is `containerRef.querySelector('#slug')`. For rendered markdown that means passing `rehype-slug` so headings carry ids matching `extractHeadings`' slugs. For non-heading targets (Director's Notes' `SectionCard`s, the virtualized Fast tier) either put a matching `id` on the target or pass `onSelectEntry` and handle the scroll yourself.
+- **The keydown must reach the hook.** `handleKeyDown` fires from the element that has DOM focus, and keys bubble UP. If an ancestor owns focus, the hook never sees the hotkey. Focus the scroll region itself - in Director's Notes the tab exposes a `TabFocusHandle` whose `focus()` targets the content region for exactly this reason.
+
+Escape ordering is the host's call. On a layer-stack modal, delegate to `closeIfOpen()` first and only close the modal when it returns false, so Escape dismisses the panel before the modal.
 
 ---
 

@@ -27,6 +27,7 @@ import { MarkdownRenderer } from '../../MarkdownRenderer';
 import { LogFilterControls } from '../../LogFilterControls';
 import { linkifyNode } from '../../../utils/linkify';
 import { RetryStatusCard } from '../../RetryStatusCard';
+import { ShellCommandCard } from '../../ShellCommandCard';
 import { getTokenSourcePill } from '../../../../shared/claudeTokenModeLabel';
 import { CrossAgentResponseHeader } from '../../CrossAgentResponseHeader';
 import { isHiddenProgressEntry } from '../utils/collapseAiResponseLogs';
@@ -219,6 +220,30 @@ export const LogItem = memo(
 		const isReversed = isUserMessage
 			? userMessageAlignment === 'left'
 			: userMessageAlignment === 'right';
+
+		// Command mode: a `!command` run renders as its own terminal-output card
+		// (monospace, ANSI preserved) rather than a markdown chat bubble.
+		if (log.shellCommand) {
+			return (
+				<div
+					ref={logItemRef}
+					className="flex gap-4 px-3 sm:px-6 py-2"
+					data-log-index={index}
+					data-log-id={log.id}
+					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
+				>
+					<div className="hidden sm:block w-20 shrink-0" />
+					<div className="flex-1 min-w-0">
+						<ShellCommandCard
+							log={log}
+							theme={theme}
+							fontFamily={fontFamily}
+							ansiConverter={ansiConverter}
+						/>
+					</div>
+				</div>
+			);
+		}
 
 		// Agent Resilience: an outage marker renders as a live status card in a
 		// clean row (no error-tinted bubble chrome), left gutter kept for alignment.

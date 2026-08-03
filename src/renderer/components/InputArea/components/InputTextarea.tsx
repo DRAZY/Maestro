@@ -25,6 +25,12 @@ interface InputTextareaProps {
 	session: Session;
 	theme: Theme;
 	isTerminalMode: boolean;
+	/**
+	 * True while an AI-mode draft is in command mode (starts with `!`). Derived
+	 * once by InputArea, which also uses it to gate Tab completion, so both
+	 * affordances can never disagree about whether this is a shell line.
+	 */
+	isCommandModeDraft: boolean;
 	inputValue: string;
 	spellCheckEnabled: boolean;
 	inputRef: React.RefObject<HTMLTextAreaElement>;
@@ -68,6 +74,7 @@ export const InputTextarea = memo(function InputTextarea({
 	session,
 	theme,
 	isTerminalMode,
+	isCommandModeDraft,
 	inputValue,
 	spellCheckEnabled,
 	inputRef,
@@ -207,12 +214,17 @@ export const InputTextarea = memo(function InputTextarea({
 		WebkitBoxDecorationBreak: 'clone',
 	});
 
+	// Command mode borrows the terminal composer's `$` affordance so the switch
+	// is visible before you hit Enter.
+	const showShellPrefix = isTerminalMode || isCommandModeDraft;
+
 	return (
 		<div className="relative flex items-start">
-			{isTerminalMode && (
+			{showShellPrefix && (
 				<span
 					className="text-sm font-mono font-bold select-none pl-3 pt-3"
 					style={{ color: theme.colors.accent }}
+					title={isCommandModeDraft ? 'Command mode: runs in the shell, not the agent' : undefined}
 				>
 					$
 				</span>
@@ -264,7 +276,7 @@ export const InputTextarea = memo(function InputTextarea({
 			)}
 			<textarea
 				ref={inputRef}
-				className={`relative flex-1 bg-transparent text-sm outline-none ${isTerminalMode ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 pb-1 resize-none min-h-[3.5rem] scrollbar-thin`}
+				className={`relative flex-1 bg-transparent text-sm outline-none ${showShellPrefix ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 pb-1 resize-none min-h-[3.5rem] scrollbar-thin`}
 				style={{
 					...SHARED_TYPOGRAPHY,
 					// Native text is always visible. The overlay underneath contributes only
@@ -280,7 +292,9 @@ export const InputTextarea = memo(function InputTextarea({
 				placeholder={
 					isTerminalMode
 						? 'Run shell command...'
-						: `Talking to ${session.name} powered by ${getProviderDisplayName(session.toolType)}`
+						: isCommandModeDraft
+							? 'Run shell command... (Esc to go back to the agent)'
+							: `Talking to ${session.name} powered by ${getProviderDisplayName(session.toolType)}`
 				}
 				value={inputValue}
 				spellCheck={spellCheckEnabled}

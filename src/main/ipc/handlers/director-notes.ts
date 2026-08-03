@@ -17,7 +17,7 @@ import { HistoryEntry, HistoryEntryType, ToolType } from '../../../shared/types'
 import { paginateEntries } from '../../../shared/history';
 import type { PaginatedResult } from '../../../shared/history';
 import { getHistoryManager } from '../../history-manager';
-import { getSessionsStore } from '../../stores';
+import { getSessionsStore, getSettingsStore } from '../../stores';
 import {
 	withIpcErrorLogging,
 	requireDependency,
@@ -26,7 +26,9 @@ import {
 import { groomContext } from '../../utils/context-groomer';
 import { buildDirectorNotesSynopsisPrompt } from '../../utils/director-notes-prompt';
 import {
+	looksLikeStructuredOutput,
 	parseDirectorNotesNarrative,
+	recoverDirectorNotesNarrative,
 	type DirectorNotesNarrative,
 } from '../../../shared/directorNotesNarrative';
 import { getPrompt } from '../../prompt-manager';
@@ -103,6 +105,19 @@ function buildSessionNameMap(): Map<string, string> {
 		}
 	}
 	return map;
+}
+
+/**
+ * Read the conductor's Ideal End State from settings, or '' when unset.
+ *
+ * Read at generation time rather than passed in from the renderer so the
+ * web/CLI synopsis paths - which have no renderer to read settings for them -
+ * get the same behavior from the same source.
+ */
+function getConfiguredIdealEndState(): string {
+	const settingsStore = getSettingsStore();
+	const dn = (settingsStore.get('directorNotesSettings') ?? {}) as Record<string, unknown>;
+	return typeof dn.idealEndState === 'string' ? dn.idealEndState : '';
 }
 
 /**
@@ -228,6 +243,58 @@ export interface SynopsisStats {
 	durationMs: number; // Time taken for AI generation
 }
 
+/** Options for the deterministic Rich Overview stats IPC */
+export interface RichOverviewStatsOptions {
+	/** Lookback window in days; <= 0 means "all time" (mirrors getUnifiedHistory). */
+	lookbackDays: number;
+	/** Number of timeline buckets to compute (default 24). */
+	bucketCount?: number;
+}
+
+/** One activity time-slice in the Rich Overview timeline, with its start time. */
+export interface RichTimelineBucket {
+	startTime: number;
+	auto: number;
+	user: number;
+	cue: number;
+	agent: number;
+}
+
+/** Per-agent activity rollup for the Rich Overview, sorted by entryCount desc. */
+export interface RichAgentStat {
+	sessionId: string;
+	agentName: string;
+	entryCount: number;
+	successCount: number;
+	failureCount: number;
+}
+
+/**
+ * Fully deterministic stats for Director's Notes Rich Mode. Every field is
+ * computed in the main process from history entries so the Rich widgets never
+ * depend on the AI synopsis for a number. Additive: separate from SynopsisStats
+ * and UnifiedHistoryStats, which keep their existing shapes.
+ */
+export interface RichOverviewStats {
+	totalEntries: number;
+	agentCount: number; // Distinct Maestro agents with entries in the window
+	sessionCount: number; // Distinct provider sessions across all agents
+	autoCount: number;
+	userCount: number;
+	cueCount: number;
+	/** Total AGENT entries; `agentCount` above already means "distinct agents". */
+	agentEntryCount: number;
+	successCount: number; // Entries with success === true
+	failureCount: number; // Entries with success === false (missing success is neither)
+	successRate: number; // successCount / (successCount + failureCount); 0 when no outcomes
+	totalElapsedMs: number; // Summed entry elapsedTimeMs across the window
+	avgElapsedMs: number; // totalElapsedMs / entries-with-timing; 0 when none
+	timelineBuckets: RichTimelineBucket[];
+	perAgent: RichAgentStat[];
+	lookbackDays: number;
+	generatedAt: number; // Unix ms timestamp of computation
+}
+
 export interface SynopsisResult {
 	success: boolean;
 	synopsis: string;
@@ -235,18 +302,30 @@ export interface SynopsisResult {
 	stats?: SynopsisStats;
 	error?: string;
 	/**
-	 * Parsed structured narrative for Rich Mode. Present only when the raw
-	 * `synopsis` parsed cleanly. Plain Mode and copy/save never read this - they
-	 * use `synopsis` verbatim.
+	 * Parsed structured narrative. Rich Mode renders it as section cards and
+	 * Plain Mode renders it as markdown prose, so this is what every reading
+	 * surface consumes; `synopsis` stays the verbatim raw output. Present on a
+	 * clean parse AND on a successful salvage (see `narrativeRecovery`).
 	 */
 	narrative?: DirectorNotesNarrative;
 	/**
-	 * Set when the raw `synopsis` could NOT be parsed into a structured
-	 * narrative. The synopsis call still succeeds (raw output is preserved) so
-	 * the renderer can show an overt failure banner while keeping the raw text
-	 * reachable. Never a reason to fail the whole call.
+	 * Set when the output was JSON-shaped but yielded no usable narrative. The
+	 * synopsis call still succeeds (raw output is preserved) so the renderer can
+	 * show an overt failure banner while keeping the raw text reachable. Never a
+	 * reason to fail the whole call.
+	 *
+	 * Deliberately unset for prose output: the prompt is a user-editable
+	 * setting, so a profile holding a markdown-contract prompt makes the agent
+	 * return a report rather than a narrative. That is not a parse failure.
 	 */
 	narrativeError?: string;
+	/**
+	 * Set when `narrative` came from a salvage of output the strict parser
+	 * rejected (a cut-off response, stray control characters, malformed bullets).
+	 * Explains what was recovered so the UI can say so rather than passing a
+	 * partial report off as a complete one.
+	 */
+	narrativeRecovery?: string;
 }
 
 /**
@@ -739,6 +818,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					sessionNameMap: buildSessionNameMap(),
 					lookbackDays: options.lookbackDays,
 					basePrompt: getPrompt('director-notes'),
+					idealEndState: getConfiguredIdealEndState(),
 				});
 
 				if (!prompt) {
@@ -800,17 +880,42 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						completionReason: result.completionReason,
 					});
 
-					// Parse the raw output into the structured narrative for Rich Mode.
-					// `synopsis` stays the verbatim raw string (Plain Mode + copy/save
-					// depend on that). A parse failure is NOT a synopsis failure: we
-					// still return success with the raw text and a populated
-					// `narrativeError` so the renderer can show an overt error while
-					// keeping the raw output reachable.
+					// Parse the raw output into the structured narrative every reading
+					// surface renders. `synopsis` stays the verbatim raw string.
+					//
+					// Shape decides what a failed parse MEANS. The Director's Notes prompt
+					// is a user-editable setting persisted to userData, so a profile can
+					// hold a prompt written against the markdown contract while this build
+					// expects JSON. Prose is not a broken narrative - the agent obeyed the
+					// prompt it was given - so it ships with neither field and the reading
+					// surfaces render it as markdown. Only JSON-shaped output that yields
+					// nothing usable is reported as an error, and even then a best-effort
+					// salvage runs first: a run costs minutes, so a cut-off response should
+					// still be readable.
 					const parsed = parseDirectorNotesNarrative(synopsis);
-					if (!parsed.ok) {
+					let narrativeFields: Partial<SynopsisResult>;
+					if (parsed.ok) {
+						narrativeFields = { narrative: parsed.narrative };
+					} else if (!looksLikeStructuredOutput(synopsis)) {
+						// Not a broken narrative - prose. See the shape note above.
+						logger.info('Synopsis is prose, not a structured narrative', LOG_CONTEXT, {
+							responseLength: synopsis.length,
+						});
+						narrativeFields = {};
+					} else {
+						const recovered = recoverDirectorNotesNarrative(synopsis);
 						logger.warn('Synopsis narrative parse failed', LOG_CONTEXT, {
 							narrativeError: parsed.error,
+							recovered: recovered.ok,
+							recoveryReason: recovered.ok ? recovered.reason : undefined,
 						});
+						narrativeFields = recovered.ok
+							? {
+									narrative: recovered.narrative,
+									narrativeError: parsed.error,
+									narrativeRecovery: recovered.reason,
+								}
+							: { narrativeError: parsed.error };
 					}
 
 					return {
@@ -822,7 +927,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 							entryCount,
 							durationMs: result.durationMs,
 						},
-						...(parsed.ok ? { narrative: parsed.narrative } : { narrativeError: parsed.error }),
+						...narrativeFields,
 					};
 				} catch (err) {
 					const errorMsg = err instanceof Error ? err.message : String(err);

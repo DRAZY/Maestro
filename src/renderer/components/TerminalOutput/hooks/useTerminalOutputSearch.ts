@@ -232,5 +232,8 @@ export function useTerminalOutputSearch({
 		regexError,
 		goToNextMatch,
 		goToPrevMatch,
+		// Exposed so the find bar's ESC pill runs the exact same dismissal the
+		// Escape layer does - a pointer-only user gets identical behavior.
+		closeSearch,
 	};
 }

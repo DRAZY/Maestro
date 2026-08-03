@@ -38,6 +38,11 @@ import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
+import {
+	useSnoozeHistoryStore,
+	sanitizeSnoozeHistory,
+	SNOOZE_HISTORY_SETTINGS_KEY,
+} from './snoozeHistoryStore';
 import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
 import { sanitizeModalSizes } from '../utils/modalSizing';
 import type { AnnotatorState, AnnotatorActions } from './settingsAnnotatorSlice';
@@ -78,6 +83,8 @@ export {
 	SSH_REDUCE_ENTRY_CAP_MAX_FRACTION,
 	SSH_REDUCE_ENTRY_CAP_STEP,
 } from './settingsFileExplorerSlice';
+import type { TextareaHeights, TextareaSizeKey } from '../utils/textareaSizing';
+import { sanitizeTextareaHeights } from '../utils/textareaSizing';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -238,6 +245,7 @@ export const FILE_PREVIEW_TOOLBAR_BUTTON_KEYS = [
 	'publishGist',
 	'documentGraph',
 	'openInDefault',
+	'revealInFolder',
 	'copyPath',
 ] as const;
 
@@ -346,6 +354,7 @@ export interface SettingsStoreState
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
 	modalSizes: ModalSizes;
+	textareaHeights: TextareaHeights;
 	markdownEditMode: boolean;
 	chatRawTextMode: boolean;
 	groupChatAutoScroll: boolean;
@@ -457,6 +466,8 @@ export interface SettingsStoreActions
 	/** Forget ONE modal's remembered size, so it reopens at its declared default. */
 	resetModalSize: (key: ModalResizeKey) => void;
 	resetModalSizes: () => void;
+	/** Remember the height a user dragged a resizable textarea to. */
+	setTextareaHeight: (key: TextareaSizeKey, value: number) => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
 	setGroupChatAutoScroll: (value: boolean) => void;
@@ -678,6 +689,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
 		modalSizes: {},
+		textareaHeights: {},
 		markdownEditMode: false,
 		chatRawTextMode: false,
 		groupChatAutoScroll: true,
@@ -908,6 +920,18 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		resetModalSizes: () => {
 			set({ modalSizes: {} });
 			window.maestro.settings.set('modalSizes', {});
+		},
+
+		setTextareaHeight: (key, value) => {
+			const normalized = sanitizeTextareaHeights({ [key]: value })[key];
+			if (!normalized) return;
+			if (get().textareaHeights[key] === normalized) return;
+			const next = {
+				...get().textareaHeights,
+				[key]: normalized,
+			};
+			set({ textareaHeights: next });
+			window.maestro.settings.set('textareaHeights', next);
 		},
 
 		setMarkdownEditMode: (value) => {
@@ -1754,6 +1778,10 @@ export function selectIsLeaderboardRegistered(s: SettingsStoreState): boolean {
  * Called once on app startup and again on system resume from sleep.
  */
 export async function loadAllSettings(): Promise<void> {
+	// Snapshot before the awaited reads below. Anything the user changes while
+	// they are in flight must survive this load - see the filter before setState.
+	const beforeRead = useSettingsStore.getState() as unknown as Record<string, unknown>;
+
 	try {
 		// Batch load all settings in a single IPC call
 		const allSettings = (await window.maestro.settings.getAll()) as Record<string, unknown>;
@@ -1847,6 +1875,9 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['modalSizes'] !== undefined)
 			patch.modalSizes = sanitizeModalSizes(allSettings['modalSizes']);
+
+		if (allSettings['textareaHeights'] !== undefined)
+			patch.textareaHeights = sanitizeTextareaHeights(allSettings['textareaHeights']);
 
 		if (allSettings['markdownEditMode'] !== undefined)
 			patch.markdownEditMode = allSettings['markdownEditMode'] as boolean;
@@ -2056,6 +2087,15 @@ export async function loadAllSettings(): Promise<void> {
 		)
 			useUIStore.setState({
 				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
+			});
+
+		// Resolved-snooze history lives in snoozeHistoryStore (it's appended from
+		// the wake scheduler and the Snoozed Tabs modal, not from Settings), so its
+		// persisted array hydrates directly there. Sanitized first: entries are
+		// read straight back from disk and rendered.
+		if (allSettings[SNOOZE_HISTORY_SETTINGS_KEY] !== undefined)
+			useSnoozeHistoryStore.setState({
+				entries: sanitizeSnoozeHistory(allSettings[SNOOZE_HISTORY_SETTINGS_KEY]),
 			});
 
 		// Floating media player geometry lives in mediaPlaybackStore so the
@@ -2289,6 +2329,23 @@ export async function loadAllSettings(): Promise<void> {
 
 		hydrateAnnotatorSettings(allSettings, patch);
 
+		// On a RELOAD (system resume, another window's write), drop any key the user
+		// changed while the reads above were in flight. This load is several IPC
+		// round trips long, so reapplying the older snapshot on top of live typing
+		// loses keystrokes and yanks the caret to the end of the field. Those edits
+		// persisted themselves on the way in, so the in-memory value is the newer
+		// one. Skipped on the initial hydration, where the store still holds
+		// defaults and every disk value must land.
+		if (beforeRead.settingsLoaded === true) {
+			const live = useSettingsStore.getState() as unknown as Record<string, unknown>;
+			const patchKeys = patch as unknown as Record<string, unknown>;
+			for (const key of Object.keys(patchKeys)) {
+				if (live[key] !== beforeRead[key]) {
+					delete patchKeys[key];
+				}
+			}
+		}
+
 		// Apply the entire patch in one setState call
 		patch.settingsLoaded = true;
 		useSettingsStore.setState(patch);
@@ -2387,6 +2444,7 @@ export function getSettingsActions() {
 		setModalSize: state.setModalSize,
 		resetModalSize: state.resetModalSize,
 		resetModalSizes: state.resetModalSizes,
+		setTextareaHeight: state.setTextareaHeight,
 		setMarkdownEditMode: state.setMarkdownEditMode,
 		setChatRawTextMode: state.setChatRawTextMode,
 		setGroupChatAutoScroll: state.setGroupChatAutoScroll,

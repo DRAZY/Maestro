@@ -121,6 +121,12 @@ The font picker stores a bare name (`Roboto Mono`) with no generic fallback, whi
 | `stripJsonBom`     | `(value: string) => string`       | Remove a leading UTF-8 BOM from JSON text before parsing.                 |
 | `parseJsonWithBom` | `<T = unknown>(value: string): T` | `JSON.parse` wrapper that tolerates a leading BOM in persisted JSON text. |
 
+### Search Highlighting (`src/renderer/utils/highlightMatches.tsx` - Renderer)
+
+| Function                                     | Signature                               | Purpose                                                                                                                          |
+| -------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `highlightMatches(text, query, accentColor)` | `(string, string, string) => ReactNode` | Wrap every case-insensitive occurrence of `query` in an accent-colored `<mark>`. Used by the CSV table and its row detail modal. |
+
 ### Main Process (`src/main/utils/stripAnsi.ts`)
 
 | Function         | Signature            | Purpose                                                                            |
@@ -284,6 +290,20 @@ UI: use `<AdditionalDirectoriesSection>` (`src/renderer/components/shared/`) - d
 
 ---
 
+## Director's Notes Narrative (`src/shared/directorNotesNarrative.ts` - Both)
+
+The Director's Notes synopsis agent emits a structured JSON narrative. This module is the ONLY place that turns that raw string into a `DirectorNotesNarrative` or back into prose. Do not hand-roll JSON extraction, repair, or markdown conversion at a call site.
+
+| Function / Constant                  | Signature                            | Purpose                                                                                                                                                                         |
+| ------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parseDirectorNotesNarrative(raw)`   | `(string) => ParseNarrativeResult`   | Strict parse. Tolerates a code fence or stray prose around the object; rejects any structural deviation with a precise error. Never throws.                                     |
+| `recoverDirectorNotesNarrative(raw)` | `(string) => RecoverNarrativeResult` | Best-effort salvage, called ONLY after a strict failure: repairs a cut-off response and raw control characters, drops malformed items, and returns a `reason` the UI must show. |
+| `narrativeToMarkdown(narrative)`     | `(DirectorNotesNarrative) => string` | Render the narrative as markdown prose (`##` section headings + bullets). Used by Plain Mode, Copy, Save, and the CLI's markdown/text output.                                   |
+
+Rendering rule: no surface may display the raw structured output as if it were the report. Show the narrative (or the salvaged one plus `NarrativeParseError`'s recovery banner); on total failure show the banner with the raw text behind its disclosure.
+
+---
+
 ## History Utilities (`src/shared/history.ts` - Both)
 
 | Function / Constant                  | Signature                                            | Purpose                                                                                                                                                         |
@@ -385,10 +405,11 @@ Renderer performance integration in `src/renderer/utils/logger.ts`:
 
 ### execFile (`src/main/utils/execFile.ts`)
 
-| Function                                          | Signature                                                                              | Purpose                                                                                                                                                    |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execFileNoThrow(command, args?, cwd?, options?)` | `(string, string[], string?, ExecOptions \| NodeJS.ProcessEnv) => Promise<ExecResult>` | Safe command execution. No shell injection. Returns `{ stdout, stderr, exitCode }` - never throws. Handles Windows batch files, stdin input, and timeouts. |
-| `needsWindowsShell(command)`                      | `(string) => boolean`                                                                  | Determine if command needs `shell: true` on Windows. `.cmd`/`.bat` need shell; known `.exe` commands (git, node, etc.) do not.                             |
+| Function                                          | Signature                                                                              | Purpose                                                                                                                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execFileNoThrow(command, args?, cwd?, options?)` | `(string, string[], string?, ExecOptions \| NodeJS.ProcessEnv) => Promise<ExecResult>` | Safe command execution. No shell injection. Returns `{ stdout, stderr, exitCode }` - never throws. Handles Windows batch files, stdin input, and timeouts.                                                                                         |
+| `execFileStreaming(command, args, options)`       | `(string, string[], ExecStreamingOptions) => ExecStreamingHandle`                      | Streaming sibling of `execFileNoThrow`: calls `onChunk(chunk, 'stdout' \| 'stderr')` as output arrives, plus `{ result, cancel }`. Use for long commands the user watches live (`git pull`/`git push`). Cancel resolves with exitCode `'SIGTERM'`. |
+| `needsWindowsShell(command)`                      | `(string) => boolean`                                                                  | Determine if command needs `shell: true` on Windows. `.cmd`/`.bat` need shell; known `.exe` commands (git, node, etc.) do not.                                                                                                                     |
 
 ### Safe IPC Send (`src/main/utils/safe-send.ts`)
 

@@ -34,8 +34,8 @@ import { calculateContextDisplay, calculateDisplayInputTokens } from '../utils/c
 import { getContextColor } from '../utils/theme';
 import { DoubleCheck, getPillColor, getEntryIcon, hasRunOutcome } from './History';
 import { safeClipboardWrite } from '../utils/clipboard';
-import { useSettingsStore } from '../stores/settingsStore';
 import { ResizeHandles } from './ui/ResizeHandles';
+import { useSettingsStore } from '../stores/settingsStore';
 
 interface HistoryDetailModalProps {
 	theme: Theme;
