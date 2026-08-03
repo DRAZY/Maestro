@@ -2887,6 +2887,89 @@ describe('TerminalOutput', () => {
 			expect(screen.queryByText('Dynamic claude -p')).not.toBeInTheDocument();
 		});
 	});
+
+	describe('progressive transcript rendering (#1342)', () => {
+		// Switching to an agent with a long transcript used to mount every entry in
+		// one synchronous commit, freezing the UI for seconds on the PREVIOUS agent's
+		// view. The newest entries must render immediately; the rest backfills later.
+		const createLongTranscript = (count: number): LogEntry[] =>
+			Array.from({ length: count }, (_, i) =>
+				createLogEntry({
+					id: `log-${i}`,
+					text: `Message ${i}`,
+					source: i % 2 === 0 ? 'user' : 'stdout',
+				})
+			);
+
+		const renderedIndices = (container: HTMLElement): number[] =>
+			Array.from(container.querySelectorAll('[data-log-index]')).map((el) =>
+				Number(el.getAttribute('data-log-index'))
+			);
+
+		it('bounds the first commit instead of mounting the whole transcript', () => {
+			const logs = createLongTranscript(400);
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			const indices = renderedIndices(container);
+			expect(indices.length).toBeLessThan(logs.length);
+			// The newest entry is what the user is looking at — it must be present.
+			expect(screen.getByText('Message 399')).toBeInTheDocument();
+			// Ancient history is deferred, not dropped (see backfill test below).
+			expect(screen.queryByText('Message 0')).not.toBeInTheDocument();
+		});
+
+		it('keeps absolute log indices so message navigation still targets correctly', () => {
+			const logs = createLongTranscript(400);
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			const indices = renderedIndices(container);
+			// Indices are offsets into the full log list, not into the rendered window,
+			// so the last one is 399 rather than (window length - 1).
+			expect(indices[indices.length - 1]).toBe(399);
+			expect(indices[0]).toBeGreaterThan(0);
+		});
+
+		it('backfills the deferred history over subsequent idle ticks', async () => {
+			const logs = createLongTranscript(40);
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+			expect(renderedIndices(container).length).toBeLessThan(40);
+
+			// jsdom has no requestIdleCallback, so the hook uses its setTimeout fallback.
+			await act(async () => {
+				vi.advanceTimersByTime(500);
+			});
+
+			expect(renderedIndices(container).length).toBe(40);
+			expect(screen.getByText('Message 0')).toBeInTheDocument();
+		});
+
+		it('renders short transcripts in full immediately', () => {
+			const logs = createLongTranscript(5);
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			const { container } = render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			expect(renderedIndices(container)).toEqual([0, 1, 2, 3, 4]);
+		});
+	});
 });
 
 describe('helper function behaviors (tested via component)', () => {
