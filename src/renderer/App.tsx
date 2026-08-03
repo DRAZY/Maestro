@@ -3291,8 +3291,6 @@ function MaestroConsoleInner() {
 						setAgentSessionsOpen={setAgentSessionsOpen}
 						setMemoryViewerOpen={setMemoryViewerOpen}
 						setActiveAgentSessionId={setActiveAgentSessionId}
-						setGitDiffPreview={setGitDiffPreview}
-						setGitLogOpen={setGitLogOpen}
 						isAiMode={activeSession?.inputMode === 'ai'}
 						onQuickActionsRenameTab={handleQuickActionsRenameTab}
 						onQuickActionsToggleReadOnlyMode={handleQuickActionsToggleReadOnlyMode}

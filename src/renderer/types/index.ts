@@ -567,6 +567,11 @@ export interface AITab {
 	logs: LogEntry[]; // Conversation history
 	agentError?: AgentError; // Tab-specific agent error (shown in banner)
 	inputValue: string; // Pending input text for this tab
+	// When true, this tab's composer is in command mode (`!`) and `inputValue`
+	// is a shell command, not a message for the agent. Persisted alongside
+	// inputValue so a draft restored after a tab switch or restart is still
+	// routed the way the user intended - the text alone can't say which.
+	commandMode?: boolean;
 	stagedImages: string[]; // Staged images (base64) for this tab
 	usageStats?: UsageStats; // Token usage for this tab
 	createdAt: number; // Timestamp for ordering

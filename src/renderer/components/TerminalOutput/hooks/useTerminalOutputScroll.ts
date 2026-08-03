@@ -45,6 +45,12 @@ export function useTerminalOutputScroll({
 
 	const [autoScrollPaused, setAutoScrollPaused] = useState(false);
 
+	// Guard flag: a cross-tab search jump is landing, so the follow-the-tail
+	// auto-scroll must stand down. Switching tabs re-renders every row, and the
+	// MutationObserver below reacts to that by slamming the container to the
+	// bottom - which is what used to eat the scroll to the hit.
+	const jumpInFlightRef = useRef(false);
+
 	const isProgrammaticScrollRef = useRef(false);
 	// Absolute scrollTop the last programmatic bottom-jump parked at. A stream
 	// only grows scrollHeight, so our scrollTop stays here until the user
@@ -195,7 +201,7 @@ export function useTerminalOutputScroll({
 			requestAnimationFrame(() => {
 				// Re-check isAtBottomRef inside the rAF so a scroll-up that happens
 				// after schedule but before paint cancels the yank (#1140).
-				if (scrollContainerRef.current && isAtBottomRef.current) {
+				if (scrollContainerRef.current && isAtBottomRef.current && !jumpInFlightRef.current) {
 					jumpToBottom();
 				}
 			});
@@ -270,6 +276,10 @@ export function useTerminalOutputScroll({
 			// re-trigger this. (J1)
 			if (initialIsAtBottom !== false) return;
 			requestAnimationFrame(() => {
+				// A cross-tab search jump asked for a specific message in this tab.
+				// That beats the position the tab was left at - restoring here would
+				// scroll straight back off the hit.
+				if (jumpInFlightRef.current) return;
 				if (scrollContainerRef.current) {
 					const { scrollHeight, clientHeight } = scrollContainerRef.current;
 					const maxScroll = Math.max(0, scrollHeight - clientHeight);
@@ -302,6 +312,12 @@ export function useTerminalOutputScroll({
 			}
 			window.clearTimeout(programmaticGuardTimerRef.current);
 		};
+	}, []);
+
+	const pauseForJump = useCallback(() => {
+		isAtBottomRef.current = false;
+		setAutoScrollPaused(true);
+		setIsAtBottom(false);
 	}, []);
 
 	const scrollToBottomAndResume = useCallback(() => {
@@ -339,5 +355,14 @@ export function useTerminalOutputScroll({
 		isAutoScrollActive: !autoScrollPaused,
 		handleScroll,
 		scrollToBottomAndResume,
+		/** True while a cross-tab jump is landing; suppresses follow-the-tail. */
+		jumpInFlightRef,
+		/**
+		 * Stay on a jumped-to hit instead of following the tail. Scrolling back to
+		 * the bottom resumes auto-scroll (see handleScrollInner), so this leaves the
+		 * same state a manual scroll-up would. Flips the refs before the state so
+		 * the observers' live reads see the pause this frame, not next render.
+		 */
+		pauseForJump,
 	};
 }

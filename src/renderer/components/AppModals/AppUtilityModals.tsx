@@ -96,8 +96,6 @@ export interface AppUtilityModalsProps {
 	setAgentSessionsOpen: (open: boolean) => void;
 	setMemoryViewerOpen?: (open: boolean) => void;
 	setActiveAgentSessionId: (id: string | null) => void;
-	setGitDiffPreview: (diff: string | null) => void;
-	setGitLogOpen: (open: boolean) => void;
 	isAiMode: boolean;
 	onRenameTab: () => void;
 	onToggleReadOnlyMode: () => void;
@@ -368,8 +366,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	setAgentSessionsOpen,
 	setMemoryViewerOpen,
 	setActiveAgentSessionId,
-	setGitDiffPreview,
-	setGitLogOpen,
 	isAiMode,
 	onRenameTab,
 	onToggleReadOnlyMode,
@@ -610,8 +606,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					setAgentSessionsOpen={setAgentSessionsOpen}
 					setMemoryViewerOpen={setMemoryViewerOpen}
 					setActiveAgentSessionId={setActiveAgentSessionId}
-					setGitDiffPreview={setGitDiffPreview}
-					setGitLogOpen={setGitLogOpen}
 					isAiMode={isAiMode}
 					tabShortcuts={tabShortcuts}
 					onRenameTab={onRenameTab}

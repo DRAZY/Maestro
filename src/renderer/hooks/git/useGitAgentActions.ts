@@ -13,6 +13,7 @@
 
 import { useCallback, useMemo } from 'react';
 import { useModalStore } from '../../stores/modalStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { useGitBranch, useGitDetail } from '../../contexts/GitStatusContext';
 import { gitService } from '../../services/git';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
@@ -41,6 +42,16 @@ export interface GitAgentActions {
 	push: () => void;
 	switchBranch: () => void;
 	createPR: () => void;
+	/**
+	 * Open the worktree configuration modal for this agent. Activates the agent
+	 * first, because the modal reads the active session.
+	 */
+	configureWorktrees: () => void;
+	/**
+	 * Whether worktree config applies. False for worktree children, which can't
+	 * own a config of their own.
+	 */
+	canConfigureWorktrees: boolean;
 }
 
 /**
@@ -149,6 +160,14 @@ export function useGitAgentActions(session: Session | null | undefined): GitAgen
 		useModalStore.getState().openModal('createPR', { session, sourceBranch: branch });
 	}, [session, branch]);
 
+	const configureWorktrees = useCallback(() => {
+		if (!session) return;
+		// The config modal renders against the active session, so activating is
+		// part of targeting it - same order handleOpenWorktreeConfigSession uses.
+		useSessionStore.getState().setActiveSessionId(session.id);
+		useModalStore.getState().openModal('worktreeConfig');
+	}, [session]);
+
 	return {
 		isGitRepo: Boolean(session?.isGitRepo),
 		branch,
@@ -163,5 +182,8 @@ export function useGitAgentActions(session: Session | null | undefined): GitAgen
 		push,
 		switchBranch,
 		createPR,
+		configureWorktrees,
+		// Worktree children can't own a worktree config of their own.
+		canConfigureWorktrees: Boolean(session?.isGitRepo && !session.parentSessionId),
 	};
 }

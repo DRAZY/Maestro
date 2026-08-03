@@ -25,6 +25,17 @@ import { useLogItemUiState } from './hooks/useLogItemUiState';
 import { useTerminalOutputSearch } from './hooks/useTerminalOutputSearch';
 import { useTerminalOutputScroll } from './hooks/useTerminalOutputScroll';
 
+/**
+ * Frames a cross-tab search jump keeps re-asserting its scroll position.
+ * Rows carry `content-visibility: auto`, so ones that have never been near the
+ * viewport are laid out at their `contain-intrinsic-size` estimate; the target
+ * shifts as real heights replace those estimates on the way there.
+ */
+const JUMP_STABILIZE_FRAMES = 10;
+
+/** How long the jump keeps auto-scroll suppressed after landing (~2x the stabilize window). */
+const JUMP_SETTLE_MS = 400;
+
 // PERFORMANCE: Wrap in React.memo to prevent re-renders when parent re-renders
 // but TerminalOutput's props haven't changed. This is critical because TerminalOutput
 // can render many log entries and is expensive to re-render.
@@ -182,27 +193,6 @@ export const TerminalOutput = memo(
 		// store entry inside the effect must NOT tear down the flash we just started.
 		useEffect(() => () => cancelJumpRef.current?.(), []);
 
-		useEffect(() => {
-			if (!pendingLogJump) return;
-			if (pendingLogJump.sessionId !== session.id) return;
-			// Wait for the tab switch to land before hunting for the entry.
-			if (!activeTab || pendingLogJump.tabId !== activeTab.id) return;
-
-			const { logId } = pendingLogJump;
-			const renderedId = renderedIdByLogId.get(logId) ?? logId;
-			pendingJumpMatchIdRef.current = renderedId;
-			cancelJumpRef.current?.();
-			cancelJumpRef.current = jumpToElement(
-				() =>
-					Array.from(
-						scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-log-id]') ?? []
-					).find((el) => el.getAttribute('data-log-id') === renderedId),
-				{ color: theme.colors.accent }
-			);
-			// Consume it: the jump is a one-shot request, not persistent state.
-			useUIStore.getState().clearPendingLogJump(logId);
-		}, [pendingLogJump, session.id, activeTab, renderedIdByLogId, theme.colors.accent]);
-
 		const {
 			expandedLogs,
 			toggleExpanded,
@@ -221,18 +211,24 @@ export const TerminalOutput = memo(
 			toggleMarkdownEditMode,
 		} = useLogItemUiState(markdownEditMode, setMarkdownEditMode);
 
-		const { currentMatchIndex, totalMatches, regexError, goToNextMatch, goToPrevMatch } =
-			useTerminalOutputSearch({
-				scrollContainerRef,
-				terminalOutputRef,
-				outputSearchOpen,
-				outputSearchRegex,
-				debouncedSearchQuery,
-				filteredLogsLength: filteredLogs.length,
-				setOutputSearchOpen,
-				setOutputSearchQuery,
-				pendingJumpMatchIdRef,
-			});
+		const {
+			currentMatchIndex,
+			totalMatches,
+			regexError,
+			goToNextMatch,
+			goToPrevMatch,
+			closeSearch,
+		} = useTerminalOutputSearch({
+			scrollContainerRef,
+			terminalOutputRef,
+			outputSearchOpen,
+			outputSearchRegex,
+			debouncedSearchQuery,
+			filteredLogsLength: filteredLogs.length,
+			setOutputSearchOpen,
+			setOutputSearchQuery,
+			pendingJumpMatchIdRef,
+		});
 
 		const {
 			isAtBottom,
@@ -242,6 +238,8 @@ export const TerminalOutput = memo(
 			isAutoScrollActive,
 			handleScroll,
 			scrollToBottomAndResume,
+			jumpInFlightRef,
+			pauseForJump,
 		} = useTerminalOutputScroll({
 			scrollContainerRef,
 			contentRef,
@@ -253,6 +251,58 @@ export const TerminalOutput = memo(
 			onScrollPositionChange,
 			onAtBottomChange,
 		});
+
+		useEffect(() => {
+			if (!pendingLogJump) return;
+			if (pendingLogJump.sessionId !== session.id) return;
+			// Wait for the tab switch to land before hunting for the entry.
+			if (!activeTab || pendingLogJump.tabId !== activeTab.id) return;
+
+			const { logId } = pendingLogJump;
+			const renderedId = renderedIdByLogId.get(logId) ?? logId;
+			pendingJumpMatchIdRef.current = renderedId;
+			cancelJumpRef.current?.();
+
+			jumpInFlightRef.current = true;
+			const releaseJump = () => {
+				jumpInFlightRef.current = false;
+			};
+			const cancel = jumpToElement(
+				() =>
+					Array.from(
+						scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-log-id]') ?? []
+					).find((el) => el.getAttribute('data-log-id') === renderedId),
+				{
+					color: theme.colors.accent,
+					// Instant rather than smooth: an animated scroll is still running
+					// when the next batch of rows renders, and whoever scrolls during
+					// that window wins. Landing in one frame removes the race.
+					behavior: 'auto',
+					stabilizeFrames: JUMP_STABILIZE_FRAMES,
+					onFound: () => {
+						pauseForJump();
+						setTimeout(releaseJump, JUMP_SETTLE_MS);
+					},
+					onTimeout: releaseJump,
+				}
+			);
+			// Releasing on cancel matters: a jump abandoned before it landed would
+			// otherwise leave auto-scroll suppressed for the rest of the session.
+			cancelJumpRef.current = () => {
+				releaseJump();
+				cancel();
+			};
+			// Consume it: the jump is a one-shot request, not persistent state.
+			useUIStore.getState().clearPendingLogJump(logId);
+		}, [
+			pendingLogJump,
+			session.id,
+			activeTab,
+			renderedIdByLogId,
+			theme.colors.accent,
+			jumpInFlightRef,
+			pauseForJump,
+		]);
 
 		// Helper to find last user command for echo stripping in terminal mode
 		const getLastUserCommand = useCallback(
@@ -403,6 +453,7 @@ export const TerminalOutput = memo(
 						setOutputSearchRegex={setOutputSearchRegex}
 						goToNextMatch={goToNextMatch}
 						goToPrevMatch={goToPrevMatch}
+						onClose={closeSearch}
 					/>
 				)}
 				{/* Prose styles for markdown rendering - injected once at container level for performance */}

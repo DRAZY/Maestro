@@ -21,10 +21,10 @@ import { formatTokensCompact, formatRelativeTime, formatCost } from '../utils/fo
 import { calculateContextDisplay, calculateDisplayInputTokens } from '../utils/contextUsage';
 import { getExtensionColor } from '../utils/extensionColors';
 import { getTabDisplayName } from '../utils/tabHelpers';
-import { EscCloseHint } from './ui/EscCloseHint';
 import { getBrowserTabLabel } from '../utils/browserTabPersistence';
 import { logger } from '../utils/logger';
 import { ResizeHandles } from './ui/ResizeHandles';
+import { EscCloseButton } from './ui/EscCloseButton';
 
 /** Normalize a project path for comparison (strip trailing slashes) */
 function normalizePath(p: string): string {
@@ -657,7 +657,7 @@ export function TabSwitcherModal({
 								{formatShortcutKeys(shortcut.keys)}
 							</span>
 						)}
-						<EscCloseHint theme={theme} onClose={onClose} />
+						<EscCloseButton theme={theme} onClose={onClose} />
 					</div>
 				</div>
 
