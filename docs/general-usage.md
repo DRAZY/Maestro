@@ -750,6 +750,8 @@ Open the list from the search icon in the tab bar → **See All Snoozed Tabs**, 
 
 Click **View History** in the Snoozed Tabs header to see snoozes that have already finished. It is one chronological list across every agent, newest first, and each entry keeps the note you left yourself along with when it was due and when it actually came back. Entries are marked by how they ended: came back on schedule, brought back early, or dismissed.
 
+Click any entry to jump back to it. If the tab is still open you land directly on it; if only the agent is still around you land there instead. Entries whose agent has since been deleted are shown but not clickable.
+
 The log keeps the most recent 100 entries; older ones drop off as new ones arrive.
 
 <Note>
