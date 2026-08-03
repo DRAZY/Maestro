@@ -66,8 +66,7 @@ export function useAgentToolExecutionListener(): void {
 						// dropping events / deleting logs caused (the flicker bug).
 
 						const newState = toolEvent.state as
-							| NonNullable<LogEntry['metadata']>['toolState']
-							| undefined;
+							NonNullable<LogEntry['metadata']>['toolState'] | undefined;
 
 						// Tag tool entries with `renderStyle: 'text-stream'` when the
 						// session's resolved Claude mode is interactive so the TUI/API

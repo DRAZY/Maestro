@@ -28,14 +28,7 @@
  *              the owning agent with that option's value (a live prompt inject)
  */
 export type CadenzaViewType =
-	| 'tracker'
-	| 'file'
-	| 'markdown'
-	| 'image'
-	| 'code'
-	| 'view'
-	| 'html'
-	| 'decision';
+	'tracker' | 'file' | 'markdown' | 'image' | 'code' | 'view' | 'html' | 'decision';
 
 /** One choice on a `decision` cadenza. Clicking sends `value` to the agent. */
 export interface CadenzaDecisionOption {

@@ -17,14 +17,7 @@
  *  mirror the AgentRun/CampaignTask states so a task can reflect a ledger-driven
  *  review/fix cycle, not just busy-to-idle completion. */
 export type PianolaTaskStatus =
-	| 'pending'
-	| 'running'
-	| 'needs_review'
-	| 'fixing'
-	| 'done'
-	| 'failed'
-	| 'blocked'
-	| 'skipped';
+	'pending' | 'running' | 'needs_review' | 'fixing' | 'done' | 'failed' | 'blocked' | 'skipped';
 
 /** One unit of work in a plan, with its dependency edges and runtime binding. */
 export interface PianolaTask {

@@ -122,9 +122,8 @@ export function registerCueStatsHandlers(deps: CueStatsHandlerDependencies): voi
 	// turned that flag on with a permanently blank Cue subtotal.
 	ipcMain.handle(
 		'cue-stats:get-historical-conductor-credit',
-		withIpcErrorLogging(
-			handlerOpts('getHistoricalConductorCredit'),
-			async (): Promise<number> => getHistoricalConductorCreditMs()
+		withIpcErrorLogging(handlerOpts('getHistoricalConductorCredit'), async (): Promise<number> =>
+			getHistoricalConductorCreditMs()
 		)
 	);
 }

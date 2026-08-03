@@ -1261,9 +1261,7 @@ Zustand stores are singletons. Reset between tests:
 
 ```typescript
 beforeEach(() => {
-	useSettingsStore.setState({
-		/* initial state */
-	});
+	useSettingsStore.setState({/* initial state */});
 });
 ```
 

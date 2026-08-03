@@ -1,10 +1,5 @@
 export type CampaignStatus =
-	| 'queued'
-	| 'running'
-	| 'needs_review'
-	| 'blocked'
-	| 'complete'
-	| 'archived';
+	'queued' | 'running' | 'needs_review' | 'blocked' | 'complete' | 'archived';
 
 export type CampaignTaskStatus =
 	| 'queued'

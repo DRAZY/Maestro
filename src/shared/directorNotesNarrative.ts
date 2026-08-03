@@ -47,8 +47,7 @@ export interface DirectorNotesNarrative {
 
 /** Discriminated result of {@link parseDirectorNotesNarrative}. */
 export type ParseNarrativeResult =
-	| { ok: true; narrative: DirectorNotesNarrative }
-	| { ok: false; error: string };
+	{ ok: true; narrative: DirectorNotesNarrative } | { ok: false; error: string };
 
 const VALID_KINDS: ReadonlySet<string> = new Set<NarrativeSectionKind>([
 	'accomplishments',

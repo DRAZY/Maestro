@@ -11,10 +11,7 @@ import { create } from 'zustand';
 import type { FeedbackMessage, FeedbackParsedResponse } from '../services/feedbackConversation';
 
 export type FeedbackDraftCategory =
-	| 'bug_report'
-	| 'feature_request'
-	| 'improvement'
-	| 'general_feedback';
+	'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
 
 export interface FeedbackDraftAttachment {
 	id: string;

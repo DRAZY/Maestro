@@ -70,12 +70,7 @@ import { logger } from '../utils/logger';
  * covers the X button, middle-click, overlay menu, and close-others/left/right.
  */
 export type TerminalCloseReason =
-	| 'user-action'
-	| 'pty-exit'
-	| 'spawn-failure'
-	| 'close-others'
-	| 'close-left'
-	| 'close-right';
+	'user-action' | 'pty-exit' | 'spawn-failure' | 'close-others' | 'close-left' | 'close-right';
 
 // ============================================================================
 // Store Types

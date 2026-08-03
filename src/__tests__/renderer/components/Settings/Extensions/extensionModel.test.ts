@@ -136,7 +136,10 @@ describe('extensionModel first-party projection (all Encore features)', () => {
 
 	it('surfaces the plan-table identities on the details pane fields', () => {
 		const byFlag = (flag: keyof EncoreFeatureFlags) =>
-			builtinExtension(BUILTIN_FEATURES.find((d) => d.flag === flag)!, flags());
+			builtinExtension(
+				BUILTIN_FEATURES.find((d) => d.flag === flag)!,
+				flags()
+			);
 		expect(byFlag('directorNotes')).toMatchObject({
 			pluginId: 'com.maestro.director-notes',
 			category: 'insights',

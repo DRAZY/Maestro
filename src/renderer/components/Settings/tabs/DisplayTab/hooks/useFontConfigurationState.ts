@@ -17,8 +17,7 @@ export function useFontConfigurationState(): FontConfigurationState {
 			setSystemFonts(detected);
 
 			const savedCustomFonts = (await window.maestro.settings.get('customFonts')) as
-				| string[]
-				| undefined;
+				string[] | undefined;
 			if (savedCustomFonts && Array.isArray(savedCustomFonts)) {
 				setCustomFonts(savedCustomFonts);
 			}

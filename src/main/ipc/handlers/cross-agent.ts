@@ -80,8 +80,7 @@ export function registerCrossAgentHandlers(deps: CrossAgentHandlerDependencies):
 	const getTargetSession = (sessionId: string): CrossAgentTargetSession | null => {
 		const sessions = sessionsStore.get('sessions', []) as Array<Record<string, unknown>>;
 		const s = sessions.find((x) => x && typeof x === 'object' && x.id === sessionId) as
-			| Record<string, any>
-			| undefined;
+			Record<string, any> | undefined;
 		if (!s) return null;
 		return {
 			id: s.id,
