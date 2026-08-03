@@ -1,4 +1,13 @@
-import React, { useRef, useEffect, useMemo, forwardRef, useState, useCallback, memo } from 'react';
+import React, {
+	useRef,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	forwardRef,
+	useState,
+	useCallback,
+	memo,
+} from 'react';
 import {
 	ChevronDown,
 	ChevronUp,
@@ -21,7 +30,7 @@ import Convert from 'ansi-to-html';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getActiveTab } from '../utils/tabHelpers';
-import { useDebouncedValue, useThrottledCallback } from '../hooks';
+import { useDebouncedValue, useThrottledCallback, useProgressiveRenderWindow } from '../hooks';
 import {
 	processLogTextHelper,
 	filterTextByLinesHelper,
@@ -1789,6 +1798,45 @@ export const TerminalOutput = memo(
 		const filteredLogs = collapsedLogs;
 
 		// ============================================================================
+		// Progressive transcript rendering (issue #1342)
+		// ============================================================================
+		// Mounting every entry of a long transcript in one commit blocked the main
+		// thread for seconds on agent switch (each entry runs the full remark/rehype
+		// pipeline). Render the newest slice first, then backfill older history on
+		// idle ticks. Prepending entries above the viewport would shift what the user
+		// is reading, so snapshot distance-from-bottom before each expansion and
+		// restore it in a layout effect, before the browser paints.
+		const backfillBottomDistanceRef = useRef<number | null>(null);
+
+		const handleBeforeBackfill = useCallback(() => {
+			const container = scrollContainerRef.current;
+			if (container) {
+				backfillBottomDistanceRef.current = container.scrollHeight - container.scrollTop;
+			}
+		}, []);
+
+		const { startIndex: logStartIndex, revealTo: revealLogIndex } = useProgressiveRenderWindow(
+			filteredLogs.length,
+			`${session.id}-${activeTabId ?? ''}`,
+			{ onBeforeExpand: handleBeforeBackfill }
+		);
+
+		useLayoutEffect(() => {
+			const container = scrollContainerRef.current;
+			const bottomDistance = backfillBottomDistanceRef.current;
+			backfillBottomDistanceRef.current = null;
+			if (!container || bottomDistance === null) return;
+			// Anchor to the bottom rather than the top: content was prepended, so the
+			// distance from the bottom is what stayed constant for the user.
+			container.scrollTop = container.scrollHeight - bottomDistance;
+		}, [logStartIndex]);
+
+		const visibleLogs = useMemo(
+			() => (logStartIndex > 0 ? filteredLogs.slice(logStartIndex) : filteredLogs),
+			[filteredLogs, logStartIndex]
+		);
+
+		// ============================================================================
 		// Cross-tab search jump (Opt+Cmd+F -> pick a hit in another tab)
 		// ============================================================================
 		// The modal switches the active tab, seeds this tab's Find bar with the same
@@ -1812,6 +1860,12 @@ export const TerminalOutput = memo(
 			const renderedId = renderedIdByLogId.get(logId) ?? logId;
 			pendingJumpMatchIdRef.current = renderedId;
 			cancelJumpRef.current?.();
+
+			// The target may still be behind the progressive render window (#1342).
+			// jumpToElement gives up after ~30 frames, which idle backfill can outlast
+			// on a long transcript, so pull the entry in now instead of racing it.
+			const targetIndex = filteredLogs.findIndex((l) => l.id === renderedId);
+			if (targetIndex >= 0) revealLogIndex(targetIndex);
 
 			jumpInFlightRef.current = true;
 			const releaseJump = () => {
@@ -1853,7 +1907,15 @@ export const TerminalOutput = memo(
 			};
 			// Consume it: the jump is a one-shot request, not persistent state.
 			useUIStore.getState().clearPendingLogJump(logId);
-		}, [pendingLogJump, session.id, activeTab, renderedIdByLogId, theme.colors.accent]);
+		}, [
+			pendingLogJump,
+			session.id,
+			activeTab,
+			renderedIdByLogId,
+			theme.colors.accent,
+			filteredLogs,
+			revealLogIndex,
+		]);
 
 		// ============================================================================
 		// Search match navigation (CSS Custom Highlight API)
@@ -1968,7 +2030,10 @@ export const TerminalOutput = memo(
 			// require re-walking the DOM.
 
 			return clearHighlights;
-		}, [debouncedSearchQuery, outputSearchRegex, outputSearchOpen, filteredLogs]);
+			// logStartIndex is a dependency because idle backfill adds entries to the
+			// DOM after the initial pass; without it, matches in freshly hydrated
+			// history would never be highlighted or counted.
+		}, [debouncedSearchQuery, outputSearchRegex, outputSearchOpen, filteredLogs, logStartIndex]);
 
 		// Update the "current" highlight and scroll it into view when index changes.
 		useEffect(() => {
@@ -2492,65 +2557,70 @@ export const TerminalOutput = memo(
 					onScroll={handleScroll}
 				>
 					{/* Log entries */}
-					{filteredLogs.map((log, index) => (
-						<LogItemComponent
-							key={log.id}
-							log={log}
-							index={index}
-							isTerminal={isTerminal}
-							isAIMode={isAIMode}
-							theme={theme}
-							fontFamily={fontFamily}
-							maxOutputLines={maxOutputLines}
-							lastUserCommand={
-								isTerminal && log.source !== 'user' ? getLastUserCommand(index) : undefined
-							}
-							isExpanded={expandedLogs.has(log.id)}
-							onToggleExpanded={toggleExpanded}
-							localFilterQuery={localFilters.get(log.id) || ''}
-							filterMode={filterModes.get(log.id) || { mode: 'include', regex: false }}
-							activeLocalFilter={activeLocalFilter}
-							onToggleLocalFilter={toggleLocalFilter}
-							onSetLocalFilterQuery={setLocalFilterQuery}
-							onSetFilterMode={setFilterModeForLog}
-							onClearLocalFilter={clearLocalFilter}
-							deleteConfirmLogId={deleteConfirmLogId}
-							onDeleteLog={onDeleteLog}
-							onSetDeleteConfirmLogId={setDeleteConfirmLogId}
-							scrollContainerRef={scrollContainerRef}
-							setLightboxImage={setLightboxImage}
-							copyToClipboard={copyToClipboard}
-							ansiConverter={ansiConverter}
-							markdownEditMode={markdownEditMode}
-							onToggleMarkdownEditMode={toggleMarkdownEditMode}
-							onReplayMessage={onReplayMessage}
-							onForkConversation={onForkConversation}
-							sessionId={session.id}
-							onSessionRecover={onSessionRecover}
-							isRecoveringSession={isRecoveringSession}
-							sessionRecoveryError={sessionRecoveryError}
-							fileTree={fileTree}
-							cwd={cwd}
-							projectRoot={projectRoot}
-							onFileClick={onFileClick}
-							sshRemoteId={
-								session.sessionSshRemoteConfig?.enabled
-									? (session.sessionSshRemoteConfig?.remoteId ?? undefined)
-									: undefined
-							}
-							onShowErrorDetails={onShowErrorDetails}
-							onSaveToFile={handleSaveToFile}
-							ghCliAvailable={ghCliAvailable}
-							onPublishGist={onPublishMessageGist}
-							publishedGistUrl={publishedGists[log.id]?.gistUrl}
-							bionifyReadingMode={globalBionifyReadingMode}
-							bionifyIntensity={globalBionifyIntensity}
-							bionifyAlgorithm={globalBionifyAlgorithm}
-							userMessageAlignment={userMessageAlignment}
-							isClaudeCode={session.toolType === 'claude-code'}
-							isAdaptiveMode={getClaudeTokenMode(session) === 'dynamic'}
-						/>
-					))}
+					{visibleLogs.map((log, visibleIndex) => {
+						// Absolute index into filteredLogs — sibling lookups (echo stripping)
+						// and jump-to-message targeting must not see the window offset.
+						const index = logStartIndex + visibleIndex;
+						return (
+							<LogItemComponent
+								key={log.id}
+								log={log}
+								index={index}
+								isTerminal={isTerminal}
+								isAIMode={isAIMode}
+								theme={theme}
+								fontFamily={fontFamily}
+								maxOutputLines={maxOutputLines}
+								lastUserCommand={
+									isTerminal && log.source !== 'user' ? getLastUserCommand(index) : undefined
+								}
+								isExpanded={expandedLogs.has(log.id)}
+								onToggleExpanded={toggleExpanded}
+								localFilterQuery={localFilters.get(log.id) || ''}
+								filterMode={filterModes.get(log.id) || { mode: 'include', regex: false }}
+								activeLocalFilter={activeLocalFilter}
+								onToggleLocalFilter={toggleLocalFilter}
+								onSetLocalFilterQuery={setLocalFilterQuery}
+								onSetFilterMode={setFilterModeForLog}
+								onClearLocalFilter={clearLocalFilter}
+								deleteConfirmLogId={deleteConfirmLogId}
+								onDeleteLog={onDeleteLog}
+								onSetDeleteConfirmLogId={setDeleteConfirmLogId}
+								scrollContainerRef={scrollContainerRef}
+								setLightboxImage={setLightboxImage}
+								copyToClipboard={copyToClipboard}
+								ansiConverter={ansiConverter}
+								markdownEditMode={markdownEditMode}
+								onToggleMarkdownEditMode={toggleMarkdownEditMode}
+								onReplayMessage={onReplayMessage}
+								onForkConversation={onForkConversation}
+								sessionId={session.id}
+								onSessionRecover={onSessionRecover}
+								isRecoveringSession={isRecoveringSession}
+								sessionRecoveryError={sessionRecoveryError}
+								fileTree={fileTree}
+								cwd={cwd}
+								projectRoot={projectRoot}
+								onFileClick={onFileClick}
+								sshRemoteId={
+									session.sessionSshRemoteConfig?.enabled
+										? (session.sessionSshRemoteConfig?.remoteId ?? undefined)
+										: undefined
+								}
+								onShowErrorDetails={onShowErrorDetails}
+								onSaveToFile={handleSaveToFile}
+								ghCliAvailable={ghCliAvailable}
+								onPublishGist={onPublishMessageGist}
+								publishedGistUrl={publishedGists[log.id]?.gistUrl}
+								bionifyReadingMode={globalBionifyReadingMode}
+								bionifyIntensity={globalBionifyIntensity}
+								bionifyAlgorithm={globalBionifyAlgorithm}
+								userMessageAlignment={userMessageAlignment}
+								isClaudeCode={session.toolType === 'claude-code'}
+								isAdaptiveMode={getClaudeTokenMode(session) === 'dynamic'}
+							/>
+						);
+					})}
 
 					{/* Queued items section - filtered to active tab */}
 					{session.executionQueue && session.executionQueue.length > 0 && (
