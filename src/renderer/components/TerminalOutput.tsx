@@ -33,6 +33,7 @@ import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { QueuedItemsList } from './QueuedItemsList';
 import { LogFilterControls } from './LogFilterControls';
+import { EscCloseButton } from './ui/EscCloseButton';
 import { ShellCommandCard } from './ShellCommandCard';
 import { SaveMarkdownModal } from './SaveMarkdownModal';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
@@ -1551,6 +1552,14 @@ export const TerminalOutput = memo(
 		const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
 		const layerIdRef = useRef<string>();
 
+		// One definition of "dismiss the find bar", shared by the Escape layer and
+		// the ESC pill so a pointer-only user gets identical behavior.
+		const closeOutputSearch = useCallback(() => {
+			setOutputSearchOpen(false);
+			setOutputSearchQuery('');
+			terminalOutputRef.current?.focus();
+		}, [setOutputSearchOpen, setOutputSearchQuery]);
+
 		// Register layer when search is open
 		useEffect(() => {
 			if (outputSearchOpen) {
@@ -1560,11 +1569,7 @@ export const TerminalOutput = memo(
 					blocksLowerLayers: false,
 					capturesFocus: true,
 					focusTrap: 'none',
-					onEscape: () => {
-						setOutputSearchOpen(false);
-						setOutputSearchQuery('');
-						terminalOutputRef.current?.focus();
-					},
+					onEscape: closeOutputSearch,
 					allowClickOutside: true,
 					ariaLabel: 'Output Search',
 				});
@@ -1575,18 +1580,17 @@ export const TerminalOutput = memo(
 					}
 				};
 			}
+			// closeOutputSearch is intentionally omitted: re-registering the layer on
+			// every identity change would churn the stack. The effect below keeps the
+			// handler fresh instead.
 		}, [outputSearchOpen, registerLayer, unregisterLayer]);
 
 		// Update the handler when dependencies change
 		useEffect(() => {
 			if (outputSearchOpen && layerIdRef.current) {
-				updateLayerHandler(layerIdRef.current, () => {
-					setOutputSearchOpen(false);
-					setOutputSearchQuery('');
-					terminalOutputRef.current?.focus();
-				});
+				updateLayerHandler(layerIdRef.current, closeOutputSearch);
 			}
-		}, [outputSearchOpen, updateLayerHandler]);
+		}, [outputSearchOpen, updateLayerHandler, closeOutputSearch]);
 
 		// Search match navigation state (populated by effect below after filteredLogs is defined)
 		const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
@@ -2407,15 +2411,12 @@ export const TerminalOutput = memo(
 									spellCheck={outputSearchRegex ? false : undefined}
 									autoFocus
 								/>
-								<div
-									className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded text-xs font-bold pointer-events-none"
-									style={{
-										backgroundColor: theme.colors.bgMain,
-										color: theme.colors.textDim,
-									}}
-								>
-									ESC
-								</div>
+								<EscCloseButton
+									theme={theme}
+									variant="adornment"
+									label="Close search (Esc)"
+									onClose={closeOutputSearch}
+								/>
 							</div>
 							<button
 								onClick={() => setOutputSearchRegex(!outputSearchRegex)}

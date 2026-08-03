@@ -42,3 +42,6 @@ export type { HoverTooltipProps } from './HoverTooltip';
 
 export { CalendarPicker } from './CalendarPicker';
 export type { CalendarPickerProps } from './CalendarPicker';
+
+export { EscCloseButton } from './EscCloseButton';
+export type { EscCloseButtonProps } from './EscCloseButton';

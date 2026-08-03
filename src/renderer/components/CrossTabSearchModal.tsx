@@ -6,6 +6,7 @@ import { useListNavigation } from '../hooks';
 import { useDebouncedValue } from '../hooks/utils/useThrottle';
 import { useFocusOnMount } from '../hooks/utils/useFocusAfterRender';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { EscCloseButton } from './ui/EscCloseButton';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { formatRelativeTime } from '../utils/formatters';
 import {
@@ -226,12 +227,7 @@ export function CrossTabSearchModal({
 							{formatShortcutKeys(shortcut.keys)}
 						</span>
 					)}
-					<div
-						className="px-2 py-0.5 rounded text-xs font-bold shrink-0"
-						style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
-					>
-						ESC
-					</div>
+					<EscCloseButton theme={theme} onClose={onClose} />
 				</div>
 
 				{/* Summary strip */}

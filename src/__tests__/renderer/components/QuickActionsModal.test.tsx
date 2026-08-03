@@ -10,6 +10,19 @@ import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useCenterFlashStore } from '../../../renderer/stores/centerFlashStore';
 import { useFileExplorerStore } from '../../../renderer/stores/fileExplorerStore';
 import { mockTheme } from '../../helpers/mockTheme';
+
+/**
+ * The action rows, in render order. Scoped to `[data-action-label]` rather than
+ * `getAllByRole('button')` because the header also renders buttons (the ESC
+ * close pill), and an index into every button on screen breaks the moment one
+ * is added.
+ */
+function getActionRows(): HTMLElement[] {
+	return Array.from(document.querySelectorAll<HTMLElement>('[data-action-label]')).map(
+		(label) => label.closest('button') as HTMLElement
+	);
+}
+
 // Add missing window.maestro.devtools and debug mocks
 beforeAll(() => {
 	(window.maestro as any).devtools = {
@@ -972,7 +985,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.change(input, { target: { value: 'settings' } });
 
 			// Selected index should be reset to 0 - first button is selected
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			// First button should have accent background (selected)
 			expect(buttons[0]).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
@@ -1109,7 +1122,7 @@ describe('QuickActionsModal', () => {
 			const input = screen.getByPlaceholderText('Type a command or jump to agent...');
 			fireEvent.keyDown(input, { key: 'ArrowDown' });
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			// Second button should now be selected (first is at index 0)
 			expect(buttons[1]).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
@@ -1127,7 +1140,7 @@ describe('QuickActionsModal', () => {
 			// Move up
 			fireEvent.keyDown(input, { key: 'ArrowUp' });
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			expect(buttons[1]).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
 
@@ -1141,7 +1154,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.keyDown(input, { key: 'ArrowUp' });
 			fireEvent.keyDown(input, { key: 'ArrowUp' });
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			expect(buttons[0]).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
 
@@ -1572,7 +1585,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			expect(buttons[0]).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
 
@@ -1580,7 +1593,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getActionRows();
 			// Non-selected items should not have accent background
 			expect(buttons[1]).not.toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});

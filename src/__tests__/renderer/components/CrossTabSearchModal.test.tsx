@@ -166,6 +166,15 @@ describe('CrossTabSearchModal', () => {
 		expect(screen.getByText(/Invalid regex:/)).toBeInTheDocument();
 	});
 
+	// Remote desktop and tablet users have no Escape key to reach for.
+	it('closes when the ESC pill is clicked', () => {
+		const { onClose } = renderModal();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Close (Esc)' }));
+
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
 	it('shows a match-count pill when an entry contains several hits', () => {
 		renderModal({
 			tabs: [

@@ -303,14 +303,17 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// Only fall back to the main menu if the user actually came from there;
 	// when the modal was opened directly into move-to-group via a hotkey,
 	// escape should dismiss it entirely rather than reveal the cmd+k menu.
-	useModalLayer(MODAL_PRIORITIES.QUICK_ACTION, 'Quick Actions', () => {
+	// Named so the ESC pill in the search bar can invoke exactly what the key does.
+	const handleEscape = useCallback(() => {
 		if (mode === 'move-to-group' && initialMode === 'main') {
 			setMode('main');
 			// Note: Selection will be reset by the search/mode change useEffect
 		} else {
 			setQuickActionOpen(false);
 		}
-	});
+	}, [mode, initialMode, setQuickActionOpen]);
+
+	useModalLayer(MODAL_PRIORITIES.QUICK_ACTION, 'Quick Actions', handleEscape);
 
 	useFocusAfterRender(inputRef, true, 50);
 
@@ -850,6 +853,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 					setRenameValue={setRenameValue}
 					inputRef={inputRef}
 					onKeyDown={handleKeyDown}
+					onClose={handleEscape}
 				/>
 				{!renamingSession && (
 					<QuickActionsList
