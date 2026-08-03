@@ -132,8 +132,12 @@ export function CsvRowDetailModal({
 			onClose={onClose}
 			customHeader={customHeader}
 			closeOnBackdropClick
+			// The table renders inside the Main Panel, whose `isolate` wrapper is a
+			// stacking context - without the portal the backdrop dims only the
+			// center and the Left/Right panels stay lit on top of it.
+			portal
 			resizeKey="csv-row-detail"
-			defaultSize={{ width: 720, height: 560 }}
+			defaultSize={{ width: 900, height: 640 }}
 			minSize={{ width: 380, height: 260 }}
 			initialFocusRef={searchRef}
 			contentClassName="flex flex-col flex-1 min-h-0"

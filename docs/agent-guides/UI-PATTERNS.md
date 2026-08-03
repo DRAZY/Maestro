@@ -159,6 +159,40 @@ How it works:
 
 `resizeKey` must be stable across renders - it is the persistence key, not a label.
 
+### Modals Opened From Inside the Main Panel
+
+A modal rendered from a component that lives inside the Main Panel (file
+preview renderers, terminal views, chat surfaces) MUST pass `portal` to
+`<Modal>`:
+
+```tsx
+<Modal theme={theme} title="Row 1" priority={MODAL_PRIORITIES.CSV_ROW_DETAIL} portal>
+```
+
+`MainPanel.tsx` wraps the session view in `isolate` (`isolation: isolate`),
+which creates a stacking context. A `fixed inset-0` backdrop rendered inside
+that subtree is still full-viewport in size, but its `z-index: 9999` only ranks
+it _within_ MainPanel's context. The Left Bar (`SessionList.tsx`, `relative
+z-20`) and the Right Panel (later in DOM order) are siblings of that context, so
+they paint on top: the center dims while both side panels stay fully lit, and
+the modal looks clipped to the middle of the window.
+
+No z-index fixes this - ranking never crosses a stacking context. Rendering into
+`document.body` is the only escape, which is what `portal` does. Most modals
+mount at the App root already and don't need it, which is why it is opt-in.
+
+Because jsdom has no layout engine, a test asserting `toBeInTheDocument()`
+passes whether or not the modal escaped. Assert it is **not** a descendant of
+its host subtree instead:
+
+```tsx
+expect(container.querySelector('.csv-table-renderer')).not.toContainElement(modal);
+expect(modal.parentElement).toBe(document.body);
+```
+
+React context flows through portals, so `useModalLayer` registration, Escape
+handling, and theming are unaffected by the relocation.
+
 ### Resizable Textareas
 
 Any textarea with a native `resize-y` grip should remember the height the user drags it to. A size someone picked by hand is a preference, so snapping back to the default on the next open (or the next app launch) is a bug, not a reset.

@@ -449,6 +449,23 @@ describe('CsvTableRenderer', () => {
 			expect(screen.getByTestId('csv-row-detail-modal')).toHaveTextContent('Column 2');
 		});
 
+		it('renders outside the table subtree so the backdrop can dim the side panels', () => {
+			// The table lives inside the Main Panel, whose `isolate` wrapper is a
+			// stacking context: an in-place backdrop dims only the center while the
+			// Left Bar (relative z-20) and Right Panel paint over it. jsdom has no
+			// layout engine, so assert the modal is NOT a descendant of the
+			// renderer rather than that it is visible.
+			const { container } = renderWithLayers(
+				<CsvTableRenderer content={'Name\nAlice'} theme={mockTheme} />
+			);
+
+			openRow(container, 0);
+
+			const modal = screen.getByTestId('csv-row-detail-modal');
+			expect(container.querySelector('.csv-table-renderer')).not.toContainElement(modal);
+			expect(modal.parentElement).toBe(document.body);
+		});
+
 		it('closes on the header close button', () => {
 			const { container } = renderWithLayers(
 				<CsvTableRenderer content={'Name\nAlice'} theme={mockTheme} />

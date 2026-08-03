@@ -529,6 +529,56 @@ describe('Modal', () => {
 			expect(card).toHaveStyle({ width: '700px', height: '500px' });
 		});
 	});
+
+	describe('portal', () => {
+		const renderInHost = (props: Partial<React.ComponentProps<typeof Modal>> = {}) =>
+			render(
+				<div data-testid="host">
+					<Modal
+						theme={mockTheme}
+						title="Portaled"
+						priority={100}
+						onClose={vi.fn()}
+						testId="portal-overlay"
+						{...props}
+					>
+						<p>Content</p>
+					</Modal>
+				</div>,
+				{ wrapper: TestWrapper }
+			);
+
+		it('should render in place by default', () => {
+			renderInHost();
+
+			const host = screen.getByTestId('host');
+			expect(host).toContainElement(screen.getByTestId('portal-overlay'));
+		});
+
+		it('should escape the host subtree when portal is set', () => {
+			// The Main Panel wraps the session view in `isolate`, a stacking
+			// context that traps the backdrop's z-index and lets the Left/Right
+			// panels paint over it. jsdom has no layout engine, so assert the
+			// overlay is NOT a descendant of its host rather than checking paint
+			// order - toBeInTheDocument() would pass either way.
+			renderInHost({ portal: true });
+
+			const overlay = screen.getByTestId('portal-overlay');
+			expect(screen.getByTestId('host')).not.toContainElement(overlay);
+			expect(overlay.parentElement).toBe(document.body);
+		});
+
+		it('should still close on Escape through the layer stack when portaled', async () => {
+			const onClose = vi.fn();
+			renderInHost({ portal: true, onClose });
+
+			// React context flows through portals, so useModalLayer registration
+			// is unaffected by the DOM relocation.
+			fireEvent.keyDown(document, { key: 'Escape' });
+
+			await waitFor(() => expect(onClose).toHaveBeenCalled());
+		});
+	});
 });
 
 describe('ModalFooter', () => {
