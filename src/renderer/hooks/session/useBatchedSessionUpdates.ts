@@ -240,9 +240,26 @@ export function useBatchedSessionUpdates(
 								// excludes these in theory, but a UI bug exists where assistant text gets
 								// concatenated into an error bubble's text. Belt-and-suspenders allowlist
 								// + a warn lets us catch the upstream cause if it ever fires.
+								//
+								// A command-mode card is `source: 'stdout'` but is NOT a stream: it is a
+								// self-contained card whose text is owned by services/shellCommand.ts and
+								// patched by log id. Agent output must never be appended to it. This is not
+								// hypothetical - command mode runs commands *while the agent is streaming*
+								// (that's the point of it), so a card appended mid-turn is the `lastLog`
+								// when the agent's next chunk arrives, and without this guard that chunk
+								// lands inside the card's terminal output.
 								const isCoalescableSource =
-									lastLog?.source === 'stdout' || lastLog?.source === 'stderr';
-								if (lastLog && !isCoalescableSource && lastLog.source === logSource) {
+									(lastLog?.source === 'stdout' || lastLog?.source === 'stderr') &&
+									!lastLog?.shellCommand;
+								// The warn is for the *unexplained* case (a same-source entry that isn't
+								// a stream). A command-mode card is an expected, benign non-target, so
+								// it must not spam the log every time output follows a `!` command.
+								if (
+									lastLog &&
+									!isCoalescableSource &&
+									!lastLog.shellCommand &&
+									lastLog.source === logSource
+								) {
 									logger.warn(
 										'[useBatchedSessionUpdates] Refusing to coalesce streamed output into non-stream log entry',
 										undefined,
