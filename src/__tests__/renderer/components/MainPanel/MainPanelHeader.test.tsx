@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MainPanelHeader } from '../../../../renderer/components/MainPanel/MainPanelHeader';
 import type { Session, Theme, AITab } from '../../../../renderer/types';
 
@@ -27,14 +27,15 @@ vi.mock('../../../../renderer/stores/uiStore', () => ({
 	),
 }));
 
-vi.mock('../../../../renderer/hooks', () => ({
-	useHoverTooltip: () => ({
-		isOpen: false,
-		triggerHandlers: { onMouseEnter: vi.fn(), onMouseLeave: vi.fn() },
-		contentHandlers: {},
-		close: vi.fn(),
-	}),
-}));
+// The barrel pulls in far more than this component needs, so it's mocked - but
+// delegate to the REAL useHoverTooltip, since the git menu's open/close is
+// driven by it and a stubbed `isOpen: false` would make the menu untestable.
+vi.mock('../../../../renderer/hooks', async () => {
+	const actual = await vi.importActual<
+		typeof import('../../../../renderer/hooks/ui/useHoverTooltip')
+	>('../../../../renderer/hooks/ui/useHoverTooltip');
+	return { useHoverTooltip: actual.useHoverTooltip };
+});
 
 vi.mock('../../../../renderer/services/git', () => ({
 	gitService: { getDiff: vi.fn().mockResolvedValue({ diff: 'diff --git a/x b/x' }) },
@@ -393,6 +394,167 @@ describe('MainPanelHeader', () => {
 			expect(header).not.toBeNull();
 			expect(header!.contains(menu)).toBe(false);
 			expect(menu.parentElement).toBe(document.body);
+		});
+
+		describe('hover', () => {
+			// The menu opens on hover with a short delay, so it doesn't pop up while
+			// the pointer merely crosses the header.
+			function pillContainer() {
+				return screen.getByText('main').closest('div')!;
+			}
+
+			it('opens after the pointer rests on the pill', () => {
+				vi.useFakeTimers();
+				try {
+					render(<MainPanelHeader {...defaultProps} />);
+					const pill = pillContainer();
+
+					fireEvent.mouseEnter(pill);
+					// Nothing yet - the delay is what makes a pass-through harmless.
+					expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+
+					act(() => {
+						vi.advanceTimersByTime(200);
+					});
+					expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('does not open when the pointer passes straight through', () => {
+				vi.useFakeTimers();
+				try {
+					render(<MainPanelHeader {...defaultProps} />);
+					const pill = pillContainer();
+
+					fireEvent.mouseEnter(pill);
+					act(() => {
+						vi.advanceTimersByTime(50);
+					});
+					fireEvent.mouseLeave(pill);
+					act(() => {
+						vi.advanceTimersByTime(500);
+					});
+
+					expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('stays open while the pointer travels from the pill to the menu', () => {
+				vi.useFakeTimers();
+				try {
+					render(<MainPanelHeader {...defaultProps} />);
+					const pill = pillContainer();
+
+					fireEvent.mouseEnter(pill);
+					act(() => {
+						vi.advanceTimersByTime(200);
+					});
+					const menu = screen.getByTestId('git-pill-menu');
+
+					// Crossing the gap: the pill's leave fires before the menu's enter.
+					fireEvent.mouseLeave(pill);
+					act(() => {
+						vi.advanceTimersByTime(50);
+					});
+					fireEvent.mouseEnter(menu);
+					act(() => {
+						vi.advanceTimersByTime(500);
+					});
+
+					expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('closes once the pointer leaves the menu', () => {
+				vi.useFakeTimers();
+				try {
+					render(<MainPanelHeader {...defaultProps} />);
+					const pill = pillContainer();
+
+					fireEvent.mouseEnter(pill);
+					act(() => {
+						vi.advanceTimersByTime(200);
+					});
+					fireEvent.mouseLeave(screen.getByTestId('git-pill-menu'));
+					act(() => {
+						vi.advanceTimersByTime(500);
+					});
+
+					expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('clicking the pill opens immediately, skipping the hover delay', () => {
+				render(<MainPanelHeader {...defaultProps} />);
+
+				fireEvent.click(screen.getByText('main'));
+
+				expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+			});
+
+			it('clicking the pill again does not close a menu the pointer is still on', () => {
+				render(<MainPanelHeader {...defaultProps} />);
+				const pill = screen.getByText('main');
+
+				fireEvent.click(pill);
+				expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+
+				// Toggling here would close a menu that hover is about to reopen.
+				fireEvent.click(pill);
+				expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+			});
+
+			it('does not open on hover for a non-git agent', () => {
+				vi.useFakeTimers();
+				try {
+					render(
+						<MainPanelHeader
+							{...defaultProps}
+							activeSession={makeSession({ isGitRepo: false })}
+							gitInfo={null}
+						/>
+					);
+
+					fireEvent.mouseEnter(screen.getByText('LOCAL').closest('div')!);
+					act(() => {
+						vi.advanceTimersByTime(500);
+					});
+
+					expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('refreshes git status once per open, not per hover event', () => {
+				vi.useFakeTimers();
+				try {
+					const refreshGitStatus = vi.fn();
+					const { rerender } = render(
+						<MainPanelHeader {...defaultProps} refreshGitStatus={refreshGitStatus} />
+					);
+
+					fireEvent.mouseEnter(pillContainer());
+					act(() => {
+						vi.advanceTimersByTime(200);
+					});
+					expect(refreshGitStatus).toHaveBeenCalledTimes(1);
+
+					// A re-render with a fresh callback identity must not re-poll.
+					rerender(<MainPanelHeader {...defaultProps} refreshGitStatus={refreshGitStatus} />);
+					expect(refreshGitStatus).toHaveBeenCalledTimes(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
 		});
 
 		it('opens the create-PR modal from the menu', () => {

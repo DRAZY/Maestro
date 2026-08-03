@@ -2672,7 +2672,10 @@ describe('MainPanel', () => {
 			expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
 		});
 
-		it('should close the git menu when the pill is clicked again', async () => {
+		it('should keep the git menu open when the pill is clicked again', async () => {
+			// The menu is hover-driven, so clicking is "open", not "toggle". A
+			// toggle would close a menu the pointer is still sitting on, and hover
+			// could not reopen it until the pointer left and came back.
 			const session = createSession({ isGitRepo: true });
 			render(<MainPanel {...defaultProps} activeSession={session} />);
 
@@ -2690,7 +2693,23 @@ describe('MainPanel', () => {
 			});
 
 			fireEvent.click(pill);
-			expect(screen.queryByTestId('git-pill-menu')).not.toBeInTheDocument();
+			expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+		});
+
+		it('should open the git menu when hovering the pill', async () => {
+			const session = createSession({ isGitRepo: true });
+			render(<MainPanel {...defaultProps} activeSession={session} />);
+
+			await waitFor(() => {
+				expect(screen.getByText(/main|GIT/)).toBeInTheDocument();
+			});
+
+			fireEvent.mouseEnter(screen.getByText(/main|GIT/).closest('div')!);
+
+			// Opens after the hover delay rather than instantly.
+			await waitFor(() => {
+				expect(screen.getByTestId('git-pill-menu')).toBeInTheDocument();
+			});
 		});
 	});
 

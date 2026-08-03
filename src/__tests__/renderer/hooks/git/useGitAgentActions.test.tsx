@@ -30,6 +30,13 @@ vi.mock('../../../../renderer/stores/centerFlashStore', () => ({
 	notifyCenterFlash: (...args: unknown[]) => mockNotifyCenterFlash(...args),
 }));
 
+const mockSetActiveSessionId = vi.fn();
+vi.mock('../../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: Object.assign(vi.fn(), {
+		getState: () => ({ setActiveSessionId: mockSetActiveSessionId }),
+	}),
+}));
+
 const mockOpenModal = vi.fn();
 vi.mock('../../../../renderer/stores/modalStore', () => ({
 	useModalStore: Object.assign(
@@ -274,6 +281,36 @@ describe('useGitAgentActions', () => {
 
 			expect(mockGetDiff).not.toHaveBeenCalled();
 			expect(mockOpenModal).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('configureWorktrees', () => {
+		it('activates the agent before opening the config modal', () => {
+			// The modal renders against the active session, so activating IS how
+			// the right-clicked agent gets targeted.
+			const { result } = renderHook(() => useGitAgentActions(makeSession({ id: 'other-agent' })));
+			result.current.configureWorktrees();
+
+			expect(mockSetActiveSessionId).toHaveBeenCalledWith('other-agent');
+			expect(mockOpenModal).toHaveBeenCalledWith('worktreeConfig');
+		});
+
+		it('is unavailable for worktree children, which own no config', () => {
+			const { result } = renderHook(() =>
+				useGitAgentActions(makeSession({ parentSessionId: 'parent-1' }))
+			);
+
+			expect(result.current.canConfigureWorktrees).toBe(false);
+		});
+
+		it('is available for a plain git agent', () => {
+			const { result } = renderHook(() => useGitAgentActions(makeSession()));
+			expect(result.current.canConfigureWorktrees).toBe(true);
+		});
+
+		it('is unavailable for a non-git agent', () => {
+			const { result } = renderHook(() => useGitAgentActions(makeSession({ isGitRepo: false })));
+			expect(result.current.canConfigureWorktrees).toBe(false);
 		});
 	});
 });

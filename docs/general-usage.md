@@ -29,10 +29,11 @@ Each agent shows a color-coded status indicator:
 
 ## Git Actions
 
-For agents whose working directory is a git repository, the same set of git actions is reachable two ways:
+For agents whose working directory is a git repository, the same set of git actions is reachable three ways:
 
-- **Header branch pill** - click the pill showing the current branch name.
+- **Header branch pill** - hover the pill showing the current branch name (clicking works too).
 - **Left Bar right-click** - right-click the agent in the agent list.
+- **Command palette** (`Cmd+K` / `Ctrl+K`) - search for the action by name, no mouse required.
 
 | Action                  | What it does                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +46,7 @@ For agents whose working directory is a git repository, the same set of git acti
 
 The header menu also shows the current **branch** and **origin** at the top. Each has a copy button, and clicking the origin opens the repository in your browser. Below the actions it offers **Configure Worktrees**.
 
-The header pill always acts on the agent you're looking at. The right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it first.
+The header pill and the command palette act on the agent you're looking at. The right-click menu acts on the agent you right-clicked, so you can pull or check the log of a background agent without switching to it first.
 
 Pull and push stream their output as it happens, so you can watch the transfer and read git's error message if it fails. Dismissing the modal leaves the command running; **Cancel** stops it. When a push fails because the branch has no upstream, the modal offers a one-click **Push and Set Upstream** retry.
 

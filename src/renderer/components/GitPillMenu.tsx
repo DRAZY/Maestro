@@ -49,6 +49,15 @@ export interface GitPillMenuProps {
 	 * closing-then-reopening.
 	 */
 	anchorRef: React.RefObject<HTMLElement | null>;
+	/**
+	 * Mouse handlers that keep the menu open while the pointer is on it. The
+	 * menu opens on hover, so without these it would close the moment the
+	 * pointer left the pill - before it could reach any row.
+	 */
+	hoverHandlers?: {
+		onMouseEnter: () => void;
+		onMouseLeave: () => void;
+	};
 	/** Current branch name, shown in the detail header. */
 	branch?: string;
 	/** Origin remote URL, shown in the detail header when the repo has one. */
@@ -99,6 +108,7 @@ function MenuRow({ theme, icon, label, badge, onClick, testId }: MenuRowProps) {
 export const GitPillMenu = memo(function GitPillMenu({
 	theme,
 	anchorRef,
+	hoverHandlers,
 	branch,
 	remote,
 	ahead,
@@ -136,6 +146,7 @@ export const GitPillMenu = memo(function GitPillMenu({
 			}}
 			role="menu"
 			data-testid="git-pill-menu"
+			{...hoverHandlers}
 		>
 			{/* Branch / origin detail - inherited from the pill's retired hover card.
 			    Text is selectable here even though the menu as a whole isn't, since

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Wand2, Columns, GitBranch, List, Server, Bookmark, Brain } from 'lucide-react';
 import { Spinner } from '../ui/Spinner';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
@@ -18,6 +18,19 @@ import {
 	useResolvedClaudeConfigDirKey,
 } from '../../stores/claudeUsageStore';
 import { formatFutureTime } from '../../../shared/formatters';
+
+/**
+ * How long the pointer must rest on the git pill before the menu opens. Long
+ * enough that crossing the header on the way elsewhere doesn't trigger it,
+ * short enough to feel immediate when aimed at.
+ */
+const GIT_MENU_OPEN_DELAY_MS = 150;
+
+/**
+ * Grace period after the pointer leaves the pill or the menu. Covers the gap
+ * between them so the menu survives the trip across it.
+ */
+const GIT_MENU_CLOSE_DELAY_MS = 250;
 
 export interface MainPanelHeaderProps {
 	activeSession: Session;
@@ -95,24 +108,53 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	const showBatchUsage = activeSession?.toolType === 'claude-code';
 
 	const headerRef = useRef<HTMLDivElement>(null);
-	// Anchors the git menu and excludes both pills (SSH host + branch) from the
-	// menu's click-outside handling, so clicking a pill toggles instead of
-	// closing-then-reopening.
+	// Anchors the git menu, and is the hover target that opens it. Wrapping both
+	// pills (SSH host + branch) means either one opens the menu, and it also
+	// excludes them from click-outside so clicking a pill can't close it.
 	const gitPillRef = useRef<HTMLDivElement>(null);
 	const contextTooltip = useHoverTooltip(150);
-	const [gitMenuOpen, setGitMenuOpen] = useState(false);
+	// The git menu opens on hover. The open delay keeps it from popping up while
+	// the pointer merely crosses the header on its way somewhere else; the close
+	// delay covers the gap between the pill and the menu below it.
+	const gitMenu = useHoverTooltip(GIT_MENU_CLOSE_DELAY_MS, GIT_MENU_OPEN_DELAY_MS);
+	const gitMenuOpen = activeSession.isGitRepo && gitMenu.isOpen;
 
-	// Clicking the pill opens the git menu, which also carries the branch/origin
-	// detail the pill's hover card used to show.
+	// Hover/focus handlers, suppressed entirely for non-git agents so the LOCAL
+	// badge has no hidden behavior.
+	const gitPillHoverHandlers = activeSession.isGitRepo
+		? {
+				onMouseEnter: gitMenu.triggerHandlers.onMouseEnter,
+				onMouseLeave: gitMenu.triggerHandlers.onMouseLeave,
+				// Keyboard parity: tabbing to a pill opens the menu immediately,
+				// since focus is as deliberate as a click.
+				onFocus: gitMenu.open,
+				onBlur: gitMenu.triggerHandlers.onMouseLeave,
+			}
+		: {};
+
+	// Clicking a pill still opens the menu (for touch, and for anyone who clicks
+	// before the hover delay elapses). Deliberately NOT a toggle: hover has
+	// already opened it by the time most clicks land, so toggling would close a
+	// menu the pointer is still sitting on, which then can't reopen until the
+	// pointer leaves and returns.
 	const handleGitPillClick = useCallback(
 		(e: React.MouseEvent) => {
 			e.stopPropagation();
 			if (!activeSession.isGitRepo) return;
-			refreshGitStatus(); // Refresh git info immediately on click
-			setGitMenuOpen((open) => !open);
+			gitMenu.open();
 		},
-		[activeSession.isGitRepo, refreshGitStatus]
+		[activeSession.isGitRepo, gitMenu]
 	);
+
+	// Refresh git info once per open rather than per hover event, so the menu's
+	// ahead/behind badges are current without re-polling as the pointer moves.
+	// Held in a ref so an unstable `refreshGitStatus` identity can't re-trigger
+	// the effect while the menu is sitting open.
+	const refreshGitStatusRef = useRef(refreshGitStatus);
+	refreshGitStatusRef.current = refreshGitStatus;
+	useEffect(() => {
+		if (gitMenuOpen) refreshGitStatusRef.current();
+	}, [gitMenuOpen]);
 
 	// Same action set the Left Bar's right-click menu uses, so the two entry
 	// points can't drift apart.
@@ -123,16 +165,19 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	// linger while git runs.
 	const runAction = useCallback(
 		(action: () => void | Promise<void>) => () => {
-			setGitMenuOpen(false);
+			gitMenu.close();
 			void action();
 		},
-		[]
+		[gitMenu]
 	);
 
 	const gitPillMenu = gitMenuOpen ? (
 		<GitPillMenu
 			theme={theme}
 			anchorRef={gitPillRef}
+			// Keeps the menu open while the pointer is on it, and closes it (after
+			// the grace delay) once the pointer leaves.
+			hoverHandlers={gitMenu.contentHandlers}
 			branch={gitInfo?.branch || gitActions.branch}
 			remote={gitInfo?.remote || undefined}
 			ahead={gitInfo?.ahead ?? gitActions.ahead}
@@ -152,7 +197,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 			onConfigureWorktrees={
 				!isWorktreeChild && onOpenWorktreeConfig ? runAction(onOpenWorktreeConfig) : undefined
 			}
-			onClose={() => setGitMenuOpen(false)}
+			onClose={gitMenu.close}
 		/>
 	) : null;
 
@@ -180,7 +225,11 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 							data-testid="bookmark-icon"
 						/>
 					)}
-					<div ref={gitPillRef} className="relative shrink-0 flex items-center gap-2">
+					<div
+						ref={gitPillRef}
+						className="relative shrink-0 flex items-center gap-2"
+						{...gitPillHoverHandlers}
+					>
 						{/* SSH Host Pill - show SSH remote name when running remotely (replaces the
 						    GIT/LOCAL badge). For git repos the branch name is rendered in a separate
 						    badge just after this pill (see below) so SSH/container agents still surface

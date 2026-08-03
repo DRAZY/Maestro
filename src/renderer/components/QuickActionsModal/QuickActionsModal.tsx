@@ -12,7 +12,7 @@ import { captureException } from '../../utils/sentry';
 import { useModalStore } from '../../stores/modalStore';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { gitService } from '../../services/git';
-import { useGitDetail } from '../../contexts/GitStatusContext';
+import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { getOpenInLabel } from '../../utils/platformUtils';
 import { useListNavigation } from '../../hooks';
@@ -92,8 +92,6 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		setAgentSessionsOpen,
 		setMemoryViewerOpen,
 		setActiveAgentSessionId,
-		setGitDiffPreview,
-		setGitLogOpen,
 		onRenameTab,
 		onToggleReadOnlyMode,
 		onToggleTabShowThinking,
@@ -169,7 +167,6 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// Git status refresh — used to re-sync polling cache when `git diff` comes
 	// back empty despite the widget advertising changes (e.g. files were
 	// reverted or committed since the last poll).
-	const { refreshGitStatus } = useGitDetail();
 
 	// UI store actions for search commands (avoid threading more props through 3-layer chain)
 	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
@@ -279,6 +276,9 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const resetSelectionToFirstRef = useRef<() => void>(() => {});
 	const resetSelectionToFirst = useCallback(() => resetSelectionToFirstRef.current(), []);
 	const activeSession = sessions.find((s) => s.id === activeSessionId);
+	// The palette is the third surface for the git action set, after the header
+	// branch pill and the Left Bar right-click menu.
+	const gitActions = useGitAgentActions(activeSession);
 	// Output search is scoped per agent+AI-tab; open the active window's slot so
 	// the Find bar doesn't follow the user to other agents/tabs.
 	const openActiveOutputSearch = useCallback(
@@ -624,19 +624,16 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		...buildGitWorktreeCommands({
 			activeSession,
 			sessions,
-			setGitDiffPreview,
-			setGitLogOpen,
+			gitActions,
 			setQuickActionOpen,
 			onQuickCreateWorktree,
 			onOpenCreatePR,
 			onRefreshGitFileState,
-			onRefreshGitStatus: refreshGitStatus,
 			shortcuts: {
 				viewGitDiff: shortcuts.viewGitDiff,
 				viewGitLog: shortcuts.viewGitLog,
 			},
 			gitService,
-			notifyCenterFlash,
 			notifyToast,
 			openUrl,
 			logger,
