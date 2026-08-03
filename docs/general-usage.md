@@ -232,39 +232,47 @@ Reference files in your AI prompts using `@` mentions:
 
 ## Command Mode (`!`)
 
-Start a message with `!` and Maestro runs the rest as a shell command instead of sending it to the agent. It is a way to check something without leaving the chat: `!git pull`, `!ls`, `!npm test`.
+Press `!` in an empty chat composer and it turns into a command line: what you type next runs as a shell command in the agent's working directory instead of being sent to the agent. It is a way to check something without leaving the chat.
+
+The `!` is a gesture, not part of the command - it disappears the moment it switches modes, and you just type the command:
 
 ```
-!git status
+$ git status
 ```
 
-The moment you type `!` the composer switches into command mode: a `$` appears at the left of the input and a **COMMAND MODE** strip above it names the directory the command will run in, so you can see which way the message is going before you press Enter.
+You will know you are in command mode: a `$` appears at the left of the input, and a **COMMAND MODE** strip above it names the directory the command will run in.
+
+**Getting back to the agent:** press `Esc` on an empty command line (or `Backspace`, same thing). Command mode sticks around between commands, so you can run several in a row without retyping `!`, and you leave deliberately when you are done.
 
 **How it behaves:**
 
 - **The agent is bypassed entirely.** It is never spawned, never written to, and never sees the command or its output. Nothing you run this way enters the agent's context - if you want the agent to see the result, copy it into a message.
-- **It runs immediately, even while the agent is working.** Command mode does not queue and does not interrupt the turn in progress, so you can check `!git log` while the agent is mid-edit.
-- **It runs in the agent's working directory** (on the agent's SSH remote, if it has one). Each command is independent - there is no persistent shell, so `!cd src` on its own does nothing. Chain instead: `!cd src && ls`.
+- **It runs immediately, even while the agent is working.** Command mode does not queue and does not interrupt the turn in progress, so you can check `git log` while the agent is mid-edit.
+- **It runs in the agent's working directory** (on the agent's SSH remote, if it has one). Each command is independent - there is no persistent shell, so `cd src` on its own does nothing. Chain instead: `cd src && ls`.
 - **Output streams into the transcript** as a card showing the command, where it ran, and a live spinner while it works. When it finishes, the card shows the exit code and how long it took, with a button to copy the output.
+- **The draft survives a tab switch**, mode and all. Leave a half-typed command, go read another tab, come back, and it is still a command.
 
 ### Tab Completion in Command Mode
 
 Command mode gets the same `Tab` completion the [Command Terminal](#command-terminal) has, so you are not typing paths from memory:
 
-| Press `Tab` after... | You get                                                       |
-| -------------------- | ------------------------------------------------------------- |
-| `!` (nothing else)   | The bang commands you have run before in this agent           |
-| `!cat pack`          | Matching files - `!cat package.json`                          |
-| `!ls sr`             | Matching directories, with a trailing slash - `!ls src/`      |
-| `!cat src/comp`      | Files inside that directory, one level at a time              |
-| `!git checkout ma`   | Matching git branches - `!git checkout main` (git repos only) |
-| `!git checkout v2`   | Matching git tags (git repos only)                            |
+| Press `Tab` after... | You get                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| nothing              | The commands you have run before in this agent               |
+| `cat pack`           | Matching files - `cat package.json`                          |
+| `ls sr`              | Matching directories, with a trailing slash - `ls src/`      |
+| `cat src/comp`       | Files inside that directory, one level at a time             |
+| `git checkout ma`    | Matching git branches - `git checkout main` (git repos only) |
+| `git checkout v2`    | Matching git tags (git repos only)                           |
 
 One match completes in place. Several open a picker: `↑` / `↓` to move, `Enter` to accept, `Esc` to dismiss. In a git repo, `Tab` inside the picker cycles the category filter (All, History, Branches, Tags, Files) and `Shift+Tab` cycles back.
 
-Completion resolves from the **agent's working directory**, which is where the command will actually run. This is deliberately not the Command Terminal's directory - `cd`-ing in a terminal tab does not move where your bang commands run, so it must not move where completion looks either.
+Completion resolves from the **agent's working directory**, which is where the command will actually run. This is deliberately not the Command Terminal's directory - `cd`-ing in a terminal tab does not move where your commands run, so it must not move where completion looks either.
 
-`@` file mentions are suppressed in command mode. An `@` in a shell line is ordinary text (an `scp` target, an email in a commit message), not a file reference for the agent.
+Two chat affordances stand down in command mode, because a shell line means different things by the same characters:
+
+- **`@` file mentions** - an `@` here is an `scp` target or an email in a commit message, not a file reference for the agent.
+- **Slash commands** - a leading `/` here is an absolute path (`/usr/bin/env`), not `/history`.
 
 **Stopping a command:** a running command's card has a **Stop** button. Reach for it if you start something long or something that waits for input.
 
@@ -274,9 +282,9 @@ Command mode has no keyboard - nothing is connected to the command's stdin. Prog
 
 Very large output is capped so a runaway command cannot bloat your transcript; the card says so when it truncates.
 
-**Sending a literal `!` to the agent:** prefix the message with a backslash. `\!important` reaches the agent as `!important`.
+**Sending a message that starts with `!`:** typing `!` first only enters command mode when the composer is empty, so a bang inside a sentence is safe. To start a message with one, prefix it with a backslash: `\!important` reaches the agent as `!important`.
 
-Command mode is AI-chat only. In a terminal tab or the legacy terminal mode you are already at a shell, so `!` is passed through untouched.
+Command mode is AI-chat only. In a terminal tab or the legacy terminal mode you are already at a shell, so `!` is an ordinary character.
 
 ## Prompt Composer
 
