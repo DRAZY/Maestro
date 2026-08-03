@@ -49,6 +49,17 @@ import { RetryStatusCard } from './RetryStatusCard';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
 import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
+/**
+ * Frames a cross-tab search jump keeps re-asserting its scroll position.
+ * Rows carry `content-visibility: auto`, so ones that have never been near the
+ * viewport are laid out at their `contain-intrinsic-size` estimate; the target
+ * shifts as real heights replace those estimates on the way there.
+ */
+const JUMP_STABILIZE_FRAMES = 10;
+
+/** How long the jump keeps auto-scroll suppressed after landing (~2x the stabilize window). */
+const JUMP_SETTLE_MS = 400;
+
 // ============================================================================
 // Tool display helpers (pure functions, hoisted out of render path)
 // ============================================================================
@@ -1506,6 +1517,11 @@ export const TerminalOutput = memo(
 		// Guard flag: prevents the scroll handler from pausing auto-scroll
 		// during programmatic scrollTo() calls from the MutationObserver effect.
 		const isProgrammaticScrollRef = useRef(false);
+		// Guard flag: a cross-tab search jump is landing, so the follow-the-tail
+		// auto-scroll must stand down. Switching tabs re-renders every row, and the
+		// MutationObserver below reacts to that by slamming the container to the
+		// bottom - which is what used to eat the scroll to the hit.
+		const jumpInFlightRef = useRef(false);
 
 		// Track read state per tab - stores the log count when user scrolled to bottom
 		const tabReadStateRef = useRef<Map<string, number>>(new Map());
@@ -1792,13 +1808,45 @@ export const TerminalOutput = memo(
 			const renderedId = renderedIdByLogId.get(logId) ?? logId;
 			pendingJumpMatchIdRef.current = renderedId;
 			cancelJumpRef.current?.();
-			cancelJumpRef.current = jumpToElement(
+
+			jumpInFlightRef.current = true;
+			const releaseJump = () => {
+				jumpInFlightRef.current = false;
+			};
+			const cancel = jumpToElement(
 				() =>
 					Array.from(
 						scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-log-id]') ?? []
 					).find((el) => el.getAttribute('data-log-id') === renderedId),
-				{ color: theme.colors.accent }
+				{
+					color: theme.colors.accent,
+					// Instant rather than smooth: an animated scroll is still running
+					// when the next batch of rows renders, and whoever scrolls during
+					// that window wins. Landing in one frame removes the race.
+					behavior: 'auto',
+					stabilizeFrames: JUMP_STABILIZE_FRAMES,
+					onFound: () => {
+						// Stay on the hit instead of following the tail. Scrolling back
+						// to the bottom resumes auto-scroll (see handleScrollInner), so
+						// this is the same state a manual scroll-up would leave behind.
+						// Flip the refs first so the observer's live shouldAutoScroll()
+						// sees the pause this frame, before the re-render (same trick the
+						// scroll-restore effect below uses).
+						autoScrollPausedRef.current = true;
+						isAtBottomRef.current = false;
+						setAutoScrollPaused(true);
+						setIsAtBottom(false);
+						setTimeout(releaseJump, JUMP_SETTLE_MS);
+					},
+					onTimeout: releaseJump,
+				}
 			);
+			// Releasing on cancel matters: a jump abandoned before it landed would
+			// otherwise leave auto-scroll suppressed for the rest of the session.
+			cancelJumpRef.current = () => {
+				releaseJump();
+				cancel();
+			};
 			// Consume it: the jump is a one-shot request, not persistent state.
 			useUIStore.getState().clearPendingLogJump(logId);
 		}, [pendingLogJump, session.id, activeTab, renderedIdByLogId, theme.colors.accent]);
@@ -2089,7 +2137,8 @@ export const TerminalOutput = memo(
 			const container = scrollContainerRef.current;
 			if (!container) return;
 
-			const shouldAutoScroll = () => !autoScrollPausedRef.current || isAtBottomRef.current;
+			const shouldAutoScroll = () =>
+				!jumpInFlightRef.current && (!autoScrollPausedRef.current || isAtBottomRef.current);
 
 			const scrollToBottom = () => {
 				if (!scrollContainerRef.current) return;
@@ -2142,6 +2191,10 @@ export const TerminalOutput = memo(
 			if (initialScrollTop !== undefined && initialScrollTop > 0 && !hasRestoredScrollRef.current) {
 				hasRestoredScrollRef.current = true;
 				requestAnimationFrame(() => {
+					// A cross-tab search jump asked for a specific message in this tab.
+					// That beats the position the tab was left at - restoring here would
+					// scroll straight back off the hit.
+					if (jumpInFlightRef.current) return;
 					if (scrollContainerRef.current) {
 						const { scrollHeight, clientHeight } = scrollContainerRef.current;
 						// Clamp to max scrollable area
