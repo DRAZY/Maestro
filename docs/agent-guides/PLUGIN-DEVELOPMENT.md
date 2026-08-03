@@ -567,9 +567,7 @@ parent.postMessage(
 	{
 		type: 'maestro:invokeCommand',
 		commandId: 'say-hello',
-		args: {
-			/* optional */
-		},
+		args: {/* optional */},
 	},
 	'*'
 );

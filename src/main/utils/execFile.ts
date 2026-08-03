@@ -261,20 +261,33 @@ export function execFileStreaming(
 	child.stderr?.on('data', collect('stderr'));
 
 	const result = new Promise<ExecResult>((resolve) => {
-		child.on('close', (code) => {
-			resolve({
-				stdout,
-				stderr,
-				exitCode: cancelled ? 'SIGTERM' : (code ?? 1),
-			});
-		});
+		// Spawn failures emit both 'error' and 'close'. Prefer the errno from
+		// 'error' (ENOENT, EACCES, ...) over close's platform-specific sentinel
+		// (null / -2 / 1), which would otherwise win the Promise race.
+		let spawnErr: NodeJS.ErrnoException | undefined;
+		let settled = false;
+
+		const settle = (payload: ExecResult) => {
+			if (settled) return;
+			settled = true;
+			resolve(payload);
+		};
 
 		child.on('error', (err) => {
-			resolve({
+			spawnErr = err as NodeJS.ErrnoException;
+			settle({
 				stdout,
 				stderr: stderr || err.message,
 				// Node stamps spawn failures with a string code (ENOENT, EACCES, ...).
-				exitCode: (err as NodeJS.ErrnoException).code ?? 1,
+				exitCode: spawnErr.code ?? 1,
+			});
+		});
+
+		child.on('close', (code) => {
+			settle({
+				stdout,
+				stderr: stderr || spawnErr?.message || '',
+				exitCode: cancelled ? 'SIGTERM' : (spawnErr?.code ?? code ?? 1),
 			});
 		});
 	});

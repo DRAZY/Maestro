@@ -558,13 +558,7 @@ export const PLUGIN_TIERS: readonly PluginTier[] = [0, 1, 2];
 
 /** Coarse marketplace category used to group/filter extensions. Absent => 'other'. */
 export type PluginCategory =
-	| 'automation'
-	| 'agents'
-	| 'insights'
-	| 'ui'
-	| 'data'
-	| 'devtools'
-	| 'other';
+	'automation' | 'agents' | 'insights' | 'ui' | 'data' | 'devtools' | 'other';
 
 export const PLUGIN_CATEGORIES: readonly PluginCategory[] = [
 	'automation',
