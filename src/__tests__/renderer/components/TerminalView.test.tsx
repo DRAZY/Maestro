@@ -842,7 +842,8 @@ describe('TerminalView - touch key bar (coarse pointer)', () => {
 		// The bridge object is stable across renders; isActive() reads the latest
 		// armed state, so a reference captured now stays valid after re-renders.
 		const bridge = xtermPropsBySessionId.get('session-1-terminal-tab-1')?.stickyCtrl as
-			{ isActive: () => boolean; onConsume: () => void } | undefined;
+			| { isActive: () => boolean; onConsume: () => void }
+			| undefined;
 		expect(bridge).toBeDefined();
 		expect(bridge?.isActive()).toBe(false);
 

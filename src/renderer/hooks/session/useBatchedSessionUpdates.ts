@@ -45,7 +45,8 @@ export const DEFAULT_BATCH_FLUSH_INTERVAL = 200;
 export function mergeContextWindow(
 	delta: Pick<UsageStats, 'contextWindow' | 'contextWindowResolved' | 'contextWindowModel'>,
 	existing:
-		Pick<UsageStats, 'contextWindow' | 'contextWindowResolved' | 'contextWindowModel'> | undefined
+		| Pick<UsageStats, 'contextWindow' | 'contextWindowResolved' | 'contextWindowModel'>
+		| undefined
 ): { contextWindow: number; contextWindowResolved?: boolean; contextWindowModel?: string } {
 	const sameModel = delta.contextWindowModel === existing?.contextWindowModel;
 	if (existing?.contextWindowResolved && !delta.contextWindowResolved && sameModel) {

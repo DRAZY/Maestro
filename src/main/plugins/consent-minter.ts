@@ -130,7 +130,8 @@ export type MintRejection =
 	| 'bad-unattended'; // unattended named a cap not separately approved as high-risk
 
 export type MintOutcome =
-	{ ok: true; grants: PermissionGrant[] } | { ok: false; reason: MintRejection };
+	| { ok: true; grants: PermissionGrant[] }
+	| { ok: false; reason: MintRejection };
 
 export interface ConsentMinterDeps {
 	registry: ConsentNonceRegistry;

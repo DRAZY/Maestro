@@ -24,7 +24,12 @@ import { webLogger } from '../utils/logger';
  * WebSocket connection states
  */
 export type ConnectionState =
-	'connecting' | 'authenticating' | 'connected' | 'authenticated' | 'disconnected' | 'error';
+	| 'connecting'
+	| 'authenticating'
+	| 'connected'
+	| 'authenticated'
+	| 'disconnected'
+	| 'error';
 
 /**
  * Default countdown duration in seconds

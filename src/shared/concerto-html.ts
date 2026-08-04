@@ -48,7 +48,8 @@ export interface MovementDesignerInspection {
 }
 
 export type ConcertoDesignerAction =
-	{ kind: 'click'; selector: string } | { kind: 'type'; selector: string; value: string };
+	| { kind: 'click'; selector: string }
+	| { kind: 'type'; selector: string; value: string };
 
 export interface ConcertoDesignerActionResult {
 	ok: boolean;

@@ -27,7 +27,12 @@ export type DispatchCallbackStatus = 'completed' | 'failed' | 'timeout' | 'cance
  * - `fired` / `cancelled` - terminal.
  */
 export type DispatchCallbackState =
-	'pending' | 'armed' | 'grace' | 'awaiting-autorun' | 'fired' | 'cancelled';
+	| 'pending'
+	| 'armed'
+	| 'grace'
+	| 'awaiting-autorun'
+	| 'fired'
+	| 'cancelled';
 
 /** What the dispatch site knows when it arms a callback. */
 export interface DispatchCallbackRegistration {

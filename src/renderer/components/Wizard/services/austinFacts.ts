@@ -171,7 +171,8 @@ export function resetAustinFactQueue(): void {
  * ]
  */
 export type FactSegment =
-	{ type: 'text'; content: string } | { type: 'link'; text: string; url: string };
+	| { type: 'text'; content: string }
+	| { type: 'link'; text: string; url: string };
 
 export function parseFactWithLinks(fact: string): FactSegment[] {
 	const segments: FactSegment[] = [];
