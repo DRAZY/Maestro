@@ -27,7 +27,11 @@ export const MOVEMENT_OPS: readonly MovementOp[] = [
 ] as const;
 
 export type ConcertoCreationPhase =
-	'composing' | 'refining' | 'arranging' | 'reviewing' | 'testing';
+	| 'composing'
+	| 'refining'
+	| 'arranging'
+	| 'reviewing'
+	| 'testing';
 
 export const CONCERTO_CREATION_PHASES: readonly ConcertoCreationPhase[] = [
 	'composing',

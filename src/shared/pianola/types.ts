@@ -24,7 +24,13 @@ export type PianolaSignalKind = (typeof SIGNAL_KINDS)[number];
 
 /** Role of a message, mirroring the WS SessionHistoryMessage contract. */
 export type PianolaMessageRole =
-	'user' | 'assistant' | 'system' | 'tool' | 'thinking' | 'error' | 'unknown';
+	| 'user'
+	| 'assistant'
+	| 'system'
+	| 'tool'
+	| 'thinking'
+	| 'error'
+	| 'unknown';
 
 /**
  * Structured signal emitted by the parser layer when an agent is unambiguously

@@ -449,7 +449,14 @@ interface MaestroAPI {
 				op: 'open' | 'update' | 'close';
 				id: string;
 				viewType?:
-					'tracker' | 'file' | 'markdown' | 'image' | 'code' | 'view' | 'decision' | 'html';
+					| 'tracker'
+					| 'file'
+					| 'markdown'
+					| 'image'
+					| 'code'
+					| 'view'
+					| 'decision'
+					| 'html';
 				title?: string;
 				body?: string;
 				path?: string;
@@ -504,7 +511,8 @@ interface MaestroAPI {
 			callback: (
 				id: string,
 				action:
-					{ kind: 'click'; selector: string } | { kind: 'type'; selector: string; value: string },
+					| { kind: 'click'; selector: string }
+					| { kind: 'type'; selector: string; value: string },
 				expectedRevision: number,
 				responseChannel: string
 			) => void

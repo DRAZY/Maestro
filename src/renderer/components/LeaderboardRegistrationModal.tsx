@@ -109,7 +109,13 @@ interface LeaderboardRegistrationModalProps {
 }
 
 type SubmitState =
-	'idle' | 'submitting' | 'success' | 'awaiting_confirmation' | 'polling' | 'error' | 'opted_out';
+	| 'idle'
+	| 'submitting'
+	| 'success'
+	| 'awaiting_confirmation'
+	| 'polling'
+	| 'error'
+	| 'opted_out';
 
 // Generate a random client token for polling
 function generateClientToken(): string {

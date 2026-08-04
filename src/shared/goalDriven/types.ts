@@ -63,11 +63,16 @@ export interface GoalIterationRecord {
 
 /** The reason a goal-driven run stopped. */
 export type GoalExitReason =
-	'completed' | 'deadlock' | 'max-iterations' | 'stalled' | 'stopped-by-user';
+	| 'completed'
+	| 'deadlock'
+	| 'max-iterations'
+	| 'stalled'
+	| 'stopped-by-user';
 
 /** The evaluator's decision after an iteration: keep going or stop (and why). */
 export type GoalExitDecision =
-	{ action: 'continue' } | { action: 'stop'; reason: GoalExitReason; detail: string };
+	| { action: 'continue' }
+	| { action: 'stop'; reason: GoalExitReason; detail: string };
 
 /**
  * Number of consecutive non-progressing iterations that trips stall detection.

@@ -39,7 +39,12 @@ export interface RegisteredWindow {
 
 /** The kinds of mutations the registry emits a change signal for. */
 export type WindowRegistryChangeType =
-	'created' | 'removed' | 'sessions-changed' | 'session-moved' | 'name-changed' | 'panel-changed';
+	| 'created'
+	| 'removed'
+	| 'sessions-changed'
+	| 'session-moved'
+	| 'name-changed'
+	| 'panel-changed';
 
 /**
  * Payload describing a registry mutation. Persistence (the window-state store)

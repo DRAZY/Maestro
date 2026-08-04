@@ -67,7 +67,8 @@ function makeStub(): Stub {
 		focus,
 		snapshot: () => {
 			const call = panelPost.mock.calls[panelPost.mock.calls.length - 1] as
-				[string, Record<string, unknown>] | undefined;
+				| [string, Record<string, unknown>]
+				| undefined;
 			return call?.[1];
 		},
 	};

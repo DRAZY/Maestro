@@ -16,7 +16,13 @@ import { getReleaseDownloadFeedUrl } from './update-checker';
 
 export interface UpdateStatus {
 	status:
-		'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+		| 'idle'
+		| 'checking'
+		| 'available'
+		| 'not-available'
+		| 'downloading'
+		| 'downloaded'
+		| 'error';
 	info?: UpdateInfo;
 	progress?: ProgressInfo;
 	error?: string;

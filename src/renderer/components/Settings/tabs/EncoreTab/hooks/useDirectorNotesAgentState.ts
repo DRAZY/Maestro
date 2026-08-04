@@ -35,7 +35,8 @@ export function useDirectorNotesAgentState({
 		(agent) => agent.id === directorNotesSettings.provider
 	);
 	const selectedTile = AGENT_TILES.find((tile) => tile.id === directorNotesSettings.provider) as
-		DirectorNotesTile | undefined;
+		| DirectorNotesTile
+		| undefined;
 
 	const handleAgentChange = (agentId: ToolType) => {
 		setDirectorNotesSettings({

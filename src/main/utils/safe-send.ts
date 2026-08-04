@@ -19,7 +19,10 @@ import { broadcastBridgeEvent } from '../web-server/handlers/bridgeHandlers';
  * `electron` value usage and remains trivially unit-testable.
  */
 export type GetBroadcastWindows = () =>
-	BrowserWindow | null | undefined | ReadonlyArray<BrowserWindow | null | undefined>;
+	| BrowserWindow
+	| null
+	| undefined
+	| ReadonlyArray<BrowserWindow | null | undefined>;
 
 /**
  * Creates a safeSend function with the provided window enumerator.

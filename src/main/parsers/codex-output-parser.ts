@@ -146,8 +146,7 @@ function readCodexConfig(): { model?: string; contextWindow?: number } {
  * Supports both current (response_item/event_msg) and legacy (item.completed) formats
  */
 interface CodexRawMessage {
-	type?:
-		// Current format (v0.111.0+)
+	type?: // Current format (v0.111.0+)
 		| 'session_meta'
 		| 'response_item'
 		| 'event_msg'
