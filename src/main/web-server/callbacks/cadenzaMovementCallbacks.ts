@@ -41,9 +41,9 @@ function requestFromRenderer<T>(
 			resolve(value);
 		};
 		const onReply = (_event: Electron.IpcMainEvent, raw: unknown) => finish(parse(raw));
+		const timeoutId = setTimeout(() => finish(fallback), timeoutMs);
 		ipcMain.once(responseChannel, onReply);
 		win.webContents.send(requestChannel, ...args, responseChannel);
-		const timeoutId = setTimeout(() => finish(fallback), timeoutMs);
 	});
 }
 
