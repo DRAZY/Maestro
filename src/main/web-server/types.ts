@@ -229,7 +229,7 @@ export interface ConfigureAutoRunConfig {
 		enabled: boolean;
 		path: string;
 		branchName: string;
-		baseBranch: string;
+		baseBranch?: string;
 		createPROnCompletion: boolean;
 		prTargetBranch: string;
 	};
