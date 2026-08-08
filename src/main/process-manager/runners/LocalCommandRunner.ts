@@ -14,10 +14,16 @@ import {
 	buildWrappedCommand,
 } from '../utils/pathResolver';
 import { isWindows } from '../../../shared/platformDetection';
-import { terminateProcessTree } from '../utils/commandKill';
+import { COMMAND_KILL_DEADLINE_MS, terminateProcessTree } from '../utils/commandKill';
 import { captureException } from '../../utils/sentry';
 import { stripControlSequences } from '../../utils/terminalFilter';
 import { getDefaultShell } from '../../stores/defaults';
+
+/**
+ * Exit code reported when a command had to be SIGKILLed and never told us how it
+ * ended. 128+9, the shell convention for "killed by signal 9".
+ */
+const SIGKILL_EXIT_CODE = 137;
 
 /**
  * Runs single commands locally and captures stdout/stderr cleanly.
@@ -178,13 +184,54 @@ export class LocalCommandRunner {
 				// Cancels the pending SIGKILL escalation. Set when Stop is pressed,
 				// cleared on exit so a late SIGKILL can't land on a recycled pid.
 				let cancelEscalation: (() => void) | null = null;
+				let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+				let settled = false;
+
+				/**
+				 * Report the run as finished exactly once, from whichever path gets
+				 * there first: the pty's own exit, or the give-up deadline below.
+				 */
+				const settle = (exitCode: number) => {
+					if (settled) return;
+					settled = true;
+					cancelEscalation?.();
+					if (deadlineTimer) clearTimeout(deadlineTimer);
+					this.running.delete(sessionId);
+					this.emitter.emit('command-exit', sessionId, exitCode);
+					resolve({ exitCode });
+				};
 
 				this.running.set(sessionId, () => {
 					// NOT ptyProcess.kill(): its default signal is SIGHUP, which the
 					// interactive login shell these commands run under survives on macOS,
-					// so Stop appeared to do nothing. Signal the whole process group so
-					// the command (and any pager/child holding the pty open) dies too.
-					cancelEscalation = terminateProcessTree(ptyProcess.pid, { sessionId });
+					// so Stop appeared to do nothing.
+					//
+					// `interrupt` writes Ctrl+C to the pty, which the tty turns into
+					// SIGINT for the kernel's current FOREGROUND process group. That is
+					// how a full-screen program like `top` is meant to be stopped, and
+					// it reaches jobs that job control placed in a process group we
+					// cannot derive from the shell's pid.
+					cancelEscalation = terminateProcessTree(ptyProcess.pid, {
+						sessionId,
+						interrupt: () => ptyProcess.write('\x03'),
+					});
+
+					// Guarantee a terminal state. If the pty still has not reported an
+					// exit after the SIGKILL escalation has had its chance, stop waiting
+					// and report the run as finished, so the card can never sit on
+					// "Stopping..." forever with no way out. The process itself has been
+					// SIGKILLed by this point (group, pid, and descendants).
+					if (!deadlineTimer) {
+						deadlineTimer = setTimeout(() => {
+							if (settled) return;
+							logger.error(
+								'[ProcessManager] Command never reported exit after Stop; settling anyway',
+								'ProcessManager',
+								{ sessionId, pid: ptyProcess.pid, command }
+							);
+							settle(SIGKILL_EXIT_CODE);
+						}, COMMAND_KILL_DEADLINE_MS);
+					}
 				});
 
 				ptyProcess.onData((data) => {
@@ -202,14 +249,11 @@ export class LocalCommandRunner {
 				});
 
 				ptyProcess.onExit(({ exitCode }) => {
-					cancelEscalation?.();
-					this.running.delete(sessionId);
 					logger.debug('[ProcessManager] runCommand PTY exit', 'ProcessManager', {
 						sessionId,
 						exitCode,
 					});
-					this.emitter.emit('command-exit', sessionId, exitCode);
-					resolve({ exitCode });
+					settle(exitCode);
 				});
 
 				return;

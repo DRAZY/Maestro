@@ -52,15 +52,19 @@ afterEach(() => {
 });
 
 describe('signalProcessTree', () => {
-	it('signals the whole process group, not just the pid', () => {
-		// Negative pid = process group. This is what reaches the command itself
-		// and anything it spawned, rather than only the wrapping shell.
+	it('signals BOTH the process group and the pid itself', () => {
+		// Not either/or. `kill(-pid)` succeeding only proves *something* in that
+		// group was signalled; a job-control shell keeps the shell in that group
+		// while the actual job runs in its own, so the group kill can report
+		// success while the command survives. Skipping the direct pid was why
+		// Stop did nothing for `top`.
 		signalProcessTree(PID, 'SIGTERM');
 
 		expect(killSpy).toHaveBeenCalledWith(-PID, 'SIGTERM');
+		expect(killSpy).toHaveBeenCalledWith(PID, 'SIGTERM');
 	});
 
-	it('falls back to the bare pid when the group signal fails', () => {
+	it('still signals the pid when the group signal fails', () => {
 		killSpy.mockImplementationOnce(() => {
 			throw Object.assign(new Error('no such process group'), { code: 'ESRCH' });
 		});
@@ -69,6 +73,25 @@ describe('signalProcessTree', () => {
 
 		expect(killSpy).toHaveBeenNthCalledWith(1, -PID, 'SIGTERM');
 		expect(killSpy).toHaveBeenNthCalledWith(2, PID, 'SIGTERM');
+	});
+
+	it('sweeps descendants, which no group signal can reach once they re-group', async () => {
+		// The sweep is async (it shells out to `ps`), so this one needs real timers.
+		vi.useRealTimers();
+		// pid 4242 -> 5000 -> 6000
+		mockExecFile.mockResolvedValueOnce({
+			stdout: `${PID} 1\n5000 ${PID}\n6000 5000\n7777 1\n`,
+			stderr: '',
+			code: 0,
+		});
+
+		signalProcessTree(PID, 'SIGKILL');
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(killSpy).toHaveBeenCalledWith(5000, 'SIGKILL');
+		expect(killSpy).toHaveBeenCalledWith(6000, 'SIGKILL');
+		// An unrelated process must never be touched.
+		expect(killSpy).not.toHaveBeenCalledWith(7777, 'SIGKILL');
 	});
 
 	it('swallows a fully-dead process', () => {
@@ -107,11 +130,31 @@ describe('terminateProcessTree', () => {
 
 	it('escalates to SIGKILL when the process ignores SIGTERM', () => {
 		terminateProcessTree(PID, { sessionId: 's1' });
-		expect(killSpy).toHaveBeenCalledTimes(1);
+		expect(killSpy).not.toHaveBeenCalledWith(-PID, 'SIGKILL');
 
 		vi.advanceTimersByTime(COMMAND_KILL_ESCALATION_MS);
 
 		expect(killSpy).toHaveBeenCalledWith(-PID, 'SIGKILL');
+		expect(killSpy).toHaveBeenCalledWith(PID, 'SIGKILL');
+	});
+
+	it('sends Ctrl+C through the pty before signalling', () => {
+		// The tty turns this into SIGINT for the kernel's foreground process
+		// group - the right target for a full-screen program like `top`, and
+		// reachable even when job control moved it to its own group.
+		const interrupt = vi.fn();
+		terminateProcessTree(PID, { sessionId: 's1', interrupt });
+
+		expect(interrupt).toHaveBeenCalled();
+	});
+
+	it('still signals when the pty write throws', () => {
+		const interrupt = vi.fn(() => {
+			throw new Error('pty is gone');
+		});
+
+		expect(() => terminateProcessTree(PID, { sessionId: 's1', interrupt })).not.toThrow();
+		expect(killSpy).toHaveBeenCalledWith(-PID, 'SIGTERM');
 	});
 
 	it('does not escalate once the caller reports the process exited', () => {
@@ -122,8 +165,8 @@ describe('terminateProcessTree', () => {
 
 		vi.advanceTimersByTime(COMMAND_KILL_ESCALATION_MS * 4);
 
-		expect(killSpy).toHaveBeenCalledTimes(1);
 		expect(killSpy).not.toHaveBeenCalledWith(-PID, 'SIGKILL');
+		expect(killSpy).not.toHaveBeenCalledWith(PID, 'SIGKILL');
 	});
 
 	it('escalates promptly - Stop should not feel like it hung', () => {

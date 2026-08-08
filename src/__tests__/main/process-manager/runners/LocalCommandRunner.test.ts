@@ -41,6 +41,7 @@ vi.mock('../../../../shared/platformDetection', () => ({
 }));
 
 import { LocalCommandRunner } from '../../../../main/process-manager/runners/LocalCommandRunner';
+import { COMMAND_KILL_DEADLINE_MS } from '../../../../main/process-manager/utils/commandKill';
 
 describe('LocalCommandRunner', () => {
 	beforeEach(() => {
@@ -155,6 +156,50 @@ describe('LocalCommandRunner', () => {
 			await run;
 
 			expect(runner.cancel('session-1')).toBe(false);
+		});
+
+		it('settles even if the pty NEVER reports an exit', async () => {
+			// The guarantee behind the Stop button. If a command somehow survives
+			// SIGTERM, SIGKILL, and the descendant sweep, the UI must still be
+			// released - a card stuck on "Stopping..." with no way out is worse
+			// than a process we failed to reap.
+			vi.useFakeTimers();
+			stubPty(); // note: never call exit()
+			const emitter = new EventEmitter();
+			const exits: number[] = [];
+			emitter.on('command-exit', (_s: string, code: number) => exits.push(code));
+			const runner = new LocalCommandRunner(emitter);
+
+			const run = runner.run('session-1', 'top', '/tmp');
+			runner.cancel('session-1');
+
+			await vi.advanceTimersByTimeAsync(COMMAND_KILL_DEADLINE_MS + 100);
+			const result = await run;
+
+			expect(result.exitCode).toBe(137); // 128 + SIGKILL
+			expect(exits).toEqual([137]);
+			// And the run is no longer tracked, so a second Stop is a clean no-op.
+			expect(runner.cancel('session-1')).toBe(false);
+			vi.useRealTimers();
+		});
+
+		it('reports the real exit code when the pty does report one', async () => {
+			// The deadline must never pre-empt a genuine exit.
+			vi.useFakeTimers();
+			const { exit } = stubPty();
+			const emitter = new EventEmitter();
+			const exits: number[] = [];
+			emitter.on('command-exit', (_s: string, code: number) => exits.push(code));
+			const runner = new LocalCommandRunner(emitter);
+
+			const run = runner.run('session-1', 'top', '/tmp');
+			runner.cancel('session-1');
+			exit(130);
+
+			await vi.advanceTimersByTimeAsync(COMMAND_KILL_DEADLINE_MS + 100);
+			expect((await run).exitCode).toBe(130);
+			expect(exits).toEqual([130]); // exactly once, not twice
+			vi.useRealTimers();
 		});
 
 		it('does not SIGKILL after the process has already exited', async () => {
