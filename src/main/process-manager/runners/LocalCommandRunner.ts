@@ -14,7 +14,7 @@ import {
 	buildWrappedCommand,
 } from '../utils/pathResolver';
 import { isWindows } from '../../../shared/platformDetection';
-import { COMMAND_KILL_DEADLINE_MS, terminateProcessTree } from '../utils/commandKill';
+import { killProcessTreeNow, sweepStragglers } from '../utils/commandKill';
 import { captureException } from '../../utils/sentry';
 import { stripControlSequences } from '../../utils/terminalFilter';
 import { getDefaultShell } from '../../stores/defaults';
@@ -181,57 +181,44 @@ export class LocalCommandRunner {
 					return;
 				}
 
-				// Cancels the pending SIGKILL escalation. Set when Stop is pressed,
-				// cleared on exit so a late SIGKILL can't land on a recycled pid.
-				let cancelEscalation: (() => void) | null = null;
-				let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
 				let settled = false;
 
 				/**
 				 * Report the run as finished exactly once, from whichever path gets
-				 * there first: the pty's own exit, or the give-up deadline below.
+				 * there first: Stop, or the pty's own exit.
 				 */
 				const settle = (exitCode: number) => {
 					if (settled) return;
 					settled = true;
-					cancelEscalation?.();
-					if (deadlineTimer) clearTimeout(deadlineTimer);
 					this.running.delete(sessionId);
 					this.emitter.emit('command-exit', sessionId, exitCode);
 					resolve({ exitCode });
 				};
 
 				this.running.set(sessionId, () => {
-					// NOT ptyProcess.kill(): its default signal is SIGHUP, which the
-					// interactive login shell these commands run under survives on macOS,
-					// so Stop appeared to do nothing.
-					//
-					// `interrupt` writes Ctrl+C to the pty, which the tty turns into
-					// SIGINT for the kernel's current FOREGROUND process group. That is
-					// how a full-screen program like `top` is meant to be stopped, and
-					// it reaches jobs that job control placed in a process group we
-					// cannot derive from the shell's pid.
-					cancelEscalation = terminateProcessTree(ptyProcess.pid, {
-						sessionId,
-						interrupt: () => ptyProcess.write('\x03'),
-					});
+					// SIGKILL the whole tree, synchronously, right now. No SIGTERM grace
+					// period and no Ctrl+C negotiation: Stop is a deliberate act on a
+					// command the user has already decided against, and anything catchable
+					// can be ignored by the very programs most likely to need stopping.
+					killProcessTreeNow(ptyProcess.pid, { sessionId });
 
-					// Guarantee a terminal state. If the pty still has not reported an
-					// exit after the SIGKILL escalation has had its chance, stop waiting
-					// and report the run as finished, so the card can never sit on
-					// "Stopping..." forever with no way out. The process itself has been
-					// SIGKILLed by this point (group, pid, and descendants).
-					if (!deadlineTimer) {
-						deadlineTimer = setTimeout(() => {
-							if (settled) return;
-							logger.error(
-								'[ProcessManager] Command never reported exit after Stop; settling anyway',
-								'ProcessManager',
-								{ sessionId, pid: ptyProcess.pid, command }
-							);
-							settle(SIGKILL_EXIT_CODE);
-						}, COMMAND_KILL_DEADLINE_MS);
+					// Tear down the pty itself so its master fd closes and the slave side
+					// is released even if something in the tree outlived the signals.
+					try {
+						ptyProcess.kill('SIGKILL');
+					} catch {
+						// Already gone - expected, since we just killed it.
 					}
+
+					// Settle NOW rather than waiting for the pty's exit event. The tree
+					// has been SIGKILLed, which cannot be caught or ignored, so there is
+					// nothing left to wait for - and waiting is exactly what left the card
+					// sitting on "Stopping..." with no way out.
+					settle(SIGKILL_EXIT_CODE);
+
+					// Fire-and-forget sweep for anything mid-fork during the kill. Never
+					// awaited; the UI is already released.
+					sweepStragglers(ptyProcess.pid);
 				});
 
 				ptyProcess.onData((data) => {
@@ -275,16 +262,29 @@ export class LocalCommandRunner {
 				shell: shellPath,
 			});
 
-			// Windows path (this branch only runs when !isWindows() is false), where
-			// child.kill() terminates just the shell and leaves its children running.
-			// terminateProcessTree shells out to `taskkill /t /f` to take the tree.
-			let cancelChildEscalation: (() => void) | null = null;
+			// Windows path. Same contract as the PTY branch above: kill the whole
+			// tree at once (`taskkill /t /f`, since child.kill() takes only the
+			// shell and orphans its children) and settle immediately rather than
+			// waiting on an exit that may never arrive.
+			let childSettled = false;
+			const settleChild = (exitCode: number) => {
+				if (childSettled) return;
+				childSettled = true;
+				this.running.delete(sessionId);
+				this.emitter.emit('command-exit', sessionId, exitCode);
+				resolve({ exitCode });
+			};
+
 			this.running.set(sessionId, () => {
-				if (!childProcess.pid) {
-					childProcess.kill('SIGKILL');
-					return;
+				if (childProcess.pid) {
+					killProcessTreeNow(childProcess.pid, { sessionId });
 				}
-				cancelChildEscalation = terminateProcessTree(childProcess.pid, { sessionId });
+				try {
+					childProcess.kill('SIGKILL');
+				} catch {
+					// Already gone.
+				}
+				settleChild(SIGKILL_EXIT_CODE);
 			});
 
 			// Handle stdout - emit data events for real-time streaming
@@ -336,27 +336,21 @@ export class LocalCommandRunner {
 
 			// Handle process exit
 			childProcess.on('exit', (code) => {
-				cancelChildEscalation?.();
-				this.running.delete(sessionId);
 				logger.debug('[ProcessManager] runCommand exit', 'ProcessManager', {
 					sessionId,
 					exitCode: code,
 				});
-				this.emitter.emit('command-exit', sessionId, code || 0);
-				resolve({ exitCode: code || 0 });
+				settleChild(code || 0);
 			});
 
 			// Handle errors
 			childProcess.on('error', (error) => {
-				cancelChildEscalation?.();
-				this.running.delete(sessionId);
 				logger.error('[ProcessManager] runCommand error', 'ProcessManager', {
 					sessionId,
 					error: error.message,
 				});
 				this.emitter.emit('stderr', sessionId, `Error: ${error.message}`);
-				this.emitter.emit('command-exit', sessionId, 1);
-				resolve({ exitCode: 1 });
+				settleChild(1);
 			});
 		});
 	}

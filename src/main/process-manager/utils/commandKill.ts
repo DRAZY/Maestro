@@ -1,25 +1,8 @@
 // src/main/process-manager/utils/commandKill.ts
 
-import { execFileNoThrow } from '../../utils/execFile';
+import { execFileNoThrow, execFileSyncNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';
 import { isWindows } from '../../../shared/platformDetection';
-
-/**
- * How long to wait after the polite stop before escalating to SIGKILL.
- *
- * Short, because this only runs when a user has explicitly pressed Stop - they
- * have already decided they don't want the command. It is still non-zero so a
- * well-behaved program gets a chance to clean up (restore the terminal, flush
- * output) rather than being torn down mid-write.
- */
-export const COMMAND_KILL_ESCALATION_MS = 1500;
-
-/**
- * Last-resort deadline. If the process still has not reported an exit this long
- * after Stop, the caller gives up waiting and settles anyway, so the UI can
- * never sit on "Stopping..." forever. See LocalCommandRunner.
- */
-export const COMMAND_KILL_DEADLINE_MS = 3000;
 
 /**
  * Signal a pid, swallowing "already gone" / "not permitted".
@@ -35,125 +18,116 @@ function killQuiet(target: number, signal: NodeJS.Signals): boolean {
 }
 
 /**
- * Signal every descendant of `pid` (children, grandchildren, ...).
+ * Every descendant of `pid`, nearest first, read synchronously.
  *
- * Async and best-effort: it shells out to `ps` to read the whole pid/ppid table
- * and walks it. Used in addition to the group signal because a job-control
- * shell puts each job in its OWN process group, so descendants are frequently
- * unreachable via the parent's group.
+ * MUST be called BEFORE anything in the tree is killed. The moment a parent
+ * dies its children are re-parented to launchd/init, so their ppid no longer
+ * leads back here and a snapshot taken even a few milliseconds later finds
+ * nothing. (Session id would survive that, but macOS `ps -o sess=` reports 0,
+ * so it is not usable here - verified, not assumed.)
  */
-function signalDescendants(pid: number, signal: NodeJS.Signals): void {
-	void execFileNoThrow('ps', ['-eo', 'pid=,ppid=']).then(({ stdout }) => {
-		if (!stdout) return;
+function collectDescendants(pid: number): number[] {
+	const table = execFileSyncNoThrow('ps', ['-eo', 'pid=,ppid=']);
+	if (!table) return [];
 
-		const childrenByParent = new Map<number, number[]>();
-		for (const line of stdout.split('\n')) {
-			const [childRaw, parentRaw] = line.trim().split(/\s+/);
-			const child = Number(childRaw);
-			const parent = Number(parentRaw);
-			if (!child || Number.isNaN(parent)) continue;
-			const siblings = childrenByParent.get(parent);
-			if (siblings) siblings.push(child);
-			else childrenByParent.set(parent, [child]);
-		}
+	const childrenByParent = new Map<number, number[]>();
+	for (const line of table.split('\n')) {
+		const [childRaw, parentRaw] = line.trim().split(/\s+/);
+		const child = Number(childRaw);
+		const parent = Number(parentRaw);
+		if (!child || Number.isNaN(parent)) continue;
+		const siblings = childrenByParent.get(parent);
+		if (siblings) siblings.push(child);
+		else childrenByParent.set(parent, [child]);
+	}
 
-		// Breadth-first walk. `seen` guards against a malformed table looping.
-		const seen = new Set<number>([pid]);
-		const queue = [pid];
-		while (queue.length > 0) {
-			const current = queue.shift()!;
-			for (const child of childrenByParent.get(current) ?? []) {
-				if (seen.has(child)) continue;
-				seen.add(child);
-				queue.push(child);
-				// The child, and its group in case it leads one of its own.
-				killQuiet(child, signal);
-				killQuiet(-child, signal);
-			}
+	// Breadth-first, so the result is ordered nearest-descendant first.
+	// `seen` guards against a malformed table looping.
+	const descendants: number[] = [];
+	const seen = new Set<number>([pid]);
+	const queue = [pid];
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+		for (const child of childrenByParent.get(current) ?? []) {
+			if (seen.has(child)) continue;
+			seen.add(child);
+			descendants.push(child);
+			queue.push(child);
 		}
+	}
+	return descendants;
+}
+
+/**
+ * Kill a command's whole process tree RIGHT NOW, with SIGKILL.
+ *
+ * No grace period and no SIGTERM first. Stop is an explicit, deliberate user
+ * action on a command they have decided they do not want; making them wait out
+ * a negotiation with a process that may never honour it is the wrong trade.
+ * SIGKILL cannot be caught, blocked, or ignored, so this is the only way the
+ * button can actually mean what it says.
+ *
+ * Three targets, because none of them subsumes the others:
+ *
+ *  - **Descendants**, snapshotted before anything dies (see collectDescendants)
+ *    and killed deepest-last, so a parent cannot fork more while we work.
+ *  - **The process group** (negative pid) - children that stayed in the
+ *    parent's group, the common case for a plain `sh -c 'cmd'`.
+ *  - **The pid itself**, NOT as an else-branch: `kill(-pid)` succeeding only
+ *    proves *something* in that group was signalled, and an interactive shell
+ *    with job control keeps itself in that group while the actual job runs in
+ *    a new one.
+ *
+ * Windows has no process groups in this sense, so `taskkill /t /f` walks the
+ * tree instead. Synchronous there too, for the same reason.
+ *
+ * The cost of no grace period: a command killed mid-write (`npm install`, a
+ * file copy) leaves whatever partial state it had. That is the accepted trade
+ * for Stop being instant and certain.
+ */
+export function killProcessTreeNow(pid: number, context: { sessionId: string }): void {
+	if (!pid || pid <= 0) return;
+
+	if (isWindows()) {
+		execFileSyncNoThrow('taskkill', ['/pid', String(pid), '/t', '/f']);
+		return;
+	}
+
+	// Snapshot first - this is unrecoverable once the parent is gone.
+	const descendants = collectDescendants(pid);
+
+	// Deepest-last: reversing the breadth-first order kills leaves before their
+	// parents, so nothing gets a chance to spawn a replacement.
+	for (const descendant of descendants.reverse()) {
+		killQuiet(descendant, 'SIGKILL');
+		killQuiet(-descendant, 'SIGKILL');
+	}
+
+	killQuiet(-pid, 'SIGKILL');
+	killQuiet(pid, 'SIGKILL');
+
+	logger.debug('[CommandKill] Killed command process tree', 'ProcessManager', {
+		sessionId: context.sessionId,
+		pid,
+		descendants: descendants.length,
 	});
 }
 
 /**
- * Send `signal` to a process, its process group, AND everything it spawned.
+ * Best-effort async sweep for anything that outlived the synchronous kill.
  *
- * All three, deliberately - they cover different escapes and none subsumes the
- * others:
- *
- *  - **The group** (negative pid) catches children that stayed in the parent's
- *    group, which is the common case for a plain `sh -c 'cmd'`.
- *  - **The pid itself** is NOT an else-branch. `kill(-pid)` succeeding only
- *    means *something* in that group was signalled; an interactive shell with
- *    job control puts each job in its own process group, so the group kill can
- *    report success against the shell while the actual command survives
- *    untouched. Skipping this was why Stop did nothing for `top`.
- *  - **Descendants** catch anything that changed process group after starting,
- *    which no signal aimed at the original group can reach.
- *
- * On Windows there are no process groups in this sense, so `taskkill /t` walks
- * the tree instead.
+ * Deliberately fire-and-forget: the tree is already dead by the time this runs,
+ * so it exists only to catch a process that was mid-fork during the kill. Never
+ * awaited, and never gates the UI.
  */
-export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
-	if (!pid || pid <= 0) return;
-
-	if (isWindows()) {
-		// /t = tree, /f = force. Non-zero exit just means it was already gone,
-		// which execFileNoThrow reports rather than throwing.
-		void execFileNoThrow('taskkill', ['/pid', String(pid), '/t', '/f']);
-		return;
-	}
-
-	killQuiet(-pid, signal);
-	killQuiet(pid, signal);
-	signalDescendants(pid, signal);
-}
-
-export interface TerminateOptions {
-	sessionId: string;
-	/**
-	 * Deliver an interrupt through the terminal itself (write `\x03` to the pty).
-	 *
-	 * This is the *correct* way to stop a foreground job: the tty line discipline
-	 * turns Ctrl+C into SIGINT for whichever process group the kernel currently
-	 * has in the foreground. That is exactly the job the user is looking at, even
-	 * when job control gave it a process group we cannot derive from the shell's
-	 * pid - and it is what full-screen programs like `top` expect, so they get to
-	 * restore the terminal on the way out.
-	 */
-	interrupt?: () => void;
-}
-
-/**
- * Terminate a one-off command: interrupt, then SIGTERM, then SIGKILL.
- *
- * SIGTERM rather than node-pty's default SIGHUP: an interactive login shell
- * (which is what these commands run under, so aliases resolve) survives SIGHUP
- * on macOS, so the default signal makes Stop silently do nothing.
- *
- * @returns a function that cancels the pending SIGKILL. **Call it when the
- * process exits.** Otherwise a late SIGKILL can land on a recycled pid and
- * take down an unrelated process.
- */
-export function terminateProcessTree(pid: number, options: TerminateOptions): () => void {
-	const { sessionId, interrupt } = options;
-
-	// Ctrl+C first so a TUI can restore the terminal, then the signal for
-	// anything that does not have a tty attached or ignores the interrupt.
-	try {
-		interrupt?.();
-	} catch {
-		// A dead pty throws on write - the signals below still apply.
-	}
-	signalProcessTree(pid, 'SIGTERM');
-
-	const escalationTimer = setTimeout(() => {
-		logger.warn(
-			'[CommandKill] Command did not exit after SIGTERM, escalating to SIGKILL',
-			'ProcessManager',
-			{ sessionId, pid }
-		);
-		signalProcessTree(pid, 'SIGKILL');
-	}, COMMAND_KILL_ESCALATION_MS);
-
-	return () => clearTimeout(escalationTimer);
+export function sweepStragglers(pid: number): void {
+	void execFileNoThrow('ps', ['-eo', 'pid=,ppid=']).then(({ stdout }) => {
+		if (!stdout) return;
+		for (const line of stdout.split('\n')) {
+			const [childRaw, parentRaw] = line.trim().split(/\s+/);
+			if (Number(parentRaw) === pid && Number(childRaw)) {
+				killQuiet(Number(childRaw), 'SIGKILL');
+			}
+		}
+	});
 }

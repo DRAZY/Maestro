@@ -41,7 +41,6 @@ vi.mock('../../../../shared/platformDetection', () => ({
 }));
 
 import { LocalCommandRunner } from '../../../../main/process-manager/runners/LocalCommandRunner';
-import { COMMAND_KILL_DEADLINE_MS } from '../../../../main/process-manager/utils/commandKill';
 
 describe('LocalCommandRunner', () => {
 	beforeEach(() => {
@@ -79,10 +78,9 @@ describe('LocalCommandRunner', () => {
 		const PTY_PID = 4242;
 
 		/**
-		 * Minimal node-pty double. Note it does NOT trigger exit from kill() -
-		 * cancel no longer goes through ptyProcess.kill(), because its default
-		 * signal is SIGHUP and the interactive login shell these commands run
-		 * under survives that on macOS. The test drives exit explicitly instead.
+		 * Minimal node-pty double. `kill()` deliberately does NOT trigger exit, so
+		 * a test can model the case that caused the hang: a command that never
+		 * reports an exit at all. Tests drive exit explicitly when they want it.
 		 */
 		function stubPty() {
 			let exitHandler: ((e: { exitCode: number }) => void) | undefined;
@@ -108,25 +106,57 @@ describe('LocalCommandRunner', () => {
 			killSpy.mockRestore();
 		});
 
-		it('SIGTERMs the process group rather than SIGHUPing the shell', async () => {
-			// The regression: SIGHUP (node-pty's default) left the shell alive, so
-			// Stop appeared to do nothing. A negative pid targets the whole group,
-			// which is what reaches the command and anything it spawned.
-			const { ptyKill, exit } = stubPty();
+		it('SIGKILLs the tree immediately - no catchable signal, no grace period', async () => {
+			// The regression: a catchable signal (SIGHUP, then SIGTERM) left the
+			// shell alive and Stop appeared to do nothing.
+			const { exit } = stubPty();
 			const runner = new LocalCommandRunner(new EventEmitter());
 
 			const run = runner.run('session-1', 'tail -f log', '/tmp');
 			expect(runner.cancel('session-1')).toBe(true);
 
-			expect(killSpy).toHaveBeenCalledWith(-PTY_PID, 'SIGTERM');
-			expect(killSpy).not.toHaveBeenCalledWith(expect.anything(), 'SIGHUP');
-			expect(ptyKill).not.toHaveBeenCalled();
+			const signals = killSpy.mock.calls.map((c) => c[1]);
+			expect(signals).toContain('SIGKILL');
+			expect(signals).not.toContain('SIGTERM');
+			expect(signals).not.toContain('SIGHUP');
+			expect(signals).not.toContain('SIGINT');
 
 			exit();
-			await expect(run).resolves.toEqual({ exitCode: 143 });
+			await run;
 		});
 
-		it('reports the cancelled run through command-exit so the UI can settle', async () => {
+		it('settles the run synchronously, without waiting for the pty exit', async () => {
+			// The hang: the pty never reported an exit for a job that survived, so
+			// the card sat on "Stopping..." forever. SIGKILL cannot be ignored, so
+			// there is nothing left to wait for.
+			stubPty(); // deliberately never call exit()
+			const emitter = new EventEmitter();
+			const exits: number[] = [];
+			emitter.on('command-exit', (_s: string, code: number) => exits.push(code));
+			const runner = new LocalCommandRunner(emitter);
+
+			const run = runner.run('session-1', 'top', '/tmp');
+			runner.cancel('session-1');
+
+			// No timers advanced, nothing awaited beyond the microtask queue.
+			await expect(run).resolves.toEqual({ exitCode: 137 });
+			expect(exits).toEqual([137]);
+			// The run is no longer tracked, so a second Stop is a clean no-op.
+			expect(runner.cancel('session-1')).toBe(false);
+		});
+
+		it('tears the pty down as well, releasing the slave fd', async () => {
+			const { ptyKill } = stubPty();
+			const runner = new LocalCommandRunner(new EventEmitter());
+
+			const run = runner.run('session-1', 'top', '/tmp');
+			runner.cancel('session-1');
+
+			expect(ptyKill).toHaveBeenCalledWith('SIGKILL');
+			await run;
+		});
+
+		it('emits command-exit exactly once, even if the pty reports later', async () => {
 			const { exit } = stubPty();
 			const emitter = new EventEmitter();
 			const exits: number[] = [];
@@ -135,10 +165,10 @@ describe('LocalCommandRunner', () => {
 
 			const run = runner.run('session-1', 'tail -f log', '/tmp');
 			runner.cancel('session-1');
-			exit(143);
+			exit(143); // the pty catching up afterwards must not double-report
 			await run;
 
-			expect(exits).toEqual([143]);
+			expect(exits).toEqual([137]);
 		});
 
 		it('returns false when nothing is running under that id', () => {
@@ -158,53 +188,10 @@ describe('LocalCommandRunner', () => {
 			expect(runner.cancel('session-1')).toBe(false);
 		});
 
-		it('settles even if the pty NEVER reports an exit', async () => {
-			// The guarantee behind the Stop button. If a command somehow survives
-			// SIGTERM, SIGKILL, and the descendant sweep, the UI must still be
-			// released - a card stuck on "Stopping..." with no way out is worse
-			// than a process we failed to reap.
-			vi.useFakeTimers();
-			stubPty(); // note: never call exit()
-			const emitter = new EventEmitter();
-			const exits: number[] = [];
-			emitter.on('command-exit', (_s: string, code: number) => exits.push(code));
-			const runner = new LocalCommandRunner(emitter);
-
-			const run = runner.run('session-1', 'top', '/tmp');
-			runner.cancel('session-1');
-
-			await vi.advanceTimersByTimeAsync(COMMAND_KILL_DEADLINE_MS + 100);
-			const result = await run;
-
-			expect(result.exitCode).toBe(137); // 128 + SIGKILL
-			expect(exits).toEqual([137]);
-			// And the run is no longer tracked, so a second Stop is a clean no-op.
-			expect(runner.cancel('session-1')).toBe(false);
-			vi.useRealTimers();
-		});
-
-		it('reports the real exit code when the pty does report one', async () => {
-			// The deadline must never pre-empt a genuine exit.
-			vi.useFakeTimers();
-			const { exit } = stubPty();
-			const emitter = new EventEmitter();
-			const exits: number[] = [];
-			emitter.on('command-exit', (_s: string, code: number) => exits.push(code));
-			const runner = new LocalCommandRunner(emitter);
-
-			const run = runner.run('session-1', 'top', '/tmp');
-			runner.cancel('session-1');
-			exit(130);
-
-			await vi.advanceTimersByTimeAsync(COMMAND_KILL_DEADLINE_MS + 100);
-			expect((await run).exitCode).toBe(130);
-			expect(exits).toEqual([130]); // exactly once, not twice
-			vi.useRealTimers();
-		});
-
-		it('does not SIGKILL after the process has already exited', async () => {
-			// A late escalation against a recycled pid would kill an unrelated
-			// process, so exiting must cancel the pending SIGKILL.
+		it('leaves no timer that could fire against a recycled pid', async () => {
+			// The old escalation timer could land a late SIGKILL on whatever pid the
+			// OS had since handed out. Killing synchronously removes that class of
+			// bug entirely - there is no deferred work at all.
 			vi.useFakeTimers();
 			const { exit } = stubPty();
 			const runner = new LocalCommandRunner(new EventEmitter());
@@ -215,7 +202,7 @@ describe('LocalCommandRunner', () => {
 			await run;
 
 			killSpy.mockClear();
-			vi.advanceTimersByTime(10_000);
+			vi.advanceTimersByTime(60_000);
 
 			expect(killSpy).not.toHaveBeenCalled();
 			vi.useRealTimers();
