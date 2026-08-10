@@ -57,6 +57,7 @@ import { useUIStore } from '../stores/uiStore';
 import { jumpToElement } from '../utils/jumpHighlight';
 import { SessionRecoveryCard } from './SessionRecoveryCard';
 import { RetryStatusCard } from './RetryStatusCard';
+import { SnoozeReturnCard } from './SnoozeReturnCard';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
 import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
@@ -510,6 +511,25 @@ const LogItemComponent = memo(
 							fontFamily={fontFamily}
 							ansiConverter={ansiConverter}
 						/>
+					</div>
+				</div>
+			);
+		}
+
+		// A snoozed tab that came back marks the gap with its own card, carrying
+		// the note the user left themselves. Same clean row as the other cards.
+		if (log.snoozeReturn) {
+			return (
+				<div
+					ref={logItemRef}
+					className="flex gap-4 px-6 py-2"
+					data-log-index={index}
+					data-log-id={log.id}
+					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 80px' }}
+				>
+					<div className="w-20 shrink-0" />
+					<div className="flex-1 min-w-0">
+						<SnoozeReturnCard log={log} theme={theme} />
 					</div>
 				</div>
 			);
