@@ -45,3 +45,6 @@ export type { CalendarPickerProps } from './CalendarPicker';
 
 export { EscCloseButton } from './EscCloseButton';
 export type { EscCloseButtonProps } from './EscCloseButton';
+
+export { GitChangeCounts } from './GitChangeCounts';
+export type { GitChangeCountsProps } from './GitChangeCounts';
