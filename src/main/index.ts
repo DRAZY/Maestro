@@ -158,6 +158,7 @@ import {
 	createQuitHandler,
 	type QuitHandler,
 } from './app-lifecycle';
+import { createTimeZoneWatcher } from './utils/timezone-watcher';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
 import { setupWakaTimeListener } from './process-listeners/wakatime-listener';
@@ -412,6 +413,26 @@ capabilitySnapshots.init(agentCapabilitiesStore, createSnapshotBroadcaster(safeS
 const cliWatcher = createCliWatcher({
 	getMainWindow: () => mainWindow,
 	getUserDataPath: () => app.getPath('userData'),
+});
+
+// Watch for the laptop crossing timezones. Chromium refreshes its renderers on
+// an OS timezone change but leaves the main process's V8 date cache stale, so
+// without this every local-time Cue schedule would keep firing on the old wall
+// clock until the app restarted.
+const timeZoneWatcher = createTimeZoneWatcher({
+	onChange: ({ previousZone, zone }) => {
+		if (!cueEngine?.isEnabled()) return;
+		try {
+			cueEngine.handleTimeZoneChange(previousZone, zone);
+		} catch (err) {
+			logger.error(`Cue handleTimeZoneChange failed: ${err}`, 'TimeZone');
+			void captureException(err, { operation: 'cue.handleTimeZoneChange' });
+		}
+	},
+	onLog: (level, message) => {
+		if (level === 'warn') logger.warn(message, 'TimeZone');
+		else logger.info(message, 'TimeZone');
+	},
 });
 
 // Create settings file watcher for external changes (e.g., from maestro-cli)
@@ -1296,6 +1317,9 @@ app
 		// Start settings file watcher for external changes (e.g., maestro-cli settings set)
 		settingsWatcher.start();
 
+		// Start watching for system timezone changes (laptop crossing zones).
+		timeZoneWatcher.start();
+
 		app.on('activate', () => {
 			if (BrowserWindow.getAllWindows().length === 0) {
 				createWindow();
@@ -1309,6 +1333,10 @@ app
 			if (isWebContentsAvailable(mainWindow)) {
 				mainWindow.webContents.send('app:systemResume');
 			}
+			// Apply any timezone change BEFORE reconciling: a laptop that flew
+			// across zones while asleep must measure the sleep gap and its missed
+			// local-time slots in the zone it woke up in, not the one it left.
+			timeZoneWatcher.check();
 			// Replay missed time-based Cue triggers and kick GitHub pollers so a
 			// laptop that's been asleep doesn't sit on stale subscriptions until
 			// the next scheduled tick. Idempotent against multiple resume events
@@ -1367,7 +1395,10 @@ quitHandler = createQuitHandler({
 		// Tear down the background quota refresh timers.
 		usageRefreshScheduler?.stop();
 	},
-	stopSettingsWatcher: () => settingsWatcher.stop(),
+	stopSettingsWatcher: () => {
+		settingsWatcher.stop();
+		timeZoneWatcher.stop();
+	},
 	powerManager,
 	stopSessionCleanup,
 	getPersistedSessions: () => sessionsStore.get('sessions', []) as Array<Record<string, unknown>>,
