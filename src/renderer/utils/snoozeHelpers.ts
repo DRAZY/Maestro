@@ -167,10 +167,11 @@ export function wakeSnoozedTab(
 			session: {
 				...session,
 				snoozedTabs: remaining,
-				// The snooze still resolved here, so the card belongs on the tab the
-				// user actually lands on - not lost with the discarded duplicate.
+				// The snooze still resolved here, so the card and the unread flag
+				// belong on the tab the user actually lands on - not lost with the
+				// discarded duplicate.
 				aiTabs: session.aiTabs.map((t) =>
-					t.id === existing.id ? { ...t, logs: [...t.logs, returnLog] } : t
+					t.id === existing.id ? { ...t, hasUnread: true, logs: [...t.logs, returnLog] } : t
 				),
 				activeTabId: existing.id,
 				activeFileTabId: null,

@@ -158,6 +158,40 @@ describe('wakeSnoozedTab', () => {
 		expect(woken.session.snoozedTabs).toHaveLength(0);
 	});
 
+	it('marks the surviving tab unread when it absorbs a duplicate wake', () => {
+		// The restored copy is discarded here, so the unread flag has to move to
+		// the tab the user actually lands on or the return goes unmarked.
+		const session = buildSession({
+			aiTabs: [
+				createMockAITab({ id: 'a' }),
+				createMockAITab({ id: 'b', agentSessionId: 'agent-1' }),
+			],
+			unifiedTabOrder: [
+				{ type: 'ai', id: 'a' },
+				{ type: 'ai', id: 'b' },
+			],
+			activeTabId: 'b',
+		});
+		const snoozed = snoozeTab(session, 'b', Date.now() + HOUR)!;
+		const withReopened: Session = {
+			...snoozed.session,
+			aiTabs: [
+				...snoozed.session.aiTabs,
+				createMockAITab({ id: 'z', agentSessionId: 'agent-1', hasUnread: false }),
+			],
+		};
+
+		const woken = wakeSnoozedTab(withReopened, snoozed.entry.id)!;
+		expect(woken.session.aiTabs.find((t) => t.id === 'z')?.hasUnread).toBe(true);
+	});
+
+	it('marks the tab unread on an early manual return too', () => {
+		const session = buildSession();
+		const snoozed = snoozeTab(session, 'b', Date.now() + HOUR)!;
+		const woken = wakeSnoozedTab(snoozed.session, snoozed.entry.id, 'unsnoozed')!;
+		expect(woken.session.aiTabs.find((t) => t.id === 'b')?.hasUnread).toBe(true);
+	});
+
 	it('returns null for an unknown snooze', () => {
 		expect(wakeSnoozedTab(buildSession(), 'nope')).toBeNull();
 	});
