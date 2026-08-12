@@ -3482,9 +3482,10 @@ function MaestroConsoleInner() {
 				<CenterFlash theme={theme} />
 
 				{/* --- MEDIA PLAYBACK (single, app-wide, never unmounted) ---
-				    Owns every <audio>/<video> element so playback survives switching
-				    tabs and agents. Each element is parked over the MediaViewportSlot
-				    its file preview tab renders. See MediaPlaybackHost. */}
+				    Owns the one <audio>/<video> element so playback survives switching
+				    tabs and agents. Media never gets a tab: it renders only as the
+				    floating player, which the user can drag anywhere. See
+				    MediaPlaybackHost. */}
 				<MediaPlaybackHost theme={theme} />
 			</div>
 		</>
