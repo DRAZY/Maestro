@@ -136,8 +136,6 @@ helpers below.
 | `formatTokensCompact(tokens)`          | `(number) => string`                   | Token counts without `~`: `"1.5K"`, `"2.3M"`.                                     |
 | `formatRelativeTime(dateOrTimestamp)`  | `(Date \| number \| string) => string` | `"just now"`, `"5m ago"`, `"2h ago"`, `"Dec 3"`.                                  |
 | `formatCacheAge(cacheAgeMs)`           | `(number \| null) => string`           | Cache age labels from elapsed milliseconds: `"just now"`, `"5m ago"`, `"2h ago"`. |
-| `formatActiveTime(ms)`                 | `(number) => string`                   | Duration: `"1D"`, `"2H 30M"`, `"<1M"`.                                            |
-| `formatElapsedTime(ms)`                | `(number) => string`                   | Precise: `"500ms"`, `"30s"`, `"5m 12s"`, `"1h 10m"`.                              |
 | `formatElapsedTimeColon(seconds)`      | `(number) => string`                   | Timer style: `"5:12"`, `"1:30:45"`.                                               |
 | `formatCost(cost)`                     | `(number) => string`                   | USD: `"$1.23"`, `"<$0.01"`, `"$0.00"`.                                            |
 | `estimateTokenCount(text)`             | `(string) => number`                   | Estimate at ~4 chars/token.                                                       |
@@ -146,6 +144,53 @@ helpers below.
 | `isAbsolutePath(path)`                 | `(string) => boolean`                  | True for Unix (`/x`), Windows drive (`C:\x`, `C:/x`), UNC paths.                  |
 | `getBasename(path)`                    | `(string) => string`                   | Final path segment; handles `/` and `\`, ignores trailing sep.                    |
 | `truncateCommand(command, maxLength?)` | `(string, number?) => string`          | Single-line with ellipsis. Default max 40 chars.                                  |
+
+---
+
+## Durations (`src/shared/duration.ts` - Both)
+
+**Never write another unit ladder.** Every "how long was that?" string renders from one
+engine here. There used to be a dozen hand-rolled copies of the same
+divide-by-86400000 loop, each drifting on the details that matter (where the ladder
+stops, whether a zero segment is padded, whether a countdown rounds up). Those are real
+product decisions, so they are options on `humanizeDuration`, not separate functions.
+
+All of these are re-exported from `src/shared/formatters.ts`, so either import path
+works. `duration.ts` is canonical and is where new duration work belongs.
+
+| Function                             | Signature                     | Purpose                                                                             |
+| ------------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------- |
+| `humanizeDuration(ms, options?)`     | `(number, opts?) => string`   | The engine. Reach for it when no preset fits.                                       |
+| `formatDurationHuman(ms)`            | `(number) => string`          | Hour-capped, zero-padded: `"45s"`, `"5m 30s"`, `"2h 15m"`, `"30h 0m"`. The default. |
+| `formatDurationCompact(ms)`          | `(number) => string`          | Drops seconds past a minute: `"45s"`, `"5m"`, `"2h 15m"`.                           |
+| `formatDurationVerbose(ms)`          | `(number) => string`          | Words: `"5 minutes 30 seconds"`, `"1 hour 15 minutes"`.                             |
+| `formatDurationParts(ms)`            | `(number) => string`          | Up to four segments: `"500ms"`, `"2m 30s"`, `"1h 15m 20s"`, `"3d 2h 15m"`.          |
+| `formatDurationDecimal(ms)`          | `(number) => string`          | One decimal, one unit, for CLI columns: `"5.2s"`, `"1.5h"`.                         |
+| `formatDurationLong(ms)`             | `(number) => string`          | Abbreviated, ladders to years: `"6d 7h"`, `"3w 2d"`, `"1y 7w"`.                     |
+| `formatDurationWords(ms, maxUnits?)` | `(number, number?) => string` | Prose with months: `"1 day, 12 hours"`, `"2 months, 1 week"`.                       |
+| `formatActiveTime(ms)`               | `(number) => string`          | Uppercase stat pills: `"<1M"`, `"5M"`, `"2H 30M"`, `"1D"`.                          |
+| `formatElapsedTime(ms)`              | `(number) => string`          | `formatDurationHuman` plus sub-second precision: `"500ms"`, `"5m 12s"`.             |
+
+`DURATION_MS` gives each unit's size in ms - use it instead of redeclaring
+`const DAY = 86400000`. `DURATION_LADDER_FULL` / `_DAYS` / `_HOURS` are the prebuilt
+ladders.
+
+### `humanizeDuration` options
+
+| Option          | Default    | Effect                                                                                           |
+| --------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| `units`         | full       | Which rungs to use, largest first. The ceiling decides whether 30 hours is `"1d 6h"` or `"30h"`. |
+| `maxUnits`      | `2`        | How many rungs to print.                                                                         |
+| `style`         | `'short'`  | `short` → `2h`, `long` → `2 hours` (pluralized), `caps` → `2H`.                                  |
+| `separator`     | `' '`      | Glue between rungs; prose usually wants `', '`.                                                  |
+| `keepZeroUnits` | `false`    | Pad interior zeros (`"2h 0m"`) for steady-width columns. Leading zeros never print.              |
+| `adjacentUnits` | `false`    | Print only the leading rung and the one below it: `"1h"`, not `"1h 59s"`. Overrides `maxUnits`.  |
+| `round`         | `'floor'`  | `ceil` for countdowns, so a live ticker never reads `"0s"` with time left.                       |
+| `fallback`      | `"0s"`-ish | Printed below the smallest rung. Negative and non-finite input lands here rather than throwing.  |
+
+Calendar math is approximate on purpose: a year is 365 days, a month is the average
+Gregorian month (30.44 days, so twelve can never print as "12 months"). Anything needing
+true calendar arithmetic must use `Date`, not this module.
 
 ---
 
