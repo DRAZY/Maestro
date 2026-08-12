@@ -3,6 +3,8 @@ import mermaid from 'mermaid';
 import DOMPurify from 'dompurify';
 import type { Theme } from '../types';
 import { logger } from '../utils/logger';
+import { ImageContextMenu } from './ImageContextMenu';
+import { useImageContextMenu } from '../hooks/ui/useImageContextMenu';
 import {
 	adjustBrightness,
 	blendColors,
@@ -344,6 +346,7 @@ export function MermaidRenderer({ chart, theme }: MermaidRendererProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [svgContent, setSvgContent] = useState<string | null>(null);
+	const { imageMenu, dismissImageMenu, openImageMenuFromEvent } = useImageContextMenu();
 
 	// Use useLayoutEffect to ensure DOM is ready before we try to render
 	useLayoutEffect(() => {
@@ -487,14 +490,23 @@ export function MermaidRenderer({ chart, theme }: MermaidRendererProps) {
 		);
 	}
 
-	// Render container - SVG will be inserted via the effect above
+	// Render container - SVG will be inserted via the effect above. The diagram is
+	// appended imperatively, so it never passes through React's element tree and
+	// can't carry an onContextMenu of its own; hang the right-click handler off
+	// the container and resolve the <svg> out of it.
 	return (
-		<div
-			ref={containerRef}
-			className="mermaid-container p-4 rounded-lg overflow-x-auto"
-			style={{
-				backgroundColor: theme.colors.bgActivity,
-			}}
-		/>
+		<>
+			<div
+				ref={containerRef}
+				className="mermaid-container p-4 rounded-lg overflow-x-auto"
+				style={{
+					backgroundColor: theme.colors.bgActivity,
+				}}
+				onContextMenu={openImageMenuFromEvent}
+			/>
+			{imageMenu && (
+				<ImageContextMenu menu={imageMenu} theme={theme} onDismiss={dismissImageMenu} />
+			)}
+		</>
 	);
 }
