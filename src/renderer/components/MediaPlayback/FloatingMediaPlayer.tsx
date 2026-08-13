@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
 	FileAudio,
 	FileVideo,
@@ -16,11 +16,17 @@ import { GhostIconButton } from '../ui/GhostIconButton';
 import { ModalResizeGrip } from '../ui/ModalResizeGrip';
 import { MediaListMenu } from './MediaListMenu';
 import { useEventListener } from '../../hooks/utils/useEventListener';
-import { useMediaPlaybackStore, type MediaFloatRect } from '../../stores/mediaPlaybackStore';
+import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
 import {
-	MEDIA_FLOAT_DEFAULT_SIZE,
-	clampMediaFloatRect,
+	DEFAULT_MEDIA_ASPECT,
+	MEDIA_FLOAT_DEFAULT_WIDTH,
+	fitMediaFloatRect,
 	initialMediaFloatRect,
+	mediaFloatChromeHeight,
+	mediaFloatResizeWidth,
+	mediaFloatWidthFor,
+	type MediaFloatFit,
+	type MediaFloatRect,
 } from '../../utils/mediaFloatGeometry';
 import type { MediaKind } from '../../../shared/mediaTypes';
 import type { Theme } from '../../types';
@@ -31,6 +37,18 @@ interface FloatingMediaPlayerProps {
 	/** Agent the file was opened from, so the widget says where it came from. */
 	subtitle: string;
 	kind: MediaKind;
+	/**
+	 * Picture aspect ratio of the loaded file, once its metadata says. The frame
+	 * is sized to it, so a 4:3 recording and a vertical phone clip each get a box
+	 * that fits instead of black bars. Ignored for audio.
+	 */
+	aspect?: number;
+	/**
+	 * Measured height of the transport inside `children`. The frame's height is
+	 * chrome plus picture, and the chrome depends on font metrics, so it is
+	 * measured rather than assumed.
+	 */
+	transportHeight?: number | null;
 	/** Whether the media is playing, for the minimized pill's button. */
 	playing: boolean;
 	/** The player. Kept mounted while minimized so playback continues. */
@@ -51,9 +69,6 @@ const FLOAT_Z_INDEX = 60;
 /** Current viewport, read at call time so a resize is always measured fresh. */
 const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 
-const clampToViewport = (rect: MediaFloatRect): MediaFloatRect =>
-	clampMediaFloatRect(rect, viewport());
-
 /**
  * The media player: a draggable, resizable now-playing widget.
  *
@@ -70,17 +85,27 @@ const clampToViewport = (rect: MediaFloatRect): MediaFloatRect =>
  * effect of stopping media. It comes back by opening a media file or via the
  * "Show Floating Media Player" command. The transport's own controls are what
  * actually pause.
+ *
+ * The frame is sized to whatever is loaded rather than to a remembered box: an
+ * audio file collapses it to the controls, and a video expands it to that
+ * video's own aspect ratio. So a queue that alternates between the two reshapes
+ * as it advances, and never plays a movie inside black bars or leaves dead
+ * space under a podcast. Only the width is the user's to choose, and it is
+ * remembered per kind.
  */
 export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	title,
 	subtitle,
 	kind,
+	aspect = DEFAULT_MEDIA_ASPECT,
+	transportHeight,
 	playing,
 	children,
 	theme,
 }: FloatingMediaPlayerProps) {
-	const storedRect = useMediaPlaybackStore((s) => s.floatRect);
-	const setFloatRect = useMediaPlaybackStore((s) => s.setFloatRect);
+	const storedPosition = useMediaPlaybackStore((s) => s.floatPosition);
+	const storedWidths = useMediaPlaybackStore((s) => s.floatWidths);
+	const setFloatGeometry = useMediaPlaybackStore((s) => s.setFloatGeometry);
 	const minimized = useMediaPlaybackStore((s) => s.minimized);
 	const setMinimized = useMediaPlaybackStore((s) => s.setMinimized);
 	const dismiss = useMediaPlaybackStore((s) => s.dismiss);
@@ -91,10 +116,26 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	const setActiveItem = useMediaPlaybackStore((s) => s.setActiveItem);
 	const closeItem = useMediaPlaybackStore((s) => s.closeItem);
 
-	// Live geometry. Seeded from the persisted rect, or parked bottom-right.
-	const [rect, setRect] = useState<MediaFloatRect>(() =>
-		storedRect ? clampToViewport(storedRect) : initialMediaFloatRect(kind, viewport())
+	// Everything that decides the frame's height. Held in a ref too, so the
+	// window-level drag handlers can read it without re-subscribing.
+	const fit: MediaFloatFit = useMemo(
+		() => ({ kind, aspect, chromeHeight: mediaFloatChromeHeight(transportHeight) }),
+		[kind, aspect, transportHeight]
 	);
+	const fitRef = useRef(fit);
+	fitRef.current = fit;
+
+	// Live geometry. Seeded from the remembered position and this kind's width,
+	// or parked bottom-right at the kind's default.
+	const [rect, setRect] = useState<MediaFloatRect>(() => {
+		const initial = initialMediaFloatRect(fit, viewport());
+		if (!storedPosition) return initial;
+		return fitMediaFloatRect(
+			{ ...storedPosition, width: mediaFloatWidthFor(kind, storedWidths) },
+			fit,
+			viewport()
+		);
+	});
 
 	const removeHistoryItem = useMediaPlaybackStore((s) => s.removeHistoryItem);
 	const clearHistory = useMediaPlaybackStore((s) => s.clearHistory);
@@ -154,19 +195,30 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 				// exactly where it was rather than nudging it by a pixel.
 				if (Math.abs(dx) + Math.abs(dy) <= DRAG_SLOP_PX) return;
 				setRect(
-					clampToViewport({
-						...gesture.origin,
-						left: gesture.origin.left + dx,
-						top: gesture.origin.top + dy,
-					})
+					fitMediaFloatRect(
+						{
+							width: gesture.origin.width,
+							left: gesture.origin.left + dx,
+							top: gesture.origin.top + dy,
+						},
+						fitRef.current,
+						viewport()
+					)
 				);
 			} else {
+				// Only the width is dragged; the height follows the media. The grip is
+				// a corner, so a downward drag still grows a video - whichever axis
+				// moved further sets the width.
 				setRect(
-					clampToViewport({
-						...gesture.origin,
-						width: gesture.origin.width + dx,
-						height: gesture.origin.height + dy,
-					})
+					fitMediaFloatRect(
+						{
+							top: gesture.origin.top,
+							left: gesture.origin.left,
+							width: mediaFloatResizeWidth(gesture.origin, { dx, dy }, fitRef.current),
+						},
+						fitRef.current,
+						viewport()
+					)
 				);
 			}
 		},
@@ -180,13 +232,17 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 			gestureRef.current = null;
 			setGesturing(false);
 			// Persist only on release, so a drag is one settings write, not hundreds.
-			setFloatRect(rect);
+			// The width is stored against this kind: a movie's width would be absurd
+			// on the next podcast.
+			setFloatGeometry(kind, { top: rect.top, left: rect.left, width: rect.width });
 		},
 		{ enabled: gesturing }
 	);
 
 	// A window resize can leave the widget partly or wholly off screen.
-	useEventListener('resize', () => setRect((prev) => clampToViewport(prev)));
+	useEventListener('resize', () =>
+		setRect((prev) => fitMediaFloatRect(prev, fitRef.current, viewport()))
+	);
 
 	// Close the open list on any outside click. Both buttons and the portaled
 	// list count as inside - the list is not a DOM descendant.
@@ -206,13 +262,19 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 		{ enabled: openList !== null }
 	);
 
-	// Adopt a size that suits the media kind when switching between an audio file
-	// and a video one, but never override a size the user chose themselves.
+	// Reshape for whatever is loaded now. A queue that alternates between a
+	// podcast and a screen recording steps between a control strip and a picture
+	// frame as it advances, at each kind's own width, without the user touching
+	// anything. Position is left alone: the widget should not wander.
 	useEffect(() => {
-		if (storedRect) return;
-		const size = MEDIA_FLOAT_DEFAULT_SIZE[kind];
-		setRect((prev) => clampToViewport({ ...prev, width: size.width, height: size.height }));
-	}, [kind, storedRect]);
+		setRect((prev) =>
+			fitMediaFloatRect(
+				{ top: prev.top, left: prev.left, width: mediaFloatWidthFor(kind, storedWidths) },
+				fit,
+				viewport()
+			)
+		);
+	}, [fit, kind, storedWidths]);
 
 	const KindIcon = kind === 'video' ? FileVideo : FileAudio;
 	const height = minimized ? PILL_HEIGHT : rect.height;
@@ -392,8 +454,9 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					theme={theme}
 					onResizeStart={beginResize}
 					onReset={() => {
-						const size = MEDIA_FLOAT_DEFAULT_SIZE[kind];
-						setRect((prev) => clampToViewport({ ...prev, ...size }));
+						const width = MEDIA_FLOAT_DEFAULT_WIDTH[kind];
+						setRect((prev) => fitMediaFloatRect({ ...prev, width }, fit, viewport()));
+						setFloatGeometry(kind, { top: rect.top, left: rect.left, width });
 					}}
 					canReset
 				/>

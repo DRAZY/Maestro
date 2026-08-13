@@ -12,6 +12,8 @@ Open an audio or video file and Maestro plays it in a small floating player. It 
 
 Double-click any supported audio or video file - in the Files pane, from a link in a chat transcript, or through Fuzzy File Search. The player appears in the bottom-right corner and starts playing.
 
+Audio opens as a slim control strip, since there is nothing to look at. Video opens as a proper frame, sized to that file's own aspect ratio - a 4:3 screen recording and a vertical phone clip each get a box that fits them, so nothing ever plays inside black bars.
+
 There is only ever **one** player. Opening a second file switches to it and keeps the first in the queue, so two things can never play over each other.
 
 To line a file up instead of switching to it, right-click it and choose **Add to Play Queue**. Select several files, right-click, and **Preview** plays the first and queues the rest - that is how you start a playlist in one gesture.
@@ -39,7 +41,9 @@ Files on an [SSH remote](/ssh-remote-execution) also fall through to that previe
 
 **Drag the grip in the bottom-right corner** to resize. Double-click that grip to snap back to the default size.
 
-Where you leave it is remembered across restarts.
+Resizing sets the width; the height follows the file, so a video keeps its shape as it grows. Where you leave the player is remembered across restarts, and the width is remembered **per kind** - size a movie the way you like without your podcast bar becoming half the screen wide.
+
+When the queue steps from an audio file to a video one, the player reshapes itself: it expands into a picture frame for the video and collapses back to a control strip for the next MP3. A queue of mixed files needs no fiddling with the grip.
 
 ## Controls
 

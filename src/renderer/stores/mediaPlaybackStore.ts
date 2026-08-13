@@ -33,6 +33,10 @@
  * `maestro-media://` stream URLs are minted per boot, so only paths are
  * persisted; the player re-resolves the URL when an item loads.
  *
+ * Float geometry is position plus a width **per kind**: the frame's height is
+ * always derived from the media (audio has no picture, video wants its own
+ * aspect ratio), so it is not a number anyone stores. See `mediaFloatGeometry`.
+ *
  * Multi-window note: each renderer holds its own copy of this store, so on a
  * multi-window build two windows can each own a player.
  */
@@ -40,14 +44,8 @@
 import { create } from 'zustand';
 
 import { mediaItemId, pushMediaHistory, trimMediaQueue, type MediaItem } from '../utils/mediaItems';
-
-/** Position and size of the floating player. */
-export interface MediaFloatRect {
-	top: number;
-	left: number;
-	width: number;
-	height: number;
-}
+import { normalizeMediaAspect, type PersistedMediaFloat } from '../utils/mediaFloatGeometry';
+import type { MediaKind } from '../../shared/mediaTypes';
 
 /** Everything needed to queue a file, minus the derived ID. */
 export type MediaOpenRequest = Omit<MediaItem, 'id'>;
@@ -66,6 +64,9 @@ export const MEDIA_QUEUE_LIMIT = 50;
 
 /** Settings key holding the queue across restarts. */
 export const MEDIA_QUEUE_SETTINGS_KEY = 'mediaPlayerQueue';
+
+/** Settings key holding the player's position and per-kind widths. */
+export const MEDIA_FLOAT_SETTINGS_KEY = 'mediaPlayerFloatRect';
 
 /** What `mediaPlayerQueue` stores. Stream URLs are not persisted, only paths. */
 export interface PersistedMediaQueue {
@@ -101,8 +102,20 @@ interface MediaPlaybackStoreState {
 	toggleRequest: number;
 	/** Item ID -> last playback position, so coming back resumes. Persisted. */
 	resumeTimes: Record<string, number>;
-	/** Floating player geometry. Null until the user moves or resizes it. */
-	floatRect: MediaFloatRect | null;
+	/** Where the player sits. Null until the user moves or resizes it. Persisted. */
+	floatPosition: { top: number; left: number } | null;
+	/**
+	 * Width the user last chose, per media kind. Height is derived from the
+	 * media, so it is never stored. Persisted.
+	 */
+	floatWidths: Partial<Record<MediaKind, number>>;
+	/**
+	 * Item ID -> picture aspect ratio, learned from the file when it loads.
+	 *
+	 * Per boot: it costs one frame to re-learn and would otherwise be one more
+	 * thing on disk that could disagree with the file.
+	 */
+	aspects: Record<string, number>;
 
 	/**
 	 * Queue a file the user just opened and play it.
@@ -156,13 +169,19 @@ interface MediaPlaybackStoreState {
 	/** Bring the player back. */
 	restore: () => void;
 	setMinimized: (minimized: boolean) => void;
-	setFloatRect: (rect: MediaFloatRect) => void;
+	/**
+	 * Remember where the user put the player, and how wide they made it for this
+	 * kind of media.
+	 */
+	setFloatGeometry: (kind: MediaKind, rect: { top: number; left: number; width: number }) => void;
 	/** Remember where an item was paused, so returning to it resumes. */
 	rememberTime: (itemId: string, seconds: number) => void;
+	/** Record a video's real shape, so the frame can fit it. */
+	rememberAspect: (itemId: string, aspect: number) => void;
 }
 
-function persistFloatRect(rect: MediaFloatRect): void {
-	window.maestro?.settings?.set('mediaPlayerFloatRect', rect);
+function persistFloat(float: PersistedMediaFloat): void {
+	window.maestro?.settings?.set(MEDIA_FLOAT_SETTINGS_KEY, float);
 }
 
 /**
@@ -207,7 +226,9 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set, get
 	pendingAutoplay: false,
 	toggleRequest: 0,
 	resumeTimes: {},
-	floatRect: null,
+	floatPosition: null,
+	floatWidths: {},
+	aspects: {},
 
 	openMedia: (request) => {
 		set((state) => {
@@ -362,15 +383,29 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set, get
 	setMinimized: (minimized) =>
 		set((state) => (state.minimized === minimized ? state : { minimized })),
 
-	setFloatRect: (rect) => {
-		persistFloatRect(rect);
-		set({ floatRect: rect });
+	setFloatGeometry: (kind, rect) => {
+		set((state) => {
+			const float: PersistedMediaFloat = {
+				top: rect.top,
+				left: rect.left,
+				widths: { ...state.floatWidths, [kind]: rect.width },
+			};
+			persistFloat(float);
+			return { floatPosition: { top: float.top, left: float.left }, floatWidths: float.widths };
+		});
 	},
 
 	rememberTime: (itemId, seconds) => {
 		set((state) => ({ resumeTimes: { ...state.resumeTimes, [itemId]: seconds } }));
 		persistQueue();
 	},
+
+	rememberAspect: (itemId, aspect) =>
+		set((state) => {
+			const value = normalizeMediaAspect(aspect);
+			if (state.aspects[itemId] === value) return state;
+			return { aspects: { ...state.aspects, [itemId]: value } };
+		}),
 }));
 
 /** Non-React access, for callers outside the component tree. */

@@ -6,12 +6,13 @@ import {
 	useMediaPlaybackStore,
 	MEDIA_HISTORY_LIMIT,
 	MEDIA_QUEUE_LIMIT,
+	MEDIA_FLOAT_SETTINGS_KEY,
 	MEDIA_QUEUE_SETTINGS_KEY,
 	type MediaOpenRequest,
 } from '../../../renderer/stores/mediaPlaybackStore';
 import { mediaItemId } from '../../../renderer/utils/mediaItems';
 
-const FLOAT = { top: 40, left: 50, width: 400, height: 240 };
+const FLOAT = { top: 40, left: 50, width: 400 };
 
 const initial = useMediaPlaybackStore.getState();
 
@@ -40,7 +41,9 @@ function reset() {
 		pendingAutoplay: false,
 		toggleRequest: 0,
 		resumeTimes: {},
-		floatRect: null,
+		floatPosition: null,
+		floatWidths: {},
+		aspects: {},
 	});
 }
 
@@ -281,18 +284,61 @@ describe('mediaPlaybackStore', () => {
 	});
 
 	describe('float geometry', () => {
-		it('stores and persists the rect', () => {
+		it('persists the position and the width, filed under the kind', () => {
 			const set = vi.fn();
 			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
-			initial.setFloatRect(FLOAT);
-			expect(useMediaPlaybackStore.getState().floatRect).toEqual(FLOAT);
-			expect(set).toHaveBeenCalledWith('mediaPlayerFloatRect', FLOAT);
+			initial.setFloatGeometry('video', FLOAT);
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.floatPosition).toEqual({ top: FLOAT.top, left: FLOAT.left });
+			expect(state.floatWidths).toEqual({ video: FLOAT.width });
+			expect(set).toHaveBeenCalledWith(MEDIA_FLOAT_SETTINGS_KEY, {
+				top: FLOAT.top,
+				left: FLOAT.left,
+				widths: { video: FLOAT.width },
+			});
+		});
+
+		it('keeps a width per kind, so one does not overwrite the other', () => {
+			initial.setFloatGeometry('video', { top: 0, left: 0, width: 900 });
+			initial.setFloatGeometry('audio', { top: 10, left: 10, width: 380 });
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.floatWidths).toEqual({ video: 900, audio: 380 });
+			// Position is shared: the widget should not move when the queue advances.
+			expect(state.floatPosition).toEqual({ top: 10, left: 10 });
+		});
+
+		it('never stores a height, because the media decides it', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+			initial.setFloatGeometry('audio', FLOAT);
+			expect(set.mock.calls[0][1]).not.toHaveProperty('height');
 		});
 
 		it('survives a missing settings bridge', () => {
 			(window as unknown as { maestro?: unknown }).maestro = undefined;
-			expect(() => initial.setFloatRect(FLOAT)).not.toThrow();
-			expect(useMediaPlaybackStore.getState().floatRect).toEqual(FLOAT);
+			expect(() => initial.setFloatGeometry('audio', FLOAT)).not.toThrow();
+			expect(useMediaPlaybackStore.getState().floatPosition).toEqual({ top: 40, left: 50 });
+		});
+	});
+
+	describe('aspect ratios', () => {
+		it('remembers a video shape per item, so returning to it fits at once', () => {
+			initial.rememberAspect('vid', 4 / 3);
+			expect(useMediaPlaybackStore.getState().aspects.vid).toBeCloseTo(4 / 3);
+		});
+
+		it('rejects nonsense rather than shaping the widget like a ruler', () => {
+			initial.rememberAspect('vid', 0);
+			expect(useMediaPlaybackStore.getState().aspects.vid).toBeCloseTo(16 / 9);
+		});
+
+		it('re-reporting the same shape does not churn state', () => {
+			initial.rememberAspect('vid', 16 / 9);
+			const before = useMediaPlaybackStore.getState();
+			initial.rememberAspect('vid', 16 / 9);
+			expect(useMediaPlaybackStore.getState()).toBe(before);
 		});
 	});
 

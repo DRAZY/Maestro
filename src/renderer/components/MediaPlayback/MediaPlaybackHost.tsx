@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 
 import { MediaViewer } from '../FilePreview/MediaViewer';
 import { FloatingMediaPlayer } from './FloatingMediaPlayer';
@@ -42,6 +42,12 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 	const consumeAutoplay = useMediaPlaybackStore((s) => s.consumeAutoplay);
 	const rememberTime = useMediaPlaybackStore((s) => s.rememberTime);
 	const advanceAfterEnded = useMediaPlaybackStore((s) => s.advanceAfterEnded);
+	const aspects = useMediaPlaybackStore((s) => s.aspects);
+	const rememberAspect = useMediaPlaybackStore((s) => s.rememberAspect);
+
+	// One measurement for the whole app: the transport is the same strip whatever
+	// is loaded, so re-measuring per file would only re-report the same number.
+	const [transportHeight, setTransportHeight] = useState<number | null>(null);
 
 	// Queue writes are debounced, so a window closing mid-debounce would lose the
 	// last position (or the last thing queued). Flush before it goes away.
@@ -64,6 +70,13 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 			if (activeItemId) rememberTime(activeItemId, seconds);
 		},
 		[activeItemId, rememberTime]
+	);
+
+	const handleAspectChange = useCallback(
+		(aspect: number) => {
+			if (activeItemId) rememberAspect(activeItemId, aspect);
+		},
+		[activeItemId, rememberAspect]
 	);
 
 	// Hand the one-shot back to the store once the player has it. In an effect,
@@ -90,6 +103,10 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 			// A finished file hands off to the next queued one, which is what makes
 			// "queue an mp4 behind this mp3" mean anything.
 			onEnded={advanceAfterEnded}
+			// The frame sizes itself to the file, so it needs the file's own shape
+			// and the true height of the controls under it.
+			onAspectChange={handleAspectChange}
+			onTransportHeightChange={setTransportHeight}
 			onPrev={stepMediaItem(items, activeItemId, -1) ? () => navigate(-1) : undefined}
 			onNext={stepMediaItem(items, activeItemId, 1) ? () => navigate(1) : undefined}
 			toggleRequest={toggleRequest}
@@ -126,6 +143,8 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 			title={active.name}
 			subtitle={active.sessionName}
 			kind={active.kind}
+			aspect={aspects[active.id]}
+			transportHeight={transportHeight}
 			playing={playing}
 			theme={theme}
 		>

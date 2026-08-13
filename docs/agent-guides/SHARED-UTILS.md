@@ -265,8 +265,18 @@ directly classifies everything as non-media. The content check is what keeps a
 remote file (no local stream to serve) on the binary "open externally" path.
 
 Floating-widget geometry math lives in `src/renderer/utils/mediaFloatGeometry.ts`
-(`clampMediaFloatRect`, `initialMediaFloatRect`), split out of the component so
-the off-screen-recovery cases are testable without a DOM.
+(`fitMediaFloatRect`, `initialMediaFloatRect`, `mediaFloatHeight`,
+`mediaFloatResizeWidth`, `sanitizeMediaFloat`), split out of the component so the
+off-screen-recovery and aspect-fitting cases are testable without a DOM.
+
+**Height is derived, never stored.** The frame is chrome plus a stage, and the
+stage belongs to the media: audio has no picture so the frame collapses to the
+controls, and video gets exactly its own `videoWidth / videoHeight` or it plays
+inside black bars. So width is the only size the user picks, and it is remembered
+per kind. The chrome half of the math is measured at runtime (`transportHeight`
+reported by `MediaViewer`) because the transport's height comes out of font
+metrics - a hard-coded constant letterboxes video on whichever platform it was
+not tuned on.
 
 ---
 

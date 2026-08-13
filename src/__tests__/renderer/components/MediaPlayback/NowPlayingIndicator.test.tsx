@@ -25,7 +25,9 @@ function seed(overrides: Partial<ReturnType<typeof useMediaPlaybackStore.getStat
 		pendingAutoplay: false,
 		toggleRequest: 0,
 		resumeTimes: {},
-		floatRect: null,
+		floatPosition: null,
+		floatWidths: {},
+		aspects: {},
 		...overrides,
 	});
 }

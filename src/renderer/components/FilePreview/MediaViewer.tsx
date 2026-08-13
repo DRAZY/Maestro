@@ -60,6 +60,19 @@ interface MediaViewerProps {
 	 * Not fired while looping, since a looping element never ends.
 	 */
 	onEnded?: () => void;
+	/**
+	 * The video's real shape (`videoWidth / videoHeight`), reported once its
+	 * metadata loads. The floating frame sizes itself to this, so a 4:3
+	 * recording or a vertical phone clip gets a box that fits it rather than
+	 * black bars. Never fired for audio.
+	 */
+	onAspectChange?: (aspect: number) => void;
+	/**
+	 * Measured height of the transport strip. The floating frame is chrome plus
+	 * picture, and this half of the chrome depends on font metrics, so it is
+	 * measured here rather than assumed by the frame.
+	 */
+	onTransportHeightChange?: (height: number) => void;
 	/** Widget navigation. Rendered inside the transport when provided. */
 	onPrev?: () => void;
 	onNext?: () => void;
@@ -166,6 +179,8 @@ export const MediaViewer = memo(function MediaViewer({
 	onTimeUpdate,
 	onPlayingChange,
 	onEnded,
+	onAspectChange,
+	onTransportHeightChange,
 	onPrev,
 	onNext,
 	toggleRequest = 0,
@@ -173,6 +188,7 @@ export const MediaViewer = memo(function MediaViewer({
 }: MediaViewerProps) {
 	const mediaRef = useRef<HTMLMediaElement | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const transportRef = useRef<HTMLDivElement>(null);
 	const rateButtonRef = useRef<HTMLButtonElement>(null);
 	const rateMenuRef = useRef<HTMLDivElement>(null);
 
@@ -201,6 +217,10 @@ export const MediaViewer = memo(function MediaViewer({
 	// The end-of-file hand-off, kept in a ref so `mediaProps` stays stable.
 	const endedRef = useRef(onEnded);
 	endedRef.current = onEnded;
+	// Same for the shape report: it fires from 'loadedmetadata', and that handler
+	// should not be rebuilt every time the parent re-renders.
+	const aspectRef = useRef(onAspectChange);
+	aspectRef.current = onAspectChange;
 	// Same for the resume position: latched when a file starts loading, consumed
 	// on 'loadedmetadata', and never re-applied (so a manual seek back to 0 sticks).
 	const resumeRef = useRef(resumeTime);
@@ -249,6 +269,25 @@ export const MediaViewer = memo(function MediaViewer({
 		onPlayingChange?.(playing);
 	}, [playing, onPlayingChange]);
 
+	// Measure the transport for the floating frame's height math. Measured, not
+	// assumed: the strip's height comes out of font metrics, so it differs
+	// between platforms and any hard-coded number would letterbox video on the
+	// ones it was not tuned on. Observed rather than read once, since the row
+	// gains buttons (prev/next, fullscreen) depending on the queue and the file.
+	useEffect(() => {
+		const element = transportRef.current;
+		if (!element || !onTransportHeightChange) return;
+		const report = () => {
+			const height = element.getBoundingClientRect().height;
+			if (height > 0) onTransportHeightChange(height);
+		};
+		report();
+		if (typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(report);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [onTransportHeightChange]);
+
 	// Report position continuously rather than only on unmount: React gives no
 	// "about to unmount with fresh DOM state" hook, and the element is gone by
 	// cleanup time on a fast switch.
@@ -275,6 +314,13 @@ export const MediaViewer = memo(function MediaViewer({
 		setDuration(Number.isFinite(el.duration) ? el.duration : 0);
 		el.playbackRate = playbackRate;
 		setLoadState('ready');
+		// Hand the frame this video's real shape. Audio has no picture, and a
+		// video with no intrinsic size yet (audio-only container, broken stream)
+		// leaves the frame on its 16:9 assumption rather than collapsing it.
+		const video = el as HTMLVideoElement;
+		if (video.videoWidth > 0 && video.videoHeight > 0) {
+			aspectRef.current?.(video.videoWidth / video.videoHeight);
+		}
 		// Pick up where the widget left this file. Guarded against a stale position
 		// past the end (file replaced on disk since), which would strand playback.
 		if (resumeRef.current > 0 && Number.isFinite(el.duration) && resumeRef.current < el.duration) {
@@ -557,6 +603,7 @@ export const MediaViewer = memo(function MediaViewer({
 
 			{/* Transport */}
 			<div
+				ref={transportRef}
 				className="shrink-0 border-t px-3 py-2 flex flex-col gap-1.5"
 				style={{ borderColor: theme.colors.border }}
 			>

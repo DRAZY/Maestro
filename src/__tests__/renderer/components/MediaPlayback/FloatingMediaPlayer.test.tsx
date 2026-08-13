@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { FloatingMediaPlayer } from '../../../../renderer/components/MediaPlayback/FloatingMediaPlayer';
 import { useMediaPlaybackStore } from '../../../../renderer/stores/mediaPlaybackStore';
+import {
+	MEDIA_FLOAT_DEFAULT_WIDTH,
+	mediaFloatChromeHeight,
+} from '../../../../renderer/utils/mediaFloatGeometry';
 import type { MediaItem } from '../../../../renderer/utils/mediaItems';
 import { mockTheme } from '../../../helpers/mockTheme';
 
@@ -17,12 +21,21 @@ function item(overrides: Partial<MediaItem> = {}): MediaItem {
 	};
 }
 
-function renderPlayer(overrides: { kind?: 'audio' | 'video'; playing?: boolean } = {}) {
-	render(
+interface PlayerOverrides {
+	kind?: 'audio' | 'video';
+	playing?: boolean;
+	aspect?: number;
+	transportHeight?: number | null;
+}
+
+function playerElement(overrides: PlayerOverrides = {}) {
+	return (
 		<FloatingMediaPlayer
 			title="podcast.mp3"
 			subtitle="Agent One"
 			kind={overrides.kind ?? 'audio'}
+			aspect={overrides.aspect}
+			transportHeight={overrides.transportHeight ?? null}
 			playing={overrides.playing ?? false}
 			theme={mockTheme}
 		>
@@ -30,6 +43,14 @@ function renderPlayer(overrides: { kind?: 'audio' | 'video'; playing?: boolean }
 		</FloatingMediaPlayer>
 	);
 }
+
+function renderPlayer(overrides: PlayerOverrides = {}) {
+	return render(playerElement(overrides));
+}
+
+/** Frame height with nothing measured yet: title bar plus the fallback strip. */
+const CHROME = mediaFloatChromeHeight(null);
+const frame = () => screen.getByTestId('floating-media-player') as HTMLElement;
 
 describe('FloatingMediaPlayer', () => {
 	beforeEach(() => {
@@ -43,7 +64,9 @@ describe('FloatingMediaPlayer', () => {
 			pendingAutoplay: false,
 			toggleRequest: 0,
 			resumeTimes: {},
-			floatRect: null,
+			floatPosition: null,
+			floatWidths: {},
+			aspects: {},
 		});
 		(window as unknown as { maestro?: unknown }).maestro = { settings: { set: vi.fn() } };
 	});
@@ -96,22 +119,23 @@ describe('FloatingMediaPlayer', () => {
 		expect(useMediaPlaybackStore.getState().playing).toBe(true);
 	});
 
-	it('seeds position from the persisted rect', () => {
+	it('seeds from the remembered position and this kind width', () => {
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 120, left: 240, width: 420, height: 260 },
+			floatPosition: { top: 120, left: 240 },
+			floatWidths: { audio: 420, video: 800 },
 		});
 		renderPlayer();
-		const el = screen.getByTestId('floating-media-player') as HTMLElement;
-		expect(el.style.top).toBe('120px');
-		expect(el.style.left).toBe('240px');
-		expect(el.style.width).toBe('420px');
+		expect(frame().style.top).toBe('120px');
+		expect(frame().style.left).toBe('240px');
+		expect(frame().style.width).toBe('420px');
 	});
 
 	it('moves on drag and persists only on release', () => {
 		const set = vi.fn();
 		(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 200, left: 200, width: 400, height: 240 },
+			floatPosition: { top: 200, left: 200 },
+			floatWidths: { audio: 400 },
 		});
 		renderPlayer();
 
@@ -127,17 +151,14 @@ describe('FloatingMediaPlayer', () => {
 
 		fireEvent.mouseUp(window);
 		expect(set).toHaveBeenCalledOnce();
-		expect(useMediaPlaybackStore.getState().floatRect).toEqual({
-			top: 230,
-			left: 240,
-			width: 400,
-			height: 240,
-		});
+		expect(useMediaPlaybackStore.getState().floatPosition).toEqual({ top: 230, left: 240 });
+		expect(useMediaPlaybackStore.getState().floatWidths).toEqual({ audio: 400 });
 	});
 
 	it('drags from the title text, which is most of the handle', () => {
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 200, left: 200, width: 400, height: 240 },
+			floatPosition: { top: 200, left: 200 },
+			floatWidths: { audio: 400 },
 		});
 		renderPlayer();
 		const el = screen.getByTestId('floating-media-player') as HTMLElement;
@@ -158,7 +179,8 @@ describe('FloatingMediaPlayer', () => {
 
 	it('ignores movement below the slop threshold, so a click does not nudge it', () => {
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 200, left: 200, width: 400, height: 240 },
+			floatPosition: { top: 200, left: 200 },
+			floatWidths: { audio: 400 },
 		});
 		renderPlayer();
 		const el = screen.getByTestId('floating-media-player') as HTMLElement;
@@ -172,7 +194,8 @@ describe('FloatingMediaPlayer', () => {
 
 	it('ignores a non-left mouse button', () => {
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 200, left: 200, width: 400, height: 240 },
+			floatPosition: { top: 200, left: 200 },
+			floatWidths: { audio: 400 },
 		});
 		renderPlayer();
 		const el = screen.getByTestId('floating-media-player') as HTMLElement;
@@ -182,9 +205,10 @@ describe('FloatingMediaPlayer', () => {
 		expect(el.style.left).toBe('200px');
 	});
 
-	it('resizes from the grip', () => {
+	it('resizes from the grip, with the height following the picture', () => {
 		useMediaPlaybackStore.setState({
-			floatRect: { top: 100, left: 100, width: 400, height: 240 },
+			floatPosition: { top: 100, left: 100 },
+			floatWidths: { video: 400 },
 		});
 		renderPlayer({ kind: 'video' });
 
@@ -193,11 +217,80 @@ describe('FloatingMediaPlayer', () => {
 			clientX: 500,
 			clientY: 340,
 		});
-		fireEvent.mouseMove(window, { clientX: 560, clientY: 380 });
+		fireEvent.mouseMove(window, { clientX: 560, clientY: 340 });
 
-		const el = screen.getByTestId('floating-media-player') as HTMLElement;
-		expect(el.style.width).toBe('460px');
-		expect(el.style.height).toBe('280px');
+		expect(frame().style.width).toBe('460px');
+		// 16:9 of the new width, not the dragged height - a video frame that is not
+		// its own shape just paints black bars.
+		expect(frame().style.height).toBe(`${CHROME + Math.round((460 * 9) / 16)}px`);
+	});
+
+	describe('fitting the frame to the media', () => {
+		it('collapses audio to the controls, since it has no picture', () => {
+			renderPlayer();
+			expect(frame().style.height).toBe(`${CHROME}px`);
+			expect(frame().style.width).toBe(`${MEDIA_FLOAT_DEFAULT_WIDTH.audio}px`);
+		});
+
+		it('opens video wide enough to watch, at its own aspect ratio', () => {
+			renderPlayer({ kind: 'video' });
+			const width = MEDIA_FLOAT_DEFAULT_WIDTH.video;
+			expect(frame().style.width).toBe(`${width}px`);
+			expect(frame().style.height).toBe(`${CHROME + Math.round((width * 9) / 16)}px`);
+		});
+
+		it('fits a vertical clip rather than showing it inside black bars', () => {
+			renderPlayer({ kind: 'video', aspect: 9 / 16 });
+			const width = parseInt(frame().style.width, 10);
+			expect(frame().style.height).toBe(`${CHROME + Math.round(width / (9 / 16))}px`);
+		});
+
+		it('reshapes as the queue steps from audio to video and back', () => {
+			// The point of the whole exercise: ten mixed files should each get the
+			// right form factor without the user touching the grip.
+			const { rerender } = renderPlayer();
+			const audioHeight = frame().style.height;
+
+			rerender(playerElement({ kind: 'video' }));
+			expect(frame().style.width).toBe(`${MEDIA_FLOAT_DEFAULT_WIDTH.video}px`);
+			expect(parseInt(frame().style.height, 10)).toBeGreaterThan(parseInt(audioHeight, 10));
+
+			rerender(playerElement({ kind: 'audio' }));
+			expect(frame().style.height).toBe(audioHeight);
+			expect(frame().style.width).toBe(`${MEDIA_FLOAT_DEFAULT_WIDTH.audio}px`);
+		});
+
+		it('gives each kind back the width the user chose for it', () => {
+			useMediaPlaybackStore.setState({
+				floatPosition: { top: 40, left: 40 },
+				floatWidths: { audio: 420, video: 880 },
+			});
+			const { rerender } = renderPlayer();
+			expect(frame().style.width).toBe('420px');
+
+			rerender(playerElement({ kind: 'video' }));
+			expect(frame().style.width).toBe('880px');
+		});
+
+		it('stays put across a kind switch, so the widget does not wander', () => {
+			useMediaPlaybackStore.setState({
+				floatPosition: { top: 120, left: 200 },
+				floatWidths: {},
+			});
+			const { rerender } = renderPlayer();
+			rerender(playerElement({ kind: 'video' }));
+			expect(frame().style.left).toBe('200px');
+			expect(frame().style.top).toBe('120px');
+		});
+
+		it('uses the measured transport height once it arrives', () => {
+			const { rerender } = renderPlayer();
+			expect(frame().style.height).toBe(`${CHROME}px`);
+			// The real strip is shorter than the fallback on this platform; the frame
+			// has to follow it, or every video below it sits in a letterbox.
+			rerender(playerElement({ transportHeight: 70 }));
+			expect(frame().style.height).toBe(`${mediaFloatChromeHeight(70)}px`);
+		});
 	});
 
 	it('hides the resize grip while minimized', () => {

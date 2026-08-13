@@ -43,12 +43,13 @@ import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { normalizePlaybackRate } from '../../shared/mediaTypes';
 import {
+	MEDIA_FLOAT_SETTINGS_KEY,
 	MEDIA_QUEUE_SETTINGS_KEY,
 	useMediaPlaybackStore,
-	type MediaFloatRect,
 	type PersistedMediaQueue,
 } from './mediaPlaybackStore';
 import { sanitizeMediaItems, sanitizeResumeTimes } from '../utils/mediaItems';
+import { sanitizeMediaFloat } from '../utils/mediaFloatGeometry';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
 import {
@@ -2601,14 +2602,17 @@ export async function loadAllSettings(): Promise<void> {
 		// round-trip. (Per-modal `modalSizes` is NOT hydrated here: rc keeps it in
 		// settingsStore behind sanitizeModalSizes, hydrated above with the other
 		// settings-owned keys.)
-		if (
-			allSettings['mediaPlayerFloatRect'] !== undefined &&
-			allSettings['mediaPlayerFloatRect'] !== null &&
-			typeof allSettings['mediaPlayerFloatRect'] === 'object'
-		)
-			useMediaPlaybackStore.setState({
-				floatRect: allSettings['mediaPlayerFloatRect'] as MediaFloatRect,
-			});
+		// Position and per-kind width only: the player's height is derived from
+		// whatever is loaded (audio has no picture, video wants its own aspect
+		// ratio), so it is not a stored number.
+		if (allSettings[MEDIA_FLOAT_SETTINGS_KEY] !== undefined) {
+			const float = sanitizeMediaFloat(allSettings[MEDIA_FLOAT_SETTINGS_KEY]);
+			if (float)
+				useMediaPlaybackStore.setState({
+					floatPosition: { top: float.top, left: float.left },
+					floatWidths: float.widths,
+				});
+		}
 
 		// The play queue outlives a restart so a half-listened playlist is still
 		// there tomorrow. It comes back hidden and paused: restoring what was

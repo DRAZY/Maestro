@@ -1533,6 +1533,35 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().conductorProfile).toBe('from disk');
 		});
 
+		describe('media player geometry', () => {
+			it('restores the position and each kind width', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerFloatRect: { top: 80, left: 90, widths: { audio: 420, video: 900 } },
+				});
+
+				await loadAllSettings();
+
+				const state = useMediaPlaybackStore.getState();
+				expect(state.floatPosition).toEqual({ top: 80, left: 90 });
+				expect(state.floatWidths).toEqual({ audio: 420, video: 900 });
+			});
+
+			it('keeps the position from the older full-rect shape and drops its width', async () => {
+				// Height is derived from the media now, and that width was saved
+				// without recording which kind it belonged to.
+				useMediaPlaybackStore.setState({ floatPosition: null, floatWidths: {} });
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerFloatRect: { top: 10, left: 20, width: 480, height: 336 },
+				});
+
+				await loadAllSettings();
+
+				const state = useMediaPlaybackStore.getState();
+				expect(state.floatPosition).toEqual({ top: 10, left: 20 });
+				expect(state.floatWidths).toEqual({});
+			});
+		});
+
 		describe('media play queue', () => {
 			const stored = {
 				items: [

@@ -351,7 +351,9 @@ interface MediaPlaybackStoreState {
 	pendingAutoplay: boolean; // one-shot: play when ready
 	toggleRequest: number; // nonce; each increment toggles play/pause
 	resumeTimes: Record<string, number>; // per item, so coming back resumes (persisted)
-	floatRect: MediaFloatRect | null; // persisted via settings
+	floatPosition: { top; left } | null; // where the player sits (persisted)
+	floatWidths: Partial<Record<MediaKind, number>>; // width per kind (persisted)
+	aspects: Record<string, number>; // item -> picture shape, learned on load (per-boot)
 }
 ```
 
@@ -404,6 +406,10 @@ history entry re-queues it.
   player and only the last file survives.
 - **A restored queue comes back `dismissed`.** Nothing plays at launch;
   `NowPlayingIndicator` in the Left Bar header is what advertises it.
+- **The player's height is never stored.** It is derived from the loaded file:
+  chrome for audio, chrome plus `width / aspect` for video (`mediaFloatGeometry`).
+  Persisting a height is what let a video sit in black bars. Width is stored per
+  kind, because a movie's width is absurd on the next podcast.
 - **`closeItem` is stop, not skip.** Closing the active item releases the player
   rather than auto-advancing to the next one.
 - `toggleRequest` is a nonce, not a callback in state, so the pill's play button
