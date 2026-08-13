@@ -55,6 +55,11 @@ export interface MaestroSettings {
 	customFonts: string[];
 	mediaPlaybackRate: number;
 	mediaPlayerFloatRect: { top: number; left: number; width: number; height: number } | null;
+	/**
+	 * Play queue, loaded item, and remembered positions. Shape is owned by the
+	 * renderer (`PersistedMediaQueue`); the main process only stores it.
+	 */
+	mediaPlayerQueue: unknown;
 	logLevel: 'debug' | 'info' | 'warn' | 'error';
 	defaultShell: string;
 	// Web interface authentication

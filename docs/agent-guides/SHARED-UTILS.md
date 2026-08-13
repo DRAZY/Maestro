@@ -249,7 +249,10 @@ multi-GB recording never crosses IPC or lands in the renderer heap.
 | `getOpenedMediaKind(name, content)`     | `(string, string) => MediaKind \| null`                      | The one predicate for "is this opened file playable media".                 |
 | `mediaItemId(sessionId, path)`          | `(string, string) => string`                                 | Queue identity. Same agent + path re-uses the entry, so re-opening resumes. |
 | `stepMediaItem(items, activeId, steps)` | `(MediaItem[], string \| null, number) => MediaItem \| null` | Prev/next target. Open order, no wrapping; null at the ends.                |
-| `resolveMediaHistory(items, history)`   | `(MediaItem[], string[]) => MediaItem[]`                     | History IDs -> items, newest first, dropping closed entries.                |
+| `pushMediaHistory(history, item, max)`  | `(MediaItem[], MediaItem, number) => MediaItem[]`            | Recently played, newest first, deduped and capped.                          |
+| `trimMediaQueue(items, limit, keepId)`  | `(MediaItem[], number, string \| null) => MediaItem[]`       | Caps the persisted queue, oldest first, never dropping the loaded item.     |
+| `sanitizeMediaItems(value)`             | `(unknown) => MediaItem[]`                                   | Coerce a persisted queue off disk, dropping anything malformed.             |
+| `sanitizeResumeTimes(value, knownIds)`  | `(unknown, Set<string>) => Record<string, number>`           | Same for remembered positions; drops times for files no longer queued.      |
 
 **Media never becomes a file preview tab.** `handleOpenFileTab()` diverts it to
 `useMediaPlaybackStore.openMedia()` before a tab can be created, and the only

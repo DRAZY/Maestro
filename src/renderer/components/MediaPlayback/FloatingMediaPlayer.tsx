@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
 	FileAudio,
 	FileVideo,
 	GripVertical,
 	History,
+	ListMusic,
 	Minus,
 	Pause,
 	Play,
@@ -13,10 +14,9 @@ import {
 
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { ModalResizeGrip } from '../ui/ModalResizeGrip';
-import { MediaHistoryMenu } from './MediaHistoryMenu';
+import { MediaListMenu } from './MediaListMenu';
 import { useEventListener } from '../../hooks/utils/useEventListener';
 import { useMediaPlaybackStore, type MediaFloatRect } from '../../stores/mediaPlaybackStore';
-import { resolveMediaHistory } from '../../utils/mediaItems';
 import {
 	MEDIA_FLOAT_DEFAULT_SIZE,
 	clampMediaFloatRect,
@@ -96,10 +96,17 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 		storedRect ? clampToViewport(storedRect) : initialMediaFloatRect(kind, viewport())
 	);
 
+	const removeHistoryItem = useMediaPlaybackStore((s) => s.removeHistoryItem);
+	const clearHistory = useMediaPlaybackStore((s) => s.clearHistory);
+	const clearQueue = useMediaPlaybackStore((s) => s.clearQueue);
+	const openMedia = useMediaPlaybackStore((s) => s.openMedia);
+
+	// One menu is open at a time: they hang off adjacent buttons, so two open at
+	// once would overlap each other.
+	const [openList, setOpenList] = useState<'queue' | 'history' | null>(null);
+	const queueButtonRef = useRef<HTMLButtonElement>(null);
 	const historyButtonRef = useRef<HTMLButtonElement>(null);
-	const historyMenuRef = useRef<HTMLDivElement>(null);
-	const [historyOpen, setHistoryOpen] = useState(false);
-	const historyEntries = useMemo(() => resolveMediaHistory(items, history), [items, history]);
+	const listMenuRef = useRef<HTMLDivElement>(null);
 
 	// Drag/resize bookkeeping. Held in a ref so the window-level listeners stay
 	// stable and never re-subscribe mid-gesture.
@@ -181,18 +188,22 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	// A window resize can leave the widget partly or wholly off screen.
 	useEventListener('resize', () => setRect((prev) => clampToViewport(prev)));
 
-	// Close the history menu on any outside click. Both the button and the
-	// portaled list count as inside - the list is not a DOM descendant.
+	// Close the open list on any outside click. Both buttons and the portaled
+	// list count as inside - the list is not a DOM descendant.
 	useEventListener(
 		'mousedown',
 		(e) => {
 			const target = e.target as Node;
-			if (historyMenuRef.current?.contains(target) || historyButtonRef.current?.contains(target)) {
+			if (
+				listMenuRef.current?.contains(target) ||
+				queueButtonRef.current?.contains(target) ||
+				historyButtonRef.current?.contains(target)
+			) {
 				return;
 			}
-			setHistoryOpen(false);
+			setOpenList(null);
 		},
-		{ enabled: historyOpen }
+		{ enabled: openList !== null }
 	);
 
 	// Adopt a size that suits the media kind when switching between an audio file
@@ -272,19 +283,37 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					</GhostIconButton>
 				)}
 
+				{/* Queue and history. Each button appears only when its list has
+				    something in it, so a single file playing on its own shows neither
+				    and the title bar stays uncluttered. */}
+				{items.length > 0 && (
+					<GhostIconButton
+						ref={queueButtonRef}
+						onClick={() => setOpenList((open) => (open === 'queue' ? null : 'queue'))}
+						onMouseDown={(e) => e.stopPropagation()}
+						title={`Play queue (${items.length})`}
+						ariaLabel={`Play queue, ${items.length} item${items.length === 1 ? '' : 's'}`}
+						color={openList === 'queue' ? theme.colors.accent : theme.colors.textDim}
+					>
+						<ListMusic className="w-3.5 h-3.5" />
+					</GhostIconButton>
+				)}
+
 				{/* Jump to anything played earlier. Prev/next only walk the queue in
 				    open order, and with no tabs this is the only way back to a file
 				    that is neither adjacent nor loaded. */}
-				<GhostIconButton
-					ref={historyButtonRef}
-					onClick={() => setHistoryOpen((open) => !open)}
-					onMouseDown={(e) => e.stopPropagation()}
-					title="Recently played"
-					ariaLabel="Recently played"
-					color={historyOpen ? theme.colors.accent : theme.colors.textDim}
-				>
-					<History className="w-3.5 h-3.5" />
-				</GhostIconButton>
+				{history.length > 0 && (
+					<GhostIconButton
+						ref={historyButtonRef}
+						onClick={() => setOpenList((open) => (open === 'history' ? null : 'history'))}
+						onMouseDown={(e) => e.stopPropagation()}
+						title="Recently played"
+						ariaLabel="Recently played"
+						color={openList === 'history' ? theme.colors.accent : theme.colors.textDim}
+					>
+						<History className="w-3.5 h-3.5" />
+					</GhostIconButton>
+				)}
 
 				<GhostIconButton
 					onClick={() => setMinimized(!minimized)}
@@ -299,7 +328,7 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 				<GhostIconButton
 					onClick={dismiss}
 					onMouseDown={(e) => e.stopPropagation()}
-					title="Hide player (keeps playing)"
+					title="Hide player (keeps playing - click the note in the Left Bar to bring it back)"
 					ariaLabel="Hide player"
 					color={theme.colors.textDim}
 				>
@@ -307,17 +336,49 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 				</GhostIconButton>
 			</div>
 
-			{historyOpen && (
-				<MediaHistoryMenu
-					anchorRef={historyButtonRef}
-					menuRef={historyMenuRef}
-					entries={historyEntries}
+			{openList === 'queue' && (
+				<MediaListMenu
+					anchorRef={queueButtonRef}
+					menuRef={listMenuRef}
+					title={`Play Queue (${items.length})`}
+					listLabel="queue"
+					entries={items}
 					activeItemId={activeItemId}
-					onSelect={(itemId) => {
-						setActiveItem(itemId, { autoplay: true });
-						setHistoryOpen(false);
+					onSelect={(item) => {
+						setActiveItem(item.id, { autoplay: true });
+						setOpenList(null);
 					}}
 					onRemove={closeItem}
+					onClear={() => {
+						clearQueue();
+						setOpenList(null);
+					}}
+					testId="media-queue-menu"
+					theme={theme}
+				/>
+			)}
+
+			{openList === 'history' && (
+				<MediaListMenu
+					anchorRef={historyButtonRef}
+					menuRef={listMenuRef}
+					title="Recently Played"
+					listLabel="history"
+					entries={history}
+					activeItemId={activeItemId}
+					// A history entry can name a file that is no longer queued (the
+					// user removed it), so picking one re-queues and plays it rather
+					// than activating a queue slot that may not exist.
+					onSelect={(item) => {
+						openMedia(item);
+						setOpenList(null);
+					}}
+					onRemove={removeHistoryItem}
+					onClear={() => {
+						clearHistory();
+						setOpenList(null);
+					}}
+					testId="media-history-menu"
 					theme={theme}
 				/>
 			)}

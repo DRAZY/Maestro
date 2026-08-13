@@ -11,16 +11,27 @@
  *
  * Exactly one item plays at a time. Several can be queued, but only the
  * **active** one has a mounted player; the transport's prev/next move between
- * them and the history menu jumps by recency. Switching pauses whatever was
- * playing, which is what keeps two audio streams from ever overlapping.
+ * them, a finished item hands off to the next, and the history menu jumps by
+ * recency. Switching pauses whatever was playing, which is what keeps two audio
+ * streams from ever overlapping.
  *
  * The element itself lives in `MediaPlaybackHost`, mounted once in `App.tsx`
  * and never unmounted: removing a media element from the document runs the HTML
  * spec's internal pause steps, so anything that renders per-tab or per-agent
  * would kill playback on every switch.
  *
- * Only the float geometry persists (via settings). The queue does not survive a
- * restart, and `maestro-media://` stream URLs are re-minted per boot anyway.
+ * **Queue and history are two lists, not one.** The queue is what plays next,
+ * in open order, and it survives a restart (via the `mediaPlayerQueue` setting,
+ * along with the loaded item and every remembered position) so a half-listened
+ * playlist is still there tomorrow. History is what was played, newest first,
+ * and it is deliberately per-boot: a fresh session should not open onto a log
+ * of last week's files. Because they outlive each other in opposite directions,
+ * history holds whole items rather than pointers into the queue - removing
+ * something from the queue must not rewrite what the user already heard, and
+ * picking it out of history re-queues it.
+ *
+ * `maestro-media://` stream URLs are minted per boot, so only paths are
+ * persisted; the player re-resolves the URL when an item loads.
  *
  * Multi-window note: each renderer holds its own copy of this store, so on a
  * multi-window build two windows can each own a player.
@@ -28,7 +39,7 @@
 
 import { create } from 'zustand';
 
-import { mediaItemId, type MediaItem } from '../utils/mediaItems';
+import { mediaItemId, pushMediaHistory, trimMediaQueue, type MediaItem } from '../utils/mediaItems';
 
 /** Position and size of the floating player. */
 export interface MediaFloatRect {
@@ -47,19 +58,35 @@ export type MediaOpenRequest = Omit<MediaItem, 'id'>;
  */
 export const MEDIA_HISTORY_LIMIT = 20;
 
-interface MediaPlaybackStoreState {
-	/** Play queue, in open order. */
+/**
+ * Entries kept in the queue. The queue persists, so without a cap every file
+ * the user ever opened would accumulate on disk forever.
+ */
+export const MEDIA_QUEUE_LIMIT = 50;
+
+/** Settings key holding the queue across restarts. */
+export const MEDIA_QUEUE_SETTINGS_KEY = 'mediaPlayerQueue';
+
+/** What `mediaPlayerQueue` stores. Stream URLs are not persisted, only paths. */
+export interface PersistedMediaQueue {
 	items: MediaItem[];
-	/** Item whose player is mounted. Null when nothing is loaded. */
 	activeItemId: string | null;
-	/** Item IDs in most-recently-played order, newest first. */
-	history: string[];
+	resumeTimes: Record<string, number>;
+}
+
+interface MediaPlaybackStoreState {
+	/** Play queue, in open order. Persisted. */
+	items: MediaItem[];
+	/** Item whose player is mounted. Null when nothing is loaded. Persisted. */
+	activeItemId: string | null;
+	/** Recently played, newest first. Per-boot: never persisted. */
+	history: MediaItem[];
 	/** Whether the active player is currently playing. */
 	playing: boolean;
 	/**
 	 * User hid the player. Playback continues - hiding a control does not stop
-	 * media. Cleared by opening a media file or by the "Show Floating Media
-	 * Player" command.
+	 * media. Cleared by opening a media file, by the now-playing indicator in the
+	 * Left Bar header, or by the "Show Floating Media Player" command.
 	 */
 	dismissed: boolean;
 	/** Player collapsed to a compact pill. */
@@ -72,7 +99,7 @@ interface MediaPlaybackStoreState {
 	 * without anyone holding a ref across the frame boundary.
 	 */
 	toggleRequest: number;
-	/** Item ID -> last playback position, so coming back resumes. */
+	/** Item ID -> last playback position, so coming back resumes. Persisted. */
 	resumeTimes: Record<string, number>;
 	/** Floating player geometry. Null until the user moves or resizes it. */
 	floatRect: MediaFloatRect | null;
@@ -85,6 +112,17 @@ interface MediaPlaybackStoreState {
 	 */
 	openMedia: (request: MediaOpenRequest) => void;
 	/**
+	 * Add files to the end of the queue without interrupting what is playing.
+	 *
+	 * The one exception is an idle player: with nothing loaded there is no
+	 * widget on screen, so the first queued file becomes the active one (paused,
+	 * not autoplaying) rather than landing in a queue the user cannot see.
+	 *
+	 * @returns How many files were newly queued. Already-queued files are left
+	 *   where they are, so "add to queue" twice does not reorder anything.
+	 */
+	enqueueMedia: (requests: MediaOpenRequest[]) => number;
+	/**
 	 * Make a queued item the active player, un-hiding the widget.
 	 *
 	 * @param itemId - Queue entry to activate.
@@ -93,12 +131,26 @@ interface MediaPlaybackStoreState {
 	 */
 	setActiveItem: (itemId: string, opts?: { autoplay?: boolean }) => void;
 	setPlaying: (playing: boolean) => void;
+	/**
+	 * Hand off to the next queued item when one finishes.
+	 *
+	 * Distinct from the transport's next button only in what happens at the end
+	 * of the queue: there is nothing to advance to, so the finished item stays
+	 * loaded and paused rather than the player going blank.
+	 */
+	advanceAfterEnded: () => void;
 	/** Consume the one-shot autoplay request. */
 	consumeAutoplay: () => void;
 	/** Ask the active player to toggle play/pause. */
 	requestToggle: () => void;
 	/** Drop an item from the queue. Releases the player if it was active. */
 	closeItem: (itemId: string) => void;
+	/** Empty the queue and release the player. */
+	clearQueue: () => void;
+	/** Drop one entry from the recently-played list. Leaves the queue alone. */
+	removeHistoryItem: (itemId: string) => void;
+	/** Forget everything played this session. */
+	clearHistory: () => void;
 	/** Hide the player without stopping playback. */
 	dismiss: () => void;
 	/** Bring the player back. */
@@ -113,12 +165,39 @@ function persistFloatRect(rect: MediaFloatRect): void {
 	window.maestro?.settings?.set('mediaPlayerFloatRect', rect);
 }
 
-/** Push an ID to the front of the history list, deduped and capped. */
-function pushHistory(history: string[], itemId: string): string[] {
-	return [itemId, ...history.filter((id) => id !== itemId)].slice(0, MEDIA_HISTORY_LIMIT);
+/**
+ * Queue writes are debounced because `rememberTime` fires several times a
+ * second while media plays. Half a second is short enough that a restart loses
+ * nothing a listener would notice, and long enough to collapse a burst of
+ * position updates (or a ten-file "add to queue") into one settings write.
+ */
+const QUEUE_PERSIST_DELAY_MS = 500;
+let queuePersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Write the queue, the loaded item, and every remembered position to settings. */
+function writeQueueNow(): void {
+	const { items, activeItemId, resumeTimes } = useMediaPlaybackStore.getState();
+	const payload: PersistedMediaQueue = { items, activeItemId, resumeTimes };
+	window.maestro?.settings?.set(MEDIA_QUEUE_SETTINGS_KEY, payload);
 }
 
-export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => ({
+function persistQueue(): void {
+	if (queuePersistTimer) clearTimeout(queuePersistTimer);
+	queuePersistTimer = setTimeout(() => {
+		queuePersistTimer = null;
+		writeQueueNow();
+	}, QUEUE_PERSIST_DELAY_MS);
+}
+
+/** Flush a pending queue write immediately. Used when the window is going away. */
+export function flushMediaQueuePersist(): void {
+	if (!queuePersistTimer) return;
+	clearTimeout(queuePersistTimer);
+	queuePersistTimer = null;
+	writeQueueNow();
+}
+
+export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set, get) => ({
 	items: [],
 	activeItemId: null,
 	history: [],
@@ -130,7 +209,7 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 	resumeTimes: {},
 	floatRect: null,
 
-	openMedia: (request) =>
+	openMedia: (request) => {
 		set((state) => {
 			const id = mediaItemId(request.sessionId, request.path);
 			const existing = state.items.find((item) => item.id === id);
@@ -142,9 +221,9 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 				: [...state.items, item];
 
 			return {
-				items,
+				items: trimMediaQueue(items, MEDIA_QUEUE_LIMIT, id),
 				activeItemId: id,
-				history: pushHistory(state.history, id),
+				history: pushMediaHistory(state.history, item, MEDIA_HISTORY_LIMIT),
 				// Opening is an explicit request to hear it, even if it was already
 				// active and paused.
 				pendingAutoplay: true,
@@ -154,11 +233,43 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 				// impossible rather than something we have to remember to prevent.
 				...(state.activeItemId === id ? {} : { playing: false }),
 			};
-		}),
+		});
+		persistQueue();
+	},
 
-	setActiveItem: (itemId, opts) =>
+	enqueueMedia: (requests) => {
+		if (requests.length === 0) return 0;
+		let added = 0;
 		set((state) => {
-			if (!state.items.some((item) => item.id === itemId)) return state;
+			const items = [...state.items];
+			const known = new Set(items.map((item) => item.id));
+			for (const request of requests) {
+				const id = mediaItemId(request.sessionId, request.path);
+				if (known.has(id)) continue;
+				known.add(id);
+				items.push({ ...request, id });
+				added++;
+			}
+			if (added === 0) return state;
+
+			// Nothing loaded means no widget on screen, so the queue would be
+			// invisible. Load the first entry paused: the user asked to queue, not
+			// to listen, so it does not start itself.
+			const activeItemId = state.activeItemId ?? items[0].id;
+			return {
+				items: trimMediaQueue(items, MEDIA_QUEUE_LIMIT, activeItemId),
+				activeItemId,
+				...(state.activeItemId ? {} : { dismissed: false }),
+			};
+		});
+		if (added > 0) persistQueue();
+		return added;
+	},
+
+	setActiveItem: (itemId, opts) => {
+		set((state) => {
+			const target = state.items.find((item) => item.id === itemId);
+			if (!target) return state;
 			const autoplay = opts?.autoplay ?? false;
 			if (state.activeItemId === itemId) {
 				// Already active. Honor a fresh autoplay request and un-hide, but do
@@ -171,23 +282,39 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 			}
 			return {
 				activeItemId: itemId,
-				history: pushHistory(state.history, itemId),
+				history: pushMediaHistory(state.history, target, MEDIA_HISTORY_LIMIT),
 				playing: false,
 				dismissed: false,
 				pendingAutoplay: autoplay,
 			};
-		}),
+		});
+		persistQueue();
+	},
 
 	setPlaying: (playing) => set((state) => (state.playing === playing ? state : { playing })),
+
+	advanceAfterEnded: () => {
+		const { items, activeItemId, setActiveItem, rememberTime } = get();
+		const index = items.findIndex((item) => item.id === activeItemId);
+		// A finished file should start from the top next time, not from its own
+		// end - otherwise coming back to it plays nothing.
+		if (activeItemId) rememberTime(activeItemId, 0);
+		if (index === -1) return;
+		const next = items[index + 1];
+		if (!next) return;
+		setActiveItem(next.id, { autoplay: true });
+	},
 
 	consumeAutoplay: () =>
 		set((state) => (state.pendingAutoplay ? { pendingAutoplay: false } : state)),
 
 	requestToggle: () => set((state) => ({ toggleRequest: state.toggleRequest + 1 })),
 
-	closeItem: (itemId) =>
+	closeItem: (itemId) => {
+		let changed = false;
 		set((state) => {
 			if (!state.items.some((item) => item.id === itemId)) return state;
+			changed = true;
 			const items = state.items.filter((item) => item.id !== itemId);
 			const resumeTimes = { ...state.resumeTimes };
 			delete resumeTimes[itemId];
@@ -195,14 +322,38 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 			return {
 				items,
 				resumeTimes,
-				history: state.history.filter((id) => id !== itemId),
 				// Closing the playing item releases the player rather than
 				// auto-advancing: closing is "stop", not "skip".
 				...(state.activeItemId === itemId
 					? { activeItemId: null, playing: false, pendingAutoplay: false }
 					: {}),
 			};
+		});
+		if (changed) persistQueue();
+	},
+
+	clearQueue: () => {
+		set((state) =>
+			state.items.length === 0
+				? state
+				: {
+						items: [],
+						activeItemId: null,
+						resumeTimes: {},
+						playing: false,
+						pendingAutoplay: false,
+					}
+		);
+		persistQueue();
+	},
+
+	removeHistoryItem: (itemId) =>
+		set((state) => {
+			const history = state.history.filter((entry) => entry.id !== itemId);
+			return history.length === state.history.length ? state : { history };
 		}),
+
+	clearHistory: () => set((state) => (state.history.length === 0 ? state : { history: [] })),
 
 	dismiss: () => set((state) => (state.dismissed ? state : { dismissed: true })),
 
@@ -216,8 +367,10 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set) => 
 		set({ floatRect: rect });
 	},
 
-	rememberTime: (itemId, seconds) =>
-		set((state) => ({ resumeTimes: { ...state.resumeTimes, [itemId]: seconds } })),
+	rememberTime: (itemId, seconds) => {
+		set((state) => ({ resumeTimes: { ...state.resumeTimes, [itemId]: seconds } }));
+		persistQueue();
+	},
 }));
 
 /** Non-React access, for callers outside the component tree. */
@@ -225,6 +378,7 @@ export function getMediaPlaybackActions() {
 	const state = useMediaPlaybackStore.getState();
 	return {
 		openMedia: state.openMedia,
+		enqueueMedia: state.enqueueMedia,
 		setActiveItem: state.setActiveItem,
 		setPlaying: state.setPlaying,
 		dismiss: state.dismiss,
@@ -236,4 +390,10 @@ export function getMediaPlaybackActions() {
 /** Whether a hidden player could be brought back right now. */
 export function selectCanRestoreFloatingPlayer(state: MediaPlaybackStoreState): boolean {
 	return state.dismissed && state.activeItemId !== null;
+}
+
+/** The loaded item, or null when the player is idle. */
+export function selectActiveMediaItem(state: MediaPlaybackStoreState): MediaItem | null {
+	if (!state.activeItemId) return null;
+	return state.items.find((item) => item.id === state.activeItemId) ?? null;
 }

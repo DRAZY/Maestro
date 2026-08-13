@@ -9,6 +9,7 @@ import {
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
 import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
 import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useMediaPlaybackStore } from '../../../renderer/stores/mediaPlaybackStore';
 import type { FileExplorerIconTheme } from '../../../renderer/utils/fileExplorerIcons/shared';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS } from '../../../renderer/constants/shortcuts';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../../../renderer/constants/themes';
@@ -1530,6 +1531,64 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			expect(useSettingsStore.getState().conductorProfile).toBe('from disk');
+		});
+
+		describe('media play queue', () => {
+			const stored = {
+				items: [
+					{
+						path: '/files/podcast.mp3',
+						name: 'podcast.mp3',
+						sessionId: 's1',
+						sessionName: 'Agent One',
+						kind: 'audio',
+					},
+					{ path: '/files/junk', name: 'junk', sessionId: 's1', kind: 'nonsense' },
+				],
+				activeItemId: 's1::/files/podcast.mp3',
+				resumeTimes: { 's1::/files/podcast.mp3': 42, 'gone::x': 9 },
+			};
+
+			it('restores the queue, the loaded item, and its position', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerQueue: stored,
+				});
+
+				await loadAllSettings();
+
+				const state = useMediaPlaybackStore.getState();
+				// The malformed entry is dropped rather than handed to a media element.
+				expect(state.items.map((i) => i.name)).toEqual(['podcast.mp3']);
+				expect(state.activeItemId).toBe('s1::/files/podcast.mp3');
+				expect(state.resumeTimes).toEqual({ 's1::/files/podcast.mp3': 42 });
+			});
+
+			it('comes back hidden and silent, so nothing plays at launch', async () => {
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerQueue: stored,
+				});
+
+				await loadAllSettings();
+
+				const state = useMediaPlaybackStore.getState();
+				expect(state.dismissed).toBe(true);
+				expect(state.playing).toBe(false);
+				expect(state.pendingAutoplay).toBe(false);
+				// History is per-boot by design: a fresh session must not open onto a
+				// log of last week's files.
+				expect(state.history).toEqual([]);
+			});
+
+			it('ignores a stored queue with nothing usable left in it', async () => {
+				useMediaPlaybackStore.setState({ items: [], activeItemId: null });
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerQueue: { items: [], activeItemId: 'gone', resumeTimes: {} },
+				});
+
+				await loadAllSettings();
+
+				expect(useMediaPlaybackStore.getState().activeItemId).toBeNull();
+			});
 		});
 
 		it('uses defaults when settings are empty/undefined', async () => {

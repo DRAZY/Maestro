@@ -7,42 +7,56 @@ import { useAnchoredMenuPosition } from '../../hooks/ui/useAnchoredMenuPosition'
 import type { MediaItem } from '../../utils/mediaItems';
 import type { Theme } from '../../types';
 
-interface MediaHistoryMenuProps {
-	/** The history button this list hangs off. */
+interface MediaListMenuProps {
+	/** The title bar button this list hangs off. */
 	anchorRef: RefObject<HTMLElement | null>;
 	/** Owned by the parent so its outside-click check can see the portaled list. */
 	menuRef: RefObject<HTMLDivElement>;
-	/** Most-recently-played first. */
+	/** Heading, and the word the remove tooltips use ("queue" / "history"). */
+	title: string;
+	listLabel: string;
 	entries: MediaItem[];
 	activeItemId: string | null;
-	onSelect: (itemId: string) => void;
+	onSelect: (item: MediaItem) => void;
 	onRemove: (itemId: string) => void;
+	/** Empties the whole list. Omitted when there is nothing worth clearing. */
+	onClear?: () => void;
+	testId: string;
 	theme: Theme;
 }
 
 /**
- * Recently played media, newest first.
+ * The player's drop-down list of media, used for both the play queue and the
+ * recently played history.
  *
- * Media has no tabs, so the transport's prev/next (which walk the queue in open
- * order) are not enough to get back to something heard earlier - this is the
- * jump-anywhere list. Portaled to the body because the player clips its own
- * overflow, which would slice an in-flow menu off at the frame edge.
+ * The two lists are the same UI over different data - one is what plays next in
+ * open order, the other is what already played in recency order - so they share
+ * a component rather than drifting apart. Media has no tabs, and the
+ * transport's prev/next only step one position, so these menus are the only way
+ * to reach a file that is neither adjacent nor loaded.
+ *
+ * Portaled to the body because the player clips its own overflow, which would
+ * slice an in-flow menu off at the frame edge.
  */
-export const MediaHistoryMenu = memo(function MediaHistoryMenu({
+export const MediaListMenu = memo(function MediaListMenu({
 	anchorRef,
 	menuRef,
+	title,
+	listLabel,
 	entries,
 	activeItemId,
 	onSelect,
 	onRemove,
+	onClear,
+	testId,
 	theme,
-}: MediaHistoryMenuProps) {
+}: MediaListMenuProps) {
 	const { left, top, ready } = useAnchoredMenuPosition(menuRef, anchorRef, { align: 'end' });
 
 	return createPortal(
 		<div
 			ref={menuRef}
-			data-testid="media-history-menu"
+			data-testid={testId}
 			// Above the player (60), far below modals (9999) so it can never cover
 			// an overlay.
 			className="fixed z-[100] py-1 rounded shadow-xl border max-h-80 overflow-y-auto select-none min-w-[16rem] max-w-[24rem]"
@@ -54,11 +68,22 @@ export const MediaHistoryMenu = memo(function MediaHistoryMenu({
 				borderColor: theme.colors.border,
 			}}
 		>
-			<div
-				className="px-3 py-1 text-[10px] uppercase tracking-wide"
-				style={{ color: theme.colors.textDim }}
-			>
-				Recently Played
+			<div className="flex items-center gap-2 px-3 py-1">
+				<span
+					className="text-[10px] uppercase tracking-wide flex-1"
+					style={{ color: theme.colors.textDim }}
+				>
+					{title}
+				</span>
+				{onClear && entries.length > 0 && (
+					<button
+						onClick={onClear}
+						className="text-[10px] uppercase tracking-wide hover:underline"
+						style={{ color: theme.colors.textDim }}
+					>
+						Clear
+					</button>
+				)}
 			</div>
 
 			{entries.map((entry) => {
@@ -74,7 +99,7 @@ export const MediaHistoryMenu = memo(function MediaHistoryMenu({
 							style={{ color: isActive ? theme.colors.accent : theme.colors.textDim }}
 						/>
 						<button
-							onClick={() => onSelect(entry.id)}
+							onClick={() => onSelect(entry)}
 							className="flex flex-col items-start min-w-0 flex-1 text-left"
 							title={entry.path}
 						>
@@ -100,8 +125,8 @@ export const MediaHistoryMenu = memo(function MediaHistoryMenu({
 
 						<GhostIconButton
 							onClick={() => onRemove(entry.id)}
-							title="Remove from the queue"
-							ariaLabel={`Remove ${entry.name} from the queue`}
+							title={`Remove from the ${listLabel}`}
+							ariaLabel={`Remove ${entry.name} from the ${listLabel}`}
 							color={theme.colors.textDim}
 						>
 							<X className="w-3 h-3" />

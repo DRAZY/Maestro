@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
 	getOpenedMediaKind,
 	mediaItemId,
-	resolveMediaHistory,
+	pushMediaHistory,
+	sanitizeMediaItems,
+	sanitizeResumeTimes,
 	stepMediaItem,
+	trimMediaQueue,
 	type MediaItem,
 } from '../../../renderer/utils/mediaItems';
 
@@ -82,24 +85,102 @@ describe('stepMediaItem', () => {
 	});
 });
 
-describe('resolveMediaHistory', () => {
-	const items = ['a', 'b', 'c'].map((id) => item({ id }));
+describe('pushMediaHistory', () => {
+	const history = ['a', 'b', 'c'].map((id) => item({ id }));
 
-	it('returns items in history order, not queue order', () => {
-		expect(resolveMediaHistory(items, ['c', 'a']).map((i) => i.id)).toEqual(['c', 'a']);
+	it('puts the newest entry first', () => {
+		expect(pushMediaHistory(history, item({ id: 'd' }), 10).map((i) => i.id)).toEqual([
+			'd',
+			'a',
+			'b',
+			'c',
+		]);
 	});
 
-	it('drops IDs whose item has been closed', () => {
-		// History holds IDs so a removed entry falls out on its own rather than
-		// leaving the menu pointing at something that no longer exists.
-		expect(resolveMediaHistory(items, ['c', 'gone', 'a']).map((i) => i.id)).toEqual(['c', 'a']);
+	it('moves a repeat to the front instead of listing it twice', () => {
+		expect(pushMediaHistory(history, item({ id: 'c' }), 10).map((i) => i.id)).toEqual([
+			'c',
+			'a',
+			'b',
+		]);
 	});
 
-	it('never repeats an item', () => {
-		expect(resolveMediaHistory(items, ['a', 'a', 'b']).map((i) => i.id)).toEqual(['a', 'b']);
+	it('caps the list so the menu stays scannable', () => {
+		expect(pushMediaHistory(history, item({ id: 'd' }), 2).map((i) => i.id)).toEqual(['d', 'a']);
 	});
 
-	it('is empty with no history', () => {
-		expect(resolveMediaHistory(items, [])).toEqual([]);
+	it('holds whole items, so an entry survives leaving the queue', () => {
+		const entry = pushMediaHistory([], item({ id: 'a' }), 10)[0];
+		expect(entry.path).toBe('/files/a.mp3');
+		expect(entry.name).toBe('a.mp3');
+	});
+});
+
+describe('trimMediaQueue', () => {
+	const items = ['a', 'b', 'c', 'd'].map((id) => item({ id }));
+
+	it('leaves a queue under the cap alone', () => {
+		expect(trimMediaQueue(items, 10, null)).toBe(items);
+	});
+
+	it('drops the oldest queue positions first', () => {
+		expect(trimMediaQueue(items, 2, null).map((i) => i.id)).toEqual(['c', 'd']);
+	});
+
+	it('never drops the loaded item, even when it is the oldest', () => {
+		// Trimming the file that is playing would blank the player mid-listen.
+		expect(trimMediaQueue(items, 2, 'a').map((i) => i.id)).toEqual(['a', 'c', 'd']);
+	});
+});
+
+describe('sanitizeMediaItems', () => {
+	it('rebuilds IDs rather than trusting the stored one', () => {
+		const [entry] = sanitizeMediaItems([
+			{ id: 'stale', path: '/files/a.mp3', name: 'a.mp3', sessionId: 's1', kind: 'audio' },
+		]);
+		expect(entry.id).toBe(mediaItemId('s1', '/files/a.mp3'));
+	});
+
+	it('drops entries missing anything the player needs', () => {
+		expect(
+			sanitizeMediaItems([
+				{ path: '/files/a.mp3', name: 'a.mp3', sessionId: 's1', kind: 'document' },
+				{ path: 42, name: 'a.mp3', sessionId: 's1', kind: 'audio' },
+				{ name: 'a.mp3', sessionId: 's1', kind: 'audio' },
+				null,
+				'nope',
+			])
+		).toEqual([]);
+	});
+
+	it('de-duplicates, so a hand-edited file cannot stack the same file twice', () => {
+		const entry = { path: '/files/a.mp3', name: 'a.mp3', sessionId: 's1', kind: 'audio' };
+		expect(sanitizeMediaItems([entry, { ...entry }])).toHaveLength(1);
+	});
+
+	it('is empty for anything that is not a list', () => {
+		expect(sanitizeMediaItems(undefined)).toEqual([]);
+		expect(sanitizeMediaItems({ items: [] })).toEqual([]);
+	});
+});
+
+describe('sanitizeResumeTimes', () => {
+	const known = new Set(['a', 'b']);
+
+	it('keeps real positions for queued items', () => {
+		expect(sanitizeResumeTimes({ a: 12.5, b: 0 }, known)).toEqual({ a: 12.5, b: 0 });
+	});
+
+	it('drops positions for files that are no longer queued', () => {
+		expect(sanitizeResumeTimes({ gone: 30 }, known)).toEqual({});
+	});
+
+	it('drops values that are not usable times', () => {
+		expect(sanitizeResumeTimes({ a: -1, b: 'x' }, known)).toEqual({});
+		expect(sanitizeResumeTimes({ a: Number.NaN }, known)).toEqual({});
+	});
+
+	it('is empty for anything that is not an object', () => {
+		expect(sanitizeResumeTimes(null, known)).toEqual({});
 	});
 });

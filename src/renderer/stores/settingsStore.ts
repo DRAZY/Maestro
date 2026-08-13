@@ -42,7 +42,13 @@ import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { normalizePlaybackRate } from '../../shared/mediaTypes';
-import { useMediaPlaybackStore, type MediaFloatRect } from './mediaPlaybackStore';
+import {
+	MEDIA_QUEUE_SETTINGS_KEY,
+	useMediaPlaybackStore,
+	type MediaFloatRect,
+	type PersistedMediaQueue,
+} from './mediaPlaybackStore';
+import { sanitizeMediaItems, sanitizeResumeTimes } from '../utils/mediaItems';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
 import {
@@ -2603,6 +2609,29 @@ export async function loadAllSettings(): Promise<void> {
 			useMediaPlaybackStore.setState({
 				floatRect: allSettings['mediaPlayerFloatRect'] as MediaFloatRect,
 			});
+
+		// The play queue outlives a restart so a half-listened playlist is still
+		// there tomorrow. It comes back hidden and paused: restoring what was
+		// queued should not start a podcast at launch, and the Left Bar's
+		// now-playing indicator is what advertises that it is loaded. Recently
+		// played is NOT restored - it is per-session by design.
+		if (allSettings[MEDIA_QUEUE_SETTINGS_KEY] !== undefined) {
+			const stored = allSettings[MEDIA_QUEUE_SETTINGS_KEY] as PersistedMediaQueue | null;
+			const items = sanitizeMediaItems(stored?.items);
+			if (items.length > 0) {
+				const ids = new Set(items.map((item) => item.id));
+				const storedActive = stored?.activeItemId;
+				useMediaPlaybackStore.setState({
+					items,
+					activeItemId:
+						typeof storedActive === 'string' && ids.has(storedActive) ? storedActive : items[0].id,
+					resumeTimes: sanitizeResumeTimes(stored?.resumeTimes, ids),
+					dismissed: true,
+					playing: false,
+					pendingAutoplay: false,
+				});
+			}
+		}
 
 		if (allSettings['tourCompleted'] !== undefined)
 			patch.tourCompleted = allSettings['tourCompleted'] as boolean;

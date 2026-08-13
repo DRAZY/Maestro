@@ -3,7 +3,8 @@ import { memo, useCallback, useEffect } from 'react';
 import { MediaViewer } from '../FilePreview/MediaViewer';
 import { FloatingMediaPlayer } from './FloatingMediaPlayer';
 import { stepMediaItem } from '../../utils/mediaItems';
-import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
+import { useEventListener } from '../../hooks/utils/useEventListener';
+import { flushMediaQueuePersist, useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
 import type { Theme } from '../../types';
 
 interface MediaPlaybackHostProps {
@@ -40,6 +41,11 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 	const setPlaying = useMediaPlaybackStore((s) => s.setPlaying);
 	const consumeAutoplay = useMediaPlaybackStore((s) => s.consumeAutoplay);
 	const rememberTime = useMediaPlaybackStore((s) => s.rememberTime);
+	const advanceAfterEnded = useMediaPlaybackStore((s) => s.advanceAfterEnded);
+
+	// Queue writes are debounced, so a window closing mid-debounce would lose the
+	// last position (or the last thing queued). Flush before it goes away.
+	useEventListener('beforeunload', flushMediaQueuePersist);
 
 	const active = activeItemId ? items.find((item) => item.id === activeItemId) : undefined;
 
@@ -81,6 +87,9 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 			compact
 			onTimeUpdate={handleTimeUpdate}
 			onPlayingChange={setPlaying}
+			// A finished file hands off to the next queued one, which is what makes
+			// "queue an mp4 behind this mp3" mean anything.
+			onEnded={advanceAfterEnded}
 			onPrev={stepMediaItem(items, activeItemId, -1) ? () => navigate(-1) : undefined}
 			onNext={stepMediaItem(items, activeItemId, 1) ? () => navigate(1) : undefined}
 			toggleRequest={toggleRequest}

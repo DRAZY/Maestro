@@ -55,6 +55,11 @@ interface MediaViewerProps {
 	onTimeUpdate?: (seconds: number) => void;
 	/** Mirror play/pause outward, for the floating widget's own state. */
 	onPlayingChange?: (playing: boolean) => void;
+	/**
+	 * The file played to its end. Drives the hand-off to the next queued item.
+	 * Not fired while looping, since a looping element never ends.
+	 */
+	onEnded?: () => void;
 	/** Widget navigation. Rendered inside the transport when provided. */
 	onPrev?: () => void;
 	onNext?: () => void;
@@ -160,6 +165,7 @@ export const MediaViewer = memo(function MediaViewer({
 	compact = false,
 	onTimeUpdate,
 	onPlayingChange,
+	onEnded,
 	onPrev,
 	onNext,
 	toggleRequest = 0,
@@ -192,6 +198,9 @@ export const MediaViewer = memo(function MediaViewer({
 	// request is only ever relevant at the moment a new file starts loading.
 	const autoplayRequestedRef = useRef(autoplay);
 	autoplayRequestedRef.current = autoplay;
+	// The end-of-file hand-off, kept in a ref so `mediaProps` stays stable.
+	const endedRef = useRef(onEnded);
+	endedRef.current = onEnded;
 	// Same for the resume position: latched when a file starts loading, consumed
 	// on 'loadedmetadata', and never re-applied (so a manual seek back to 0 sticks).
 	const resumeRef = useRef(resumeTime);
@@ -459,7 +468,13 @@ export const MediaViewer = memo(function MediaViewer({
 			onDurationChange: handleTimeUpdate,
 			onPlay: () => setPlaying(true),
 			onPause: () => setPlaying(false),
-			onEnded: () => setPlaying(false),
+			onEnded: () => {
+				setPlaying(false);
+				// Read through a ref so a caller that re-creates the handler each
+				// render cannot re-create every media event handler with it, which
+				// would churn the element's props mid-playback.
+				endedRef.current?.();
+			},
 			onError: () => setLoadState('error'),
 		}),
 		[src, handleLoadedMetadata, handleTimeUpdate]

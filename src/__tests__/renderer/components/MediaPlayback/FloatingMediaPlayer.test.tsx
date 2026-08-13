@@ -206,7 +206,7 @@ describe('FloatingMediaPlayer', () => {
 		expect(screen.queryByTestId('modal-resize-grip')).toBeNull();
 	});
 
-	describe('history menu', () => {
+	describe('queue and history menus', () => {
 		const a = item();
 		const b = item({ id: 's1::/files/talk.mp4', path: '/files/talk.mp4', name: 'talk.mp4' });
 
@@ -214,9 +214,57 @@ describe('FloatingMediaPlayer', () => {
 			useMediaPlaybackStore.setState({
 				items: [a, b],
 				activeItemId: b.id,
-				history: [b.id, a.id],
+				history: [b, a],
 			});
 		}
+
+		it('hides both buttons when there is nothing to list', () => {
+			renderPlayer();
+			expect(screen.queryByLabelText('Recently played')).toBeNull();
+			expect(screen.queryByLabelText(/Play queue/)).toBeNull();
+		});
+
+		it('shows the queue button once something is queued', () => {
+			useMediaPlaybackStore.setState({ items: [a, b], activeItemId: a.id });
+			renderPlayer();
+			expect(screen.getByLabelText('Play queue, 2 items')).toBeTruthy();
+			// Nothing has been played, so there is no history button yet.
+			expect(screen.queryByLabelText('Recently played')).toBeNull();
+		});
+
+		it('lists the queue in open order, not recency', () => {
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+
+			const menu = screen.getByTestId('media-queue-menu');
+			expect(menu.textContent!.indexOf('podcast.mp3')).toBeLessThan(
+				menu.textContent!.indexOf('talk.mp4')
+			);
+		});
+
+		it('plays a queue entry and removes one from the queue', () => {
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+			const menu = screen.getByTestId('media-queue-menu');
+			fireEvent.click(within(menu).getByText('podcast.mp3'));
+			expect(useMediaPlaybackStore.getState().activeItemId).toBe(a.id);
+
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+			fireEvent.click(screen.getByLabelText('Remove talk.mp4 from the queue'));
+			expect(useMediaPlaybackStore.getState().items.map((i) => i.id)).toEqual([a.id]);
+		});
+
+		it('clears the whole queue', () => {
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+			fireEvent.click(screen.getByText('Clear'));
+
+			expect(useMediaPlaybackStore.getState().items).toEqual([]);
+			expect(screen.queryByTestId('media-queue-menu')).toBeNull();
+		});
 
 		it('lists recently played entries, newest first', () => {
 			seedQueue();
@@ -231,28 +279,42 @@ describe('FloatingMediaPlayer', () => {
 			);
 		});
 
-		it('jumps to an earlier file and plays it', () => {
-			seedQueue();
+		it('re-queues a history entry the queue no longer holds', () => {
+			// History outlives the queue, so its entries have to be able to bring a
+			// file back rather than pointing at a queue slot that is gone.
+			useMediaPlaybackStore.setState({ items: [b], activeItemId: b.id, history: [b, a] });
 			renderPlayer();
 			fireEvent.click(screen.getByLabelText('Recently played'));
-			// Scoped to the menu: the title bar names the loaded file too.
 			const menu = screen.getByTestId('media-history-menu');
 			fireEvent.click(within(menu).getByText('podcast.mp3'));
 
 			const state = useMediaPlaybackStore.getState();
+			expect(state.items.map((i) => i.id)).toEqual([b.id, a.id]);
 			expect(state.activeItemId).toBe(a.id);
 			expect(state.pendingAutoplay).toBe(true);
 			// Choosing an entry closes the menu.
 			expect(screen.queryByTestId('media-history-menu')).toBeNull();
 		});
 
-		it('removes an entry from the queue', () => {
+		it('removing from history leaves the queue alone', () => {
 			seedQueue();
 			renderPlayer();
 			fireEvent.click(screen.getByLabelText('Recently played'));
-			fireEvent.click(screen.getByLabelText('Remove podcast.mp3 from the queue'));
+			fireEvent.click(screen.getByLabelText('Remove podcast.mp3 from the history'));
 
-			expect(useMediaPlaybackStore.getState().items.map((i) => i.id)).toEqual([b.id]);
+			const state = useMediaPlaybackStore.getState();
+			expect(state.history.map((i) => i.id)).toEqual([b.id]);
+			expect(state.items).toHaveLength(2);
+		});
+
+		it('opens one list at a time', () => {
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Recently played'));
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+
+			expect(screen.getByTestId('media-queue-menu')).toBeTruthy();
+			expect(screen.queryByTestId('media-history-menu')).toBeNull();
 		});
 
 		it('closes on an outside click', () => {

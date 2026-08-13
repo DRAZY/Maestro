@@ -116,6 +116,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: null,
 		category: 'appearance',
 	},
+	mediaPlayerQueue: {
+		description:
+			'Media play queue, the loaded item, and remembered playback positions, kept across restarts. Null until something is queued. Recently-played history is deliberately not stored here - it is per-session.',
+		type: 'object',
+		default: null,
+		category: 'appearance',
+	},
 	mediaPlaybackRate: {
 		description:
 			'Playback speed for audio and video files opened in the file preview. Persists across files and restarts. Range 0.25 to 4.',

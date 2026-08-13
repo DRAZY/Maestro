@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	flushMediaQueuePersist,
+	selectActiveMediaItem,
 	selectCanRestoreFloatingPlayer,
 	useMediaPlaybackStore,
 	MEDIA_HISTORY_LIMIT,
+	MEDIA_QUEUE_LIMIT,
+	MEDIA_QUEUE_SETTINGS_KEY,
 	type MediaOpenRequest,
 } from '../../../renderer/stores/mediaPlaybackStore';
 import { mediaItemId } from '../../../renderer/utils/mediaItems';
@@ -55,7 +59,7 @@ describe('mediaPlaybackStore', () => {
 			expect(state.items).toHaveLength(1);
 			expect(state.activeItemId).toBe(idOf(r));
 			expect(state.pendingAutoplay).toBe(true);
-			expect(state.history).toEqual([idOf(r)]);
+			expect(state.history.map((h) => h.id)).toEqual([idOf(r)]);
 		});
 
 		it('re-opening the same file reuses its entry instead of stacking a duplicate', () => {
@@ -117,7 +121,7 @@ describe('mediaPlaybackStore', () => {
 			initial.openMedia(b);
 			initial.setActiveItem(idOf(a), { autoplay: true });
 
-			expect(useMediaPlaybackStore.getState().history).toEqual([idOf(a), idOf(b)]);
+			expect(useMediaPlaybackStore.getState().history.map((h) => h.id)).toEqual([idOf(a), idOf(b)]);
 		});
 
 		it('never lists the same item twice', () => {
@@ -127,7 +131,7 @@ describe('mediaPlaybackStore', () => {
 			initial.openMedia(a);
 
 			const history = useMediaPlaybackStore.getState().history;
-			expect(history.filter((id) => id === idOf(a))).toHaveLength(1);
+			expect(history.filter((entry) => entry.id === idOf(a))).toHaveLength(1);
 		});
 
 		it('caps at the limit so the menu stays scannable', () => {
@@ -245,7 +249,9 @@ describe('mediaPlaybackStore', () => {
 			expect(state.activeItemId).toBeNull();
 			expect(state.playing).toBe(false);
 			expect(state.pendingAutoplay).toBe(false);
-			expect(state.history).toEqual([]);
+			// Closing drops it from the queue but not from what was played: history
+			// is a record, not a view onto the queue.
+			expect(state.history.map((h) => h.id)).toEqual([idOf(r)]);
 			expect(state.resumeTimes[idOf(r)]).toBeUndefined();
 		});
 
@@ -287,6 +293,195 @@ describe('mediaPlaybackStore', () => {
 			(window as unknown as { maestro?: unknown }).maestro = undefined;
 			expect(() => initial.setFloatRect(FLOAT)).not.toThrow();
 			expect(useMediaPlaybackStore.getState().floatRect).toEqual(FLOAT);
+		});
+	});
+
+	describe('enqueueMedia', () => {
+		it('appends without interrupting what is playing', () => {
+			const a = request();
+			const b = request({ path: '/files/b.mp4', name: 'b.mp4', kind: 'video' });
+			initial.openMedia(a);
+			initial.consumeAutoplay();
+			initial.setPlaying(true);
+
+			expect(initial.enqueueMedia([b])).toBe(1);
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.items.map((i) => i.id)).toEqual([idOf(a), idOf(b)]);
+			// The whole point of queueing: the mp3 keeps playing.
+			expect(state.activeItemId).toBe(idOf(a));
+			expect(state.playing).toBe(true);
+			expect(state.pendingAutoplay).toBe(false);
+		});
+
+		it('loads the first file when the player is idle, so the queue is reachable', () => {
+			const a = request();
+			expect(initial.enqueueMedia([a])).toBe(1);
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.activeItemId).toBe(idOf(a));
+			expect(state.dismissed).toBe(false);
+			// Queueing is not a request to listen, so it does not start itself.
+			expect(state.pendingAutoplay).toBe(false);
+		});
+
+		it('leaves an already-queued file where it is', () => {
+			const a = request();
+			const b = request({ path: '/files/b.mp3', name: 'b.mp3' });
+			initial.enqueueMedia([a, b]);
+			expect(initial.enqueueMedia([a])).toBe(0);
+			expect(useMediaPlaybackStore.getState().items.map((i) => i.id)).toEqual([idOf(a), idOf(b)]);
+		});
+
+		it('does not touch history - nothing has been played', () => {
+			initial.enqueueMedia([request({ path: '/files/b.mp3', name: 'b.mp3' })]);
+			expect(useMediaPlaybackStore.getState().history).toEqual([]);
+		});
+
+		it('queues nothing for an empty list', () => {
+			const before = useMediaPlaybackStore.getState();
+			expect(initial.enqueueMedia([])).toBe(0);
+			expect(useMediaPlaybackStore.getState()).toBe(before);
+		});
+
+		it('caps the queue, keeping the loaded file', () => {
+			const first = request({ path: '/files/first.mp3', name: 'first.mp3' });
+			initial.openMedia(first);
+			initial.enqueueMedia(
+				Array.from({ length: MEDIA_QUEUE_LIMIT + 5 }, (_, i) =>
+					request({ path: `/files/q${i}.mp3`, name: `q${i}.mp3` })
+				)
+			);
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.items).toHaveLength(MEDIA_QUEUE_LIMIT + 1);
+			expect(state.items.some((i) => i.id === idOf(first))).toBe(true);
+		});
+	});
+
+	describe('advanceAfterEnded', () => {
+		it('hands off to the next queued item and plays it', () => {
+			const a = request();
+			const b = request({ path: '/files/b.mp4', name: 'b.mp4', kind: 'video' });
+			initial.openMedia(a);
+			initial.enqueueMedia([b]);
+
+			initial.advanceAfterEnded();
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.activeItemId).toBe(idOf(b));
+			expect(state.pendingAutoplay).toBe(true);
+		});
+
+		it('rewinds the finished file, so coming back to it plays something', () => {
+			const a = request();
+			initial.openMedia(a);
+			initial.rememberTime(idOf(a), 300);
+			initial.advanceAfterEnded();
+			expect(useMediaPlaybackStore.getState().resumeTimes[idOf(a)]).toBe(0);
+		});
+
+		it('stays put at the end of the queue rather than going blank', () => {
+			const a = request();
+			initial.openMedia(a);
+			initial.advanceAfterEnded();
+			expect(useMediaPlaybackStore.getState().activeItemId).toBe(idOf(a));
+		});
+
+		it('does nothing with no loaded item', () => {
+			expect(() => initial.advanceAfterEnded()).not.toThrow();
+			expect(useMediaPlaybackStore.getState().activeItemId).toBeNull();
+		});
+	});
+
+	describe('list maintenance', () => {
+		it('clearQueue empties the queue and releases the player', () => {
+			initial.openMedia(request());
+			initial.setPlaying(true);
+			initial.clearQueue();
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.items).toEqual([]);
+			expect(state.activeItemId).toBeNull();
+			expect(state.playing).toBe(false);
+			// What was played is a separate record and survives.
+			expect(state.history).toHaveLength(1);
+		});
+
+		it('removing a history entry leaves the queue alone', () => {
+			const a = request();
+			initial.openMedia(a);
+			initial.removeHistoryItem(idOf(a));
+
+			const state = useMediaPlaybackStore.getState();
+			expect(state.history).toEqual([]);
+			expect(state.items).toHaveLength(1);
+		});
+
+		it('clearHistory forgets everything played', () => {
+			initial.openMedia(request());
+			initial.clearHistory();
+			expect(useMediaPlaybackStore.getState().history).toEqual([]);
+			expect(useMediaPlaybackStore.getState().items).toHaveLength(1);
+		});
+
+		it('selectActiveMediaItem resolves the loaded entry', () => {
+			expect(selectActiveMediaItem(useMediaPlaybackStore.getState())).toBeNull();
+			initial.openMedia(request());
+			expect(selectActiveMediaItem(useMediaPlaybackStore.getState())?.name).toBe('a.mp3');
+		});
+	});
+
+	describe('queue persistence', () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it('writes the queue, the loaded item, and remembered positions', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+
+			const r = request();
+			initial.openMedia(r);
+			initial.rememberTime(idOf(r), 12);
+			vi.advanceTimersByTime(600);
+
+			expect(set).toHaveBeenCalledTimes(1);
+			const [key, payload] = set.mock.calls[0];
+			expect(key).toBe(MEDIA_QUEUE_SETTINGS_KEY);
+			expect(payload.activeItemId).toBe(idOf(r));
+			expect(payload.items).toHaveLength(1);
+			expect(payload.resumeTimes[idOf(r)]).toBe(12);
+			// History is per-boot, so it must never reach disk.
+			expect(payload).not.toHaveProperty('history');
+		});
+
+		it('collapses a burst of position updates into one write', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+
+			initial.openMedia(request());
+			for (let i = 1; i <= 10; i++) initial.rememberTime(idOf(request()), i);
+			vi.advanceTimersByTime(600);
+
+			expect(set).toHaveBeenCalledTimes(1);
+		});
+
+		it('flushes on demand, so a closing window does not lose the queue', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+
+			initial.openMedia(request());
+			flushMediaQueuePersist();
+			expect(set).toHaveBeenCalledTimes(1);
+
+			// Nothing pending: a second flush must not write again.
+			flushMediaQueuePersist();
+			expect(set).toHaveBeenCalledTimes(1);
 		});
 	});
 });
