@@ -487,6 +487,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					sessionCustomEffort: config.sessionCustomEffort,
 					sessionCustomArgs: config.sessionCustomArgs,
 					sessionCustomEnvVars: config.sessionCustomEnvVars,
+					readOnlyMode: config.readOnlyMode,
 				});
 				finalArgs = configResolution.args;
 
