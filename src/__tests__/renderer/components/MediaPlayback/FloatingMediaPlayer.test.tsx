@@ -64,6 +64,7 @@ describe('FloatingMediaPlayer', () => {
 			pendingAutoplay: false,
 			toggleRequest: 0,
 			resumeTimes: {},
+			durations: {},
 			floatPosition: null,
 			floatWidths: {},
 			aspects: {},
@@ -408,6 +409,47 @@ describe('FloatingMediaPlayer', () => {
 
 			expect(screen.getByTestId('media-queue-menu')).toBeTruthy();
 			expect(screen.queryByTestId('media-history-menu')).toBeNull();
+		});
+
+		it('shows how long each entry runs', () => {
+			seedQueue();
+			useMediaPlaybackStore.setState({ durations: { [a.id]: 266, [b.id]: 95 } });
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Recently played'));
+
+			const menu = screen.getByTestId('media-history-menu');
+			expect(within(menu).getByText('4:26')).toBeTruthy();
+			expect(within(menu).getByText('1:35')).toBeTruthy();
+		});
+
+		it('says how much is left of something part-played', () => {
+			seedQueue();
+			useMediaPlaybackStore.setState({
+				durations: { [a.id]: 266 },
+				resumeTimes: { [a.id]: 60 },
+			});
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+
+			const menu = screen.getByTestId('media-queue-menu');
+			expect(within(menu).getByText('-3:26')).toBeTruthy();
+			// Nothing known about the other file, so it says so rather than lying.
+			expect(within(menu).getByText('--:--')).toBeTruthy();
+		});
+
+		it('leaves off the remaining time at either end of a file', () => {
+			// A second in is "not started" and a second from the end is "finished";
+			// in both cases the plain length already says everything useful.
+			seedQueue();
+			useMediaPlaybackStore.setState({
+				durations: { [a.id]: 266, [b.id]: 266 },
+				resumeTimes: { [a.id]: 0.5, [b.id]: 265.8 },
+			});
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 2 items'));
+
+			const menu = screen.getByTestId('media-queue-menu');
+			expect(within(menu).queryByText(/^-/)).toBeNull();
 		});
 
 		it('closes on an outside click', () => {

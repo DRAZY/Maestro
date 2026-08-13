@@ -113,6 +113,8 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	const items = useMediaPlaybackStore((s) => s.items);
 	const history = useMediaPlaybackStore((s) => s.history);
 	const activeItemId = useMediaPlaybackStore((s) => s.activeItemId);
+	const durations = useMediaPlaybackStore((s) => s.durations);
+	const resumeTimes = useMediaPlaybackStore((s) => s.resumeTimes);
 	const setActiveItem = useMediaPlaybackStore((s) => s.setActiveItem);
 	const closeItem = useMediaPlaybackStore((s) => s.closeItem);
 
@@ -406,6 +408,8 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					listLabel="queue"
 					entries={items}
 					activeItemId={activeItemId}
+					durations={durations}
+					resumeTimes={resumeTimes}
 					onSelect={(item) => {
 						setActiveItem(item.id, { autoplay: true });
 						setOpenList(null);
@@ -428,6 +432,8 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					listLabel="history"
 					entries={history}
 					activeItemId={activeItemId}
+					durations={durations}
+					resumeTimes={resumeTimes}
 					// A history entry can name a file that is no longer queued (the
 					// user removed it), so picking one re-queues and plays it rather
 					// than activating a queue slot that may not exist.

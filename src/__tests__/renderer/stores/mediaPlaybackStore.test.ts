@@ -41,6 +41,7 @@ function reset() {
 		pendingAutoplay: false,
 		toggleRequest: 0,
 		resumeTimes: {},
+		durations: {},
 		floatPosition: null,
 		floatWidths: {},
 		aspects: {},
@@ -323,6 +324,34 @@ describe('mediaPlaybackStore', () => {
 		});
 	});
 
+	describe('durations', () => {
+		it('remembers how long a file is', () => {
+			initial.rememberDuration('a', 266.7);
+			expect(useMediaPlaybackStore.getState().durations.a).toBe(266.7);
+		});
+
+		it('ignores a live stream, which has no length to show', () => {
+			initial.rememberDuration('a', Number.POSITIVE_INFINITY);
+			initial.rememberDuration('b', 0);
+			expect(useMediaPlaybackStore.getState().durations).toEqual({});
+		});
+
+		it('re-reporting the same length does not churn state', () => {
+			initial.rememberDuration('a', 100);
+			const before = useMediaPlaybackStore.getState();
+			initial.rememberDuration('a', 100);
+			expect(useMediaPlaybackStore.getState()).toBe(before);
+		});
+
+		it('survives its file leaving the queue, so history can still show it', () => {
+			const r = request();
+			initial.openMedia(r);
+			initial.rememberDuration(idOf(r), 100);
+			initial.closeItem(idOf(r));
+			expect(useMediaPlaybackStore.getState().durations[idOf(r)]).toBe(100);
+		});
+	});
+
 	describe('aspect ratios', () => {
 		it('remembers a video shape per item, so returning to it fits at once', () => {
 			initial.rememberAspect('vid', 4 / 3);
@@ -494,6 +523,7 @@ describe('mediaPlaybackStore', () => {
 			const r = request();
 			initial.openMedia(r);
 			initial.rememberTime(idOf(r), 12);
+			initial.rememberDuration(idOf(r), 266);
 			vi.advanceTimersByTime(600);
 
 			expect(set).toHaveBeenCalledTimes(1);
@@ -502,8 +532,27 @@ describe('mediaPlaybackStore', () => {
 			expect(payload.activeItemId).toBe(idOf(r));
 			expect(payload.items).toHaveLength(1);
 			expect(payload.resumeTimes[idOf(r)]).toBe(12);
+			// Lengths are stored too: only the loaded file is ever mounted, so a
+			// restored queue would otherwise show `--:--` for every other row.
+			expect(payload.durations[idOf(r)]).toBe(266);
 			// History is per-boot, so it must never reach disk.
 			expect(payload).not.toHaveProperty('history');
+		});
+
+		it('prunes stored lengths to the queue, so disk does not grow forever', () => {
+			const set = vi.fn();
+			(window as unknown as { maestro: unknown }).maestro = { settings: { set } };
+
+			const r = request();
+			initial.openMedia(r);
+			initial.rememberDuration(idOf(r), 266);
+			initial.closeItem(idOf(r));
+			vi.advanceTimersByTime(600);
+
+			const payload = set.mock.calls[set.mock.calls.length - 1][1];
+			expect(payload.durations).toEqual({});
+			// Still in memory, so the history row keeps its time.
+			expect(useMediaPlaybackStore.getState().durations[idOf(r)]).toBe(266);
 		});
 
 		it('collapses a burst of position updates into one write', () => {

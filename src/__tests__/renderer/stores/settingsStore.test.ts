@@ -1576,6 +1576,7 @@ describe('settingsStore', () => {
 				],
 				activeItemId: 's1::/files/podcast.mp3',
 				resumeTimes: { 's1::/files/podcast.mp3': 42, 'gone::x': 9 },
+				durations: { 's1::/files/podcast.mp3': 266, 'gone::x': 30 },
 			};
 
 			it('restores the queue, the loaded item, and its position', async () => {
@@ -1590,6 +1591,9 @@ describe('settingsStore', () => {
 				expect(state.items.map((i) => i.name)).toEqual(['podcast.mp3']);
 				expect(state.activeItemId).toBe('s1::/files/podcast.mp3');
 				expect(state.resumeTimes).toEqual({ 's1::/files/podcast.mp3': 42 });
+				// Lengths come back too, so the queue list is not a column of `--:--`
+				// until every entry has been played.
+				expect(state.durations).toEqual({ 's1::/files/podcast.mp3': 266 });
 			});
 
 			it('comes back hidden and silent, so nothing plays at launch', async () => {

@@ -17,7 +17,21 @@
  * landing in a player that has no bytes to read.
  */
 
+import { formatElapsedTimeColon } from '../../shared/formatters';
 import { getMediaKind, isMediaStreamUrl, type MediaKind } from '../../shared/mediaTypes';
+
+/**
+ * A media clock time (`4:26`, `1:02:30`), or `--:--` when it is not known yet.
+ *
+ * Media times are fractional and can be `Infinity` for a live stream, while
+ * `formatElapsedTimeColon` wants whole seconds - this is the one place that
+ * bridges the two, so the transport and the queue/history lists cannot drift
+ * into showing the same file's length two different ways.
+ */
+export function formatMediaTime(seconds: number | undefined): string {
+	if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '--:--';
+	return formatElapsedTimeColon(Math.floor(Math.max(0, seconds)));
+}
 
 /**
  * Media kind for a file the user just opened, or `null` when it is not playable
@@ -154,12 +168,15 @@ export function sanitizeMediaItems(value: unknown): MediaItem[] {
 	return items;
 }
 
-/** Coerce persisted resume positions, dropping anything that is not a real time. */
-export function sanitizeResumeTimes(value: unknown, knownIds: Set<string>): Record<string, number> {
+/**
+ * Coerce a persisted map of item ID -> seconds, dropping anything that is not a
+ * real time. Used for both remembered positions and known durations.
+ */
+export function sanitizeMediaTimes(value: unknown, knownIds: Set<string>): Record<string, number> {
 	if (typeof value !== 'object' || value === null) return {};
 	const times: Record<string, number> = {};
 	for (const [id, seconds] of Object.entries(value as Record<string, unknown>)) {
-		// Positions for files no longer queued are dead weight.
+		// Times for files no longer queued are dead weight.
 		if (!knownIds.has(id)) continue;
 		if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) continue;
 		times[id] = seconds;

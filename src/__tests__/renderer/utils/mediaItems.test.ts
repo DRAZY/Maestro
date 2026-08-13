@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
 	getOpenedMediaKind,
+	formatMediaTime,
 	mediaItemId,
 	pushMediaHistory,
 	sanitizeMediaItems,
-	sanitizeResumeTimes,
+	sanitizeMediaTimes,
 	stepMediaItem,
 	trimMediaQueue,
 	type MediaItem,
@@ -164,23 +165,43 @@ describe('sanitizeMediaItems', () => {
 	});
 });
 
-describe('sanitizeResumeTimes', () => {
+describe('formatMediaTime', () => {
+	it('floors fractional media seconds into a clock time', () => {
+		expect(formatMediaTime(266.7)).toBe('4:26');
+		expect(formatMediaTime(3725)).toBe('1:02:05');
+	});
+
+	it('says nothing rather than a number for a length it does not know', () => {
+		// A live stream reports Infinity, and a queued file that has never been
+		// mounted has no length at all.
+		expect(formatMediaTime(undefined)).toBe('--:--');
+		expect(formatMediaTime(Number.POSITIVE_INFINITY)).toBe('--:--');
+		expect(formatMediaTime(Number.NaN)).toBe('--:--');
+	});
+
+	it('shows zero rather than a negative time', () => {
+		expect(formatMediaTime(0)).toBe('0:00');
+		expect(formatMediaTime(-5)).toBe('0:00');
+	});
+});
+
+describe('sanitizeMediaTimes', () => {
 	const known = new Set(['a', 'b']);
 
 	it('keeps real positions for queued items', () => {
-		expect(sanitizeResumeTimes({ a: 12.5, b: 0 }, known)).toEqual({ a: 12.5, b: 0 });
+		expect(sanitizeMediaTimes({ a: 12.5, b: 0 }, known)).toEqual({ a: 12.5, b: 0 });
 	});
 
 	it('drops positions for files that are no longer queued', () => {
-		expect(sanitizeResumeTimes({ gone: 30 }, known)).toEqual({});
+		expect(sanitizeMediaTimes({ gone: 30 }, known)).toEqual({});
 	});
 
 	it('drops values that are not usable times', () => {
-		expect(sanitizeResumeTimes({ a: -1, b: 'x' }, known)).toEqual({});
-		expect(sanitizeResumeTimes({ a: Number.NaN }, known)).toEqual({});
+		expect(sanitizeMediaTimes({ a: -1, b: 'x' }, known)).toEqual({});
+		expect(sanitizeMediaTimes({ a: Number.NaN }, known)).toEqual({});
 	});
 
 	it('is empty for anything that is not an object', () => {
-		expect(sanitizeResumeTimes(null, known)).toEqual({});
+		expect(sanitizeMediaTimes(null, known)).toEqual({});
 	});
 });

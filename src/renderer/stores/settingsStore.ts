@@ -48,7 +48,7 @@ import {
 	useMediaPlaybackStore,
 	type PersistedMediaQueue,
 } from './mediaPlaybackStore';
-import { sanitizeMediaItems, sanitizeResumeTimes } from '../utils/mediaItems';
+import { sanitizeMediaItems, sanitizeMediaTimes } from '../utils/mediaItems';
 import { sanitizeMediaFloat } from '../utils/mediaFloatGeometry';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
@@ -2629,7 +2629,8 @@ export async function loadAllSettings(): Promise<void> {
 					items,
 					activeItemId:
 						typeof storedActive === 'string' && ids.has(storedActive) ? storedActive : items[0].id,
-					resumeTimes: sanitizeResumeTimes(stored?.resumeTimes, ids),
+					resumeTimes: sanitizeMediaTimes(stored?.resumeTimes, ids),
+					durations: sanitizeMediaTimes(stored?.durations, ids),
 					dismissed: true,
 					playing: false,
 					pendingAutoplay: false,

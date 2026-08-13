@@ -252,7 +252,8 @@ multi-GB recording never crosses IPC or lands in the renderer heap.
 | `pushMediaHistory(history, item, max)`  | `(MediaItem[], MediaItem, number) => MediaItem[]`            | Recently played, newest first, deduped and capped.                          |
 | `trimMediaQueue(items, limit, keepId)`  | `(MediaItem[], number, string \| null) => MediaItem[]`       | Caps the persisted queue, oldest first, never dropping the loaded item.     |
 | `sanitizeMediaItems(value)`             | `(unknown) => MediaItem[]`                                   | Coerce a persisted queue off disk, dropping anything malformed.             |
-| `sanitizeResumeTimes(value, knownIds)`  | `(unknown, Set<string>) => Record<string, number>`           | Same for remembered positions; drops times for files no longer queued.      |
+| `sanitizeMediaTimes(value, knownIds)`   | `(unknown, Set<string>) => Record<string, number>`           | Same for the seconds maps (positions, durations); drops unqueued IDs.       |
+| `formatMediaTime(seconds)`              | `(number \| undefined) => string`                            | Clock time for a fractional media second; `--:--` when unknown.             |
 
 **Media never becomes a file preview tab.** `handleOpenFileTab()` diverts it to
 `useMediaPlaybackStore.openMedia()` before a tab can be created, and the only

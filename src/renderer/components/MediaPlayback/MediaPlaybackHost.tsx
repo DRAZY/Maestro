@@ -44,6 +44,7 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 	const advanceAfterEnded = useMediaPlaybackStore((s) => s.advanceAfterEnded);
 	const aspects = useMediaPlaybackStore((s) => s.aspects);
 	const rememberAspect = useMediaPlaybackStore((s) => s.rememberAspect);
+	const rememberDuration = useMediaPlaybackStore((s) => s.rememberDuration);
 
 	// One measurement for the whole app: the transport is the same strip whatever
 	// is loaded, so re-measuring per file would only re-report the same number.
@@ -79,6 +80,13 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 		[activeItemId, rememberAspect]
 	);
 
+	const handleDurationKnown = useCallback(
+		(seconds: number) => {
+			if (activeItemId) rememberDuration(activeItemId, seconds);
+		},
+		[activeItemId, rememberDuration]
+	);
+
 	// Hand the one-shot back to the store once the player has it. In an effect,
 	// not inline: a set during render is a React violation.
 	useEffect(() => {
@@ -106,6 +114,9 @@ export const MediaPlaybackHost = memo(function MediaPlaybackHost({
 			// The frame sizes itself to the file, so it needs the file's own shape
 			// and the true height of the controls under it.
 			onAspectChange={handleAspectChange}
+			// Only the loaded file is ever mounted, so this is the one chance to
+			// learn how long it is for the queue and history lists.
+			onDurationKnown={handleDurationKnown}
 			onTransportHeightChange={setTransportHeight}
 			onPrev={stepMediaItem(items, activeItemId, -1) ? () => navigate(-1) : undefined}
 			onNext={stepMediaItem(items, activeItemId, 1) ? () => navigate(1) : undefined}

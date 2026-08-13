@@ -4,7 +4,7 @@ import { FileAudio, FileVideo, Volume2, X } from 'lucide-react';
 
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { useAnchoredMenuPosition } from '../../hooks/ui/useAnchoredMenuPosition';
-import type { MediaItem } from '../../utils/mediaItems';
+import { formatMediaTime, type MediaItem } from '../../utils/mediaItems';
 import type { Theme } from '../../types';
 
 interface MediaListMenuProps {
@@ -17,6 +17,10 @@ interface MediaListMenuProps {
 	listLabel: string;
 	entries: MediaItem[];
 	activeItemId: string | null;
+	/** Item ID -> length in seconds, for the time on each row. */
+	durations: Record<string, number>;
+	/** Item ID -> where playback was left, so a part-played row can say so. */
+	resumeTimes: Record<string, number>;
 	onSelect: (item: MediaItem) => void;
 	onRemove: (itemId: string) => void;
 	/** Empties the whole list. Omitted when there is nothing worth clearing. */
@@ -45,6 +49,8 @@ export const MediaListMenu = memo(function MediaListMenu({
 	listLabel,
 	entries,
 	activeItemId,
+	durations,
+	resumeTimes,
 	onSelect,
 	onRemove,
 	onClear,
@@ -89,6 +95,16 @@ export const MediaListMenu = memo(function MediaListMenu({
 			{entries.map((entry) => {
 				const isActive = entry.id === activeItemId;
 				const KindIcon = entry.kind === 'video' ? FileVideo : FileAudio;
+				const duration = durations[entry.id];
+				const resume = resumeTimes[entry.id] ?? 0;
+				// "How much is left" is the useful number for something part-listened,
+				// and it is only worth saying when the file is genuinely in the middle:
+				// a second either end is the difference between "not started" and
+				// "finished", which the plain length already conveys.
+				const remaining =
+					typeof duration === 'number' && resume > 1 && resume < duration - 1
+						? duration - resume
+						: null;
 				return (
 					<div
 						key={entry.id}
@@ -116,6 +132,26 @@ export const MediaListMenu = memo(function MediaListMenu({
 								{entry.sessionName}
 							</span>
 						</button>
+
+						{/* How long it runs, and how much of it is left if the user is
+						    part way through. Tabular figures so the column lines up. */}
+						<div className="flex flex-col items-end shrink-0 font-mono tabular-nums">
+							<span
+								className="text-[11px]"
+								style={{ color: isActive ? theme.colors.accent : theme.colors.textDim }}
+							>
+								{formatMediaTime(duration)}
+							</span>
+							{remaining !== null && (
+								<span
+									className="text-[10px] opacity-70"
+									style={{ color: theme.colors.textDim }}
+									title={`${formatMediaTime(remaining)} left`}
+								>
+									-{formatMediaTime(remaining)}
+								</span>
+							)}
+						</div>
 
 						{/* Marks what is loaded right now, so the list reads as a place you
 						    are in rather than a flat log. */}

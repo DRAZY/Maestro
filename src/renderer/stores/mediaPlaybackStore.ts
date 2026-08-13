@@ -73,6 +73,12 @@ export interface PersistedMediaQueue {
 	items: MediaItem[];
 	activeItemId: string | null;
 	resumeTimes: Record<string, number>;
+	/**
+	 * Known lengths. Persisted because only the loaded file is ever mounted: with
+	 * nothing on disk, a restored queue would show a length for one row and
+	 * `--:--` for the other nine until each was played.
+	 */
+	durations: Record<string, number>;
 }
 
 interface MediaPlaybackStoreState {
@@ -102,6 +108,12 @@ interface MediaPlaybackStoreState {
 	toggleRequest: number;
 	/** Item ID -> last playback position, so coming back resumes. Persisted. */
 	resumeTimes: Record<string, number>;
+	/**
+	 * Item ID -> length in seconds, learned when a file loads. Persisted, so the
+	 * queue and history lists can show how long something is without having to
+	 * mount it first.
+	 */
+	durations: Record<string, number>;
 	/** Where the player sits. Null until the user moves or resizes it. Persisted. */
 	floatPosition: { top: number; left: number } | null;
 	/**
@@ -176,6 +188,8 @@ interface MediaPlaybackStoreState {
 	setFloatGeometry: (kind: MediaKind, rect: { top: number; left: number; width: number }) => void;
 	/** Remember where an item was paused, so returning to it resumes. */
 	rememberTime: (itemId: string, seconds: number) => void;
+	/** Record how long a file is, for the queue and history lists. */
+	rememberDuration: (itemId: string, seconds: number) => void;
 	/** Record a video's real shape, so the frame can fit it. */
 	rememberAspect: (itemId: string, aspect: number) => void;
 }
@@ -195,8 +209,21 @@ let queuePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Write the queue, the loaded item, and every remembered position to settings. */
 function writeQueueNow(): void {
-	const { items, activeItemId, resumeTimes } = useMediaPlaybackStore.getState();
-	const payload: PersistedMediaQueue = { items, activeItemId, resumeTimes };
+	const { items, activeItemId, resumeTimes, durations } = useMediaPlaybackStore.getState();
+	const queued = new Set(items.map((item) => item.id));
+	// Durations outlive the queue in memory, because history rows still show the
+	// length of a file that was removed. On disk they are pruned to the queue, or
+	// every file the user ever played would accumulate there forever.
+	const persistedDurations: Record<string, number> = {};
+	for (const [id, seconds] of Object.entries(durations)) {
+		if (queued.has(id)) persistedDurations[id] = seconds;
+	}
+	const payload: PersistedMediaQueue = {
+		items,
+		activeItemId,
+		resumeTimes,
+		durations: persistedDurations,
+	};
 	window.maestro?.settings?.set(MEDIA_QUEUE_SETTINGS_KEY, payload);
 }
 
@@ -226,6 +253,7 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set, get
 	pendingAutoplay: false,
 	toggleRequest: 0,
 	resumeTimes: {},
+	durations: {},
 	floatPosition: null,
 	floatWidths: {},
 	aspects: {},
@@ -397,6 +425,15 @@ export const useMediaPlaybackStore = create<MediaPlaybackStoreState>()((set, get
 
 	rememberTime: (itemId, seconds) => {
 		set((state) => ({ resumeTimes: { ...state.resumeTimes, [itemId]: seconds } }));
+		persistQueue();
+	},
+
+	rememberDuration: (itemId, seconds) => {
+		// A live or unknown-length stream reports Infinity; the lists show `--:--`
+		// for it rather than a nonsense number.
+		if (!Number.isFinite(seconds) || seconds <= 0) return;
+		if (useMediaPlaybackStore.getState().durations[itemId] === seconds) return;
+		set((state) => ({ durations: { ...state.durations, [itemId]: seconds } }));
 		persistQueue();
 	},
 

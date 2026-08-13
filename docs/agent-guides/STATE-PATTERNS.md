@@ -351,6 +351,7 @@ interface MediaPlaybackStoreState {
 	pendingAutoplay: boolean; // one-shot: play when ready
 	toggleRequest: number; // nonce; each increment toggles play/pause
 	resumeTimes: Record<string, number>; // per item, so coming back resumes (persisted)
+	durations: Record<string, number>; // per item length, for the list rows (persisted)
 	floatPosition: { top; left } | null; // where the player sits (persisted)
 	floatWidths: Partial<Record<MediaKind, number>>; // width per kind (persisted)
 	aspects: Record<string, number>; // item -> picture shape, learned on load (per-boot)
@@ -406,6 +407,10 @@ history entry re-queues it.
   player and only the last file survives.
 - **A restored queue comes back `dismissed`.** Nothing plays at launch;
   `NowPlayingIndicator` in the Left Bar header is what advertises it.
+- **Durations outlive the queue in memory but not on disk.** A history row still
+  shows the length of a file dropped from the queue, so `closeItem` leaves the
+  entry alone; `writeQueueNow` prunes to the queued IDs instead, or every file
+  ever played would accumulate in settings.
 - **The player's height is never stored.** It is derived from the loaded file:
   chrome for audio, chrome plus `width / aspect` for video (`mediaFloatGeometry`).
   Persisting a height is what let a video sit in black bars. Width is stored per

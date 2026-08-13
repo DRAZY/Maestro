@@ -26,7 +26,7 @@ import {
 
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { Spinner } from '../ui/Spinner';
-import { formatElapsedTimeColon } from '../../../shared/formatters';
+import { formatMediaTime } from '../../utils/mediaItems';
 import { MEDIA_PLAYBACK_RATES, isMediaStreamUrl, type MediaKind } from '../../../shared/mediaTypes';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useEventListener } from '../../hooks/utils/useEventListener';
@@ -68,6 +68,12 @@ interface MediaViewerProps {
 	 */
 	onAspectChange?: (aspect: number) => void;
 	/**
+	 * How long the file is, once its metadata says. The queue and history lists
+	 * show it, and only the loaded file is ever mounted, so this is the only
+	 * chance to learn it.
+	 */
+	onDurationKnown?: (seconds: number) => void;
+	/**
 	 * Measured height of the transport strip. The floating frame is chrome plus
 	 * picture, and this half of the chrome depends on font metrics, so it is
 	 * measured here rather than assumed by the frame.
@@ -89,10 +95,6 @@ interface MediaViewerProps {
 const SKIP_SECONDS = 10;
 /** Seconds jumped by shift+arrow, for fine scrubbing. */
 const FINE_SKIP_SECONDS = 5;
-
-/** `formatElapsedTimeColon` expects whole seconds; media times are fractional. */
-const formatTime = (seconds: number): string =>
-	Number.isFinite(seconds) ? formatElapsedTimeColon(Math.floor(Math.max(0, seconds))) : '--:--';
 
 interface PlaybackRateMenuProps {
 	/** The speed button the list hangs above. */
@@ -180,6 +182,7 @@ export const MediaViewer = memo(function MediaViewer({
 	onPlayingChange,
 	onEnded,
 	onAspectChange,
+	onDurationKnown,
 	onTransportHeightChange,
 	onPrev,
 	onNext,
@@ -295,6 +298,13 @@ export const MediaViewer = memo(function MediaViewer({
 		if (!onTimeUpdate || currentTime <= 0) return;
 		onTimeUpdate(currentTime);
 	}, [currentTime, onTimeUpdate]);
+
+	// Watches state rather than firing from 'loadedmetadata': some containers
+	// only report a real length on a later 'durationchange', and a live stream
+	// never reports one at all.
+	useEffect(() => {
+		if (duration > 0) onDurationKnown?.(duration);
+	}, [duration, onDurationKnown]);
 
 	// Apply the persisted rate to the element on mount and on every change. The
 	// element resets playbackRate to 1 whenever a new source loads, so this also
@@ -613,7 +623,7 @@ export const MediaViewer = memo(function MediaViewer({
 						className="text-[11px] font-mono tabular-nums shrink-0"
 						style={{ color: theme.colors.textDim }}
 					>
-						{formatTime(currentTime)}
+						{formatMediaTime(currentTime)}
 					</span>
 					<input
 						type="range"
@@ -631,7 +641,7 @@ export const MediaViewer = memo(function MediaViewer({
 						className="text-[11px] font-mono tabular-nums shrink-0"
 						style={{ color: theme.colors.textDim }}
 					>
-						{formatTime(duration)}
+						{formatMediaTime(duration)}
 					</span>
 				</div>
 
