@@ -194,6 +194,7 @@ describe('Git IPC handlers', () => {
 				'git:worktreeInfo',
 				'git:getRepoRoot',
 				'git:worktreeSetup',
+				'git:worktreeRunSetup',
 				'git:worktreeCheckout',
 				'git:createPR',
 				'git:checkGhCli',

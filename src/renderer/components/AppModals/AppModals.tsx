@@ -22,6 +22,7 @@ import type {
 	ToolType,
 	LeaderboardRegistration,
 	ThinkingMode,
+	SessionWorktreeConfig,
 } from '../../types';
 import type { FileNode } from '../../types/fileTree';
 import type { WizardStep } from '../Wizard/WizardContext';
@@ -167,7 +168,7 @@ export interface AppModalsProps {
 
 	// --- AppWorktreeModals props ---
 	onCloseWorktreeConfigModal: () => void;
-	onSaveWorktreeConfig: (config: { basePath: string; watchEnabled: boolean }) => void;
+	onSaveWorktreeConfig: (config: SessionWorktreeConfig) => void;
 	onCreateWorktreeFromConfig: (branchName: string, basePath: string) => void;
 	onDisableWorktreeConfig: () => void;
 	createWorktreeSession: Session | null;

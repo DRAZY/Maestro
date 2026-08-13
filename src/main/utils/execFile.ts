@@ -119,7 +119,7 @@ export async function execFileNoThrow(
 
 	// If input is provided, use spawn instead of execFile to write to stdin
 	if (input !== undefined) {
-		return execFileWithInput(command, args, cwd, input, timeout);
+		return execFileWithInput(command, args, cwd, input, timeout, env);
 	}
 
 	try {
@@ -304,13 +304,15 @@ async function execFileWithInput(
 	args: string[],
 	cwd: string | undefined,
 	input: string,
-	timeout?: number
+	timeout?: number,
+	env?: NodeJS.ProcessEnv
 ): Promise<ExecResult> {
 	return new Promise((resolve) => {
 		const useShell = isWindows() && needsWindowsShell(command);
 
 		const child = spawn(command, args, {
 			cwd,
+			env,
 			shell: useShell,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
