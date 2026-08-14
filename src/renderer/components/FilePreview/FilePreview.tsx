@@ -51,6 +51,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { buildFileDeepLink } from '../../../shared/deep-link-urls';
 import { useUIStore } from '../../stores/uiStore';
 import { openUrl } from '../../utils/openUrl';
+import { openFileUrl } from '../../utils/openFileUrl';
 import { isImageFile } from '../../../shared/gitUtils';
 import { getOpenedMediaKind } from '../../utils/mediaItems';
 import type { FilePreviewProps, FilePreviewHandle, FileStats } from './types';
@@ -710,10 +711,9 @@ export const FilePreview = React.memo(
 				},
 				onFileClick: (filePath, options) => onFileClick?.(filePath, options),
 				onExternalLinkClick: (href, opts) => {
-					if (/^file:\/\//.test(href)) {
-						void window.maestro.shell.openPath(href.replace(/^file:\/\//, ''));
-						return;
-					}
+					// Playable media stays in Maestro's player rather than going to the
+					// OS default app; everything else opens externally as before.
+					if (openFileUrl(href, (path) => onFileClick?.(path))) return;
 					if (/^https?:\/\/|^mailto:/.test(href)) {
 						openUrl(href, opts);
 					}
@@ -2177,10 +2177,9 @@ export const FilePreview = React.memo(
 								filePath={file.path}
 								onFileClick={onFileClick}
 								onExternalLinkClick={(href, opts) => {
-									if (/^file:\/\//.test(href)) {
-										void window.maestro.shell.openPath(href.replace(/^file:\/\//, ''));
-										return;
-									}
+									// Playable media stays in Maestro's player rather than going
+									// to the OS default app.
+									if (openFileUrl(href, (path) => onFileClick?.(path))) return;
 									if (/^https?:\/\/|^mailto:/.test(href)) {
 										openUrl(href, opts);
 									}
