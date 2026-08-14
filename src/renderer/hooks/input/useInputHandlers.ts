@@ -246,21 +246,6 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		isAiModeRef.current = isAiMode;
 	}, [isAiMode]);
 
-	// Mirror the live AI draft into liveDraftStore so hasDraft() reflects what's
-	// on screen for the active tab (tab.inputValue only updates on blur/submit).
-	// Subscribing outside React render keeps this off the re-render path.
-	useEffect(() => {
-		activeTabIdRef.current = activeTab?.id;
-		const mirror = (aiValue: string) => {
-			const currentTabId = activeTabIdRef.current;
-			if (currentTabId) setLiveDraft(currentTabId, aiValue);
-		};
-		mirror(useComposerInputStore.getState().aiValue);
-		return useComposerInputStore.subscribe((state, prev) => {
-			if (state.aiValue !== prev.aiValue) mirror(state.aiValue);
-		});
-	}, [activeTab?.id]);
-
 	// Read the live value non-reactively (at call time) for handlers and sub-hooks
 	// so they never need a reactive `inputValue` dependency.
 	const getInputValue = useCallback(() => {
@@ -325,9 +310,33 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 	// ====================================================================
 
 	// Input sync handlers
-	const { syncAiInputToSession, syncTerminalInputToSession } = useInputSync(activeSession, {
-		setSessions,
-	});
+	const { syncAiInputToSession, queueAiDraftFlush, syncTerminalInputToSession } = useInputSync(
+		activeSession,
+		{ setSessions }
+	);
+
+	// Mirror the live AI draft out of the composer store on every keystroke:
+	//  - into liveDraftStore, so hasDraft() reflects what's on screen;
+	//  - onto the tab itself via a coalesced write-back, so the text survives
+	//    anything that skips the blur / submit / tab-switch flush points (a
+	//    quit while typing, an unmount, focus that never left the textarea).
+	// Both are attributed to the tab that was active when the text was typed,
+	// never to whatever tab is active when the write finally lands.
+	// Subscribing outside React render keeps this off the re-render path.
+	useEffect(() => {
+		activeTabIdRef.current = activeTab?.id;
+		const mirror = (aiValue: string) => {
+			const currentTabId = activeTabIdRef.current;
+			if (currentTabId) setLiveDraft(currentTabId, aiValue);
+		};
+		mirror(useComposerInputStore.getState().aiValue);
+		return useComposerInputStore.subscribe((state, prev) => {
+			if (state.aiValue === prev.aiValue && state.aiCommandMode === prev.aiCommandMode) return;
+			mirror(state.aiValue);
+			const currentTabId = activeTabIdRef.current;
+			if (currentTabId) queueAiDraftFlush(currentTabId, state.aiValue, state.aiCommandMode);
+		});
+	}, [activeTab?.id, queueAiDraftFlush]);
 
 	// Tab completion
 	const { getSuggestions: getTabCompletionSuggestions } = useTabCompletion(activeSession);
@@ -363,26 +372,24 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 			const prevTabId = prevActiveTabIdRef.current;
 
 			// Save current AI input to the PREVIOUS tab. Command mode rides along
-			// with the text - a command draft that came back as a plain message
-			// would be sent to the agent instead of the shell.
+			// with the text (syncAiInputToSession reads it from the store) - a
+			// command draft that came back as a plain message would be sent to the
+			// agent instead of the shell.
 			if (prevTabId) {
-				const { aiValue: currentAiValue, aiCommandMode: currentCommandMode } =
-					useComposerInputStore.getState();
-				setSessions((prev) =>
-					prev.map((s) => ({
-						...s,
-						aiTabs: s.aiTabs.map((tab) =>
-							tab.id === prevTabId
-								? { ...tab, inputValue: currentAiValue, commandMode: currentCommandMode }
-								: tab
-						),
-					}))
-				);
+				syncAiInputToSession(useComposerInputStore.getState().aiValue, prevTabId);
 			}
 
-			// Load new tab's persisted input value + mode
-			setAiValue(activeTab.inputValue ?? '');
-			setAiCommandMode(activeTab.commandMode === true);
+			// Load new tab's persisted input value + mode. Read it from the store
+			// rather than this render's snapshot: a coalesced draft write-back (or
+			// text injected into the tab by another surface) can land between the
+			// render and this effect, and the snapshot would show it as empty.
+			const storedTab =
+				useSessionStore
+					.getState()
+					.sessions.find((s) => s.id === activeSession?.id)
+					?.aiTabs?.find((t) => t.id === activeTab.id) ?? activeTab;
+			setAiValue(storedTab.inputValue ?? '');
+			setAiCommandMode(storedTab.commandMode === true);
 			prevActiveTabIdRef.current = activeTab.id;
 
 			// Clear hasUnread indicator on newly active tab
@@ -569,7 +576,12 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 			sessionsRef.current.find((s) => s.id === activeSessionIdRef.current)?.inputMode === 'ai';
 		const composer = useComposerInputStore.getState();
 		if (currentIsAiMode) {
-			syncAiInputToSession(composer.aiValue);
+			// Attribute the text to the tab it was typed into. Blur can fire after
+			// the active tab already moved (focus leaving asynchronously, a tab
+			// activated from outside the composer), and the unattributed write
+			// would then stamp this text onto the newly active tab - erasing that
+			// tab's own draft.
+			syncAiInputToSession(composer.aiValue, activeTabIdRef.current);
 		} else {
 			syncTerminalInputToSession(composer.terminalValue);
 		}
@@ -580,6 +592,9 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 			// Preserve draft input so replay doesn't clobber what the user was typing
 			const draftInput = useComposerInputStore.getState().aiValue;
 			const draftImages = activeTab?.stagedImages ? [...activeTab.stagedImages] : [];
+			// The restore below runs a tick later - pin it to the tab the draft
+			// came from so it can't be written onto whatever tab is active then.
+			const draftTabId = activeTabIdRef.current;
 
 			if (images && images.length > 0) {
 				setStagedImages(images);
@@ -589,7 +604,7 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 				// Restore draft input after processInput clears it
 				if (draftInput) {
 					setInputValue(draftInput);
-					syncAiInputToSession(draftInput);
+					syncAiInputToSession(draftInput, draftTabId);
 				}
 				if (draftImages.length > 0) {
 					setStagedImages(draftImages);

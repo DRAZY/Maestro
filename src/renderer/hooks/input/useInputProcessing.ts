@@ -78,8 +78,13 @@ export interface UseInputProcessingDeps {
 	customAICommands: CustomAICommand[];
 	/** Slash command menu open state setter */
 	setSlashCommandOpen: (open: boolean) => void;
-	/** Sync AI input value to session state (for persistence) */
-	syncAiInputToSession: (value: string) => void;
+	/**
+	 * Sync AI input value to session state (for persistence). Optionally pinned
+	 * to a specific tab; defaults to the active session's active tab, which is
+	 * correct for every send path here (they all run synchronously on the tab
+	 * being sent from).
+	 */
+	syncAiInputToSession: (value: string, tabId?: string) => void;
 	/** Sync terminal input value to session state (for persistence) */
 	syncTerminalInputToSession: (value: string) => void;
 	/** Whether the active session is in AI mode */
