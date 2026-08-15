@@ -394,6 +394,8 @@ export interface SettingsStoreState {
 	colorBlindMode: boolean;
 	showStarredInUnreadFilter: boolean;
 	showFilePreviewsInUnreadFilter: boolean;
+	showTerminalTabsInUnreadFilter: boolean;
+	showBrowserTabsInUnreadFilter: boolean;
 	useCmd0AsLastTab: boolean;
 	showBrowserTabDomain: boolean;
 	documentGraphShowExternalLinks: boolean;
@@ -543,6 +545,8 @@ export interface SettingsStoreActions {
 	setColorBlindMode: (value: boolean) => void;
 	setShowStarredInUnreadFilter: (value: boolean) => void;
 	setShowFilePreviewsInUnreadFilter: (value: boolean) => void;
+	setShowTerminalTabsInUnreadFilter: (value: boolean) => void;
+	setShowBrowserTabsInUnreadFilter: (value: boolean) => void;
 	setUseCmd0AsLastTab: (value: boolean) => void;
 	setShowBrowserTabDomain: (value: boolean) => void;
 	setDocumentGraphShowExternalLinks: (value: boolean) => void;
@@ -773,6 +777,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		colorBlindMode: false,
 		showStarredInUnreadFilter: false,
 		showFilePreviewsInUnreadFilter: false,
+		showTerminalTabsInUnreadFilter: false,
+		showBrowserTabsInUnreadFilter: false,
 		useCmd0AsLastTab: true,
 		showBrowserTabDomain: true,
 		documentGraphShowExternalLinks: false,
@@ -1276,6 +1282,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setShowFilePreviewsInUnreadFilter: (value) => {
 			set({ showFilePreviewsInUnreadFilter: value });
 			window.maestro.settings.set('showFilePreviewsInUnreadFilter', value);
+		},
+
+		setShowTerminalTabsInUnreadFilter: (value) => {
+			set({ showTerminalTabsInUnreadFilter: value });
+			window.maestro.settings.set('showTerminalTabsInUnreadFilter', value);
+		},
+
+		setShowBrowserTabsInUnreadFilter: (value) => {
+			set({ showBrowserTabsInUnreadFilter: value });
+			window.maestro.settings.set('showBrowserTabsInUnreadFilter', value);
 		},
 
 		setUseCmd0AsLastTab: (value) => {
@@ -2679,6 +2695,14 @@ export async function loadAllSettings(): Promise<void> {
 			patch.showFilePreviewsInUnreadFilter = allSettings[
 				'showFilePreviewsInUnreadFilter'
 			] as boolean;
+
+		if (allSettings['showTerminalTabsInUnreadFilter'] !== undefined)
+			patch.showTerminalTabsInUnreadFilter = allSettings[
+				'showTerminalTabsInUnreadFilter'
+			] as boolean;
+
+		if (allSettings['showBrowserTabsInUnreadFilter'] !== undefined)
+			patch.showBrowserTabsInUnreadFilter = allSettings['showBrowserTabsInUnreadFilter'] as boolean;
 
 		if (allSettings['useCmd0AsLastTab'] !== undefined)
 			patch.useCmd0AsLastTab = allSettings['useCmd0AsLastTab'] as boolean;

@@ -99,6 +99,10 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		setShowStarredInUnreadFilter,
 		showFilePreviewsInUnreadFilter,
 		setShowFilePreviewsInUnreadFilter,
+		showTerminalTabsInUnreadFilter,
+		setShowTerminalTabsInUnreadFilter,
+		showBrowserTabsInUnreadFilter,
+		setShowBrowserTabsInUnreadFilter,
 		useCmd0AsLastTab,
 		setUseCmd0AsLastTab,
 		showBrowserTabDomain,
@@ -1116,6 +1120,74 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 							<span
 								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
 									showFilePreviewsInUnreadFilter ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+
+					{/* Show Terminal Tabs in Unread Filter */}
+					<div
+						className="flex items-center justify-between pt-3 border-t"
+						style={{ borderColor: theme.colors.border }}
+					>
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Show terminal tabs when filtering by unread
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								When the unread filter is active, terminal tabs remain visible instead of being
+								hidden.
+							</p>
+						</div>
+						<button
+							onClick={() => setShowTerminalTabsInUnreadFilter(!showTerminalTabsInUnreadFilter)}
+							className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+							tabIndex={0}
+							style={{
+								backgroundColor: showTerminalTabsInUnreadFilter
+									? theme.colors.accent
+									: theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={showTerminalTabsInUnreadFilter}
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									showTerminalTabsInUnreadFilter ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+
+					{/* Show Browser Tabs in Unread Filter */}
+					<div
+						className="flex items-center justify-between pt-3 border-t"
+						style={{ borderColor: theme.colors.border }}
+					>
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Show browser tabs when filtering by unread
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								When the unread filter is active, browser tabs remain visible instead of being
+								hidden.
+							</p>
+						</div>
+						<button
+							onClick={() => setShowBrowserTabsInUnreadFilter(!showBrowserTabsInUnreadFilter)}
+							className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+							tabIndex={0}
+							style={{
+								backgroundColor: showBrowserTabsInUnreadFilter
+									? theme.colors.accent
+									: theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={showBrowserTabsInUnreadFilter}
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									showBrowserTabsInUnreadFilter ? 'translate-x-5' : 'translate-x-0.5'
 								}`}
 							/>
 						</button>
