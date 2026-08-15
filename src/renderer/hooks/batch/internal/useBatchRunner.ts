@@ -722,7 +722,7 @@ export function useBatchRunner({
 									type: 'info',
 									title: 'Auto Run paused for review',
 									message: hitlGate.artifact
-										? `${docEntry.filename}: ${hitlGate.reason} — review ${hitlGate.artifact}`
+										? `${docEntry.filename}: ${hitlGate.reason} - review ${hitlGate.artifact}`
 										: `${docEntry.filename}: ${hitlGate.reason}`,
 									project: session.name,
 									sessionId,
