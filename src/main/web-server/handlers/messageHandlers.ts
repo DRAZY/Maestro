@@ -17,6 +17,8 @@
  * - close_tab: Close a tab within a session
  * - rename_tab: Rename a tab within a session
  * - open_file_tab: Open a file in a preview tab
+ * - open_browser_tab: Open a URL in a browser tab (optionally in the background)
+ * - close_browser_tab: Close a browser tab by id
  * - refresh_file_tree: Refresh the file tree for a session
  * - get_file_tree: Read directory tree from filesystem for web file explorer
  * - refresh_auto_run_docs: Refresh auto-run documents for a session
@@ -199,7 +201,12 @@ export interface MessageHandlerCallbacks {
 	toggleBookmark: (sessionId: string) => Promise<boolean>;
 	openFileTab: (sessionId: string, filePath: string, switchToAgent: boolean) => Promise<boolean>;
 	refreshFileTree: (sessionId: string) => Promise<boolean>;
-	openBrowserTab: (sessionId: string, url: string) => Promise<boolean>;
+	openBrowserTab: (
+		sessionId: string,
+		url: string,
+		options?: { background?: boolean }
+	) => Promise<{ success: boolean; tabId?: string }>;
+	closeBrowserTab: (tabId: string) => Promise<boolean>;
 	openTerminalTab: (
 		sessionId: string,
 		config: { cwd?: string; shell?: string; name?: string | null }
@@ -505,6 +512,10 @@ export class WebSocketMessageHandler {
 
 			case 'open_browser_tab':
 				this.handleOpenBrowserTab(client, message);
+				break;
+
+			case 'close_browser_tab':
+				this.handleCloseBrowserTab(client, message);
 				break;
 
 			case 'open_terminal_tab':
@@ -1912,19 +1923,70 @@ export class WebSocketMessageHandler {
 			return;
 		}
 
+		// Background tabs are created without moving the user: the active agent
+		// is left alone and the new tab does not become the visible one.
+		const background = message.background === true;
+
 		this.callbacks
-			.openBrowserTab(sessionId, parsed.toString())
-			.then((success) => {
+			.openBrowserTab(sessionId, parsed.toString(), { background })
+			.then((result) => {
 				this.send(client, {
 					type: 'open_browser_tab_result',
-					success,
+					success: result.success,
 					sessionId,
 					url: parsed.toString(),
+					tabId: result.tabId,
+					background,
 					requestId: message.requestId,
 				});
 			})
 			.catch((error) => {
 				sendErrorResult(`Failed to open browser tab: ${error.message}`);
+			});
+	}
+
+	/**
+	 * Handle close_browser_tab message - close a browser tab by id. The owning
+	 * agent is resolved in the renderer, so callers only need the tab id handed
+	 * back by open_browser_tab.
+	 */
+	private handleCloseBrowserTab(client: WebClient, message: WebClientMessage): void {
+		const tabId = typeof message.tabId === 'string' ? message.tabId : '';
+		logger.info(`[Web] Received close_browser_tab message: tab=${tabId}`, LOG_CONTEXT);
+
+		const sendErrorResult = (error: string) => {
+			this.send(client, {
+				type: 'close_browser_tab_result',
+				success: false,
+				error,
+				tabId,
+				requestId: message.requestId,
+			});
+		};
+
+		if (!tabId) {
+			sendErrorResult('Missing tabId');
+			return;
+		}
+
+		if (!this.callbacks.closeBrowserTab) {
+			sendErrorResult('Browser tab closing not configured');
+			return;
+		}
+
+		this.callbacks
+			.closeBrowserTab(tabId)
+			.then((success) => {
+				this.send(client, {
+					type: 'close_browser_tab_result',
+					success,
+					error: success ? undefined : `Browser tab not found: ${tabId}`,
+					tabId,
+					requestId: message.requestId,
+				});
+			})
+			.catch((error) => {
+				sendErrorResult(`Failed to close browser tab: ${error.message}`);
 			});
 	}
 

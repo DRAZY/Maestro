@@ -48,6 +48,7 @@ vi.mock('../../../main/web-server/WebServer', () => {
 			setToggleBookmarkCallback = vi.fn();
 			setOpenFileTabCallback = vi.fn();
 			setOpenBrowserTabCallback = vi.fn();
+			setCloseBrowserTabCallback = vi.fn();
 			setOpenTerminalTabCallback = vi.fn();
 			setNewAITabWithPromptCallback = vi.fn();
 			setRefreshFileTreeCallback = vi.fn();

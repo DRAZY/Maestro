@@ -136,7 +136,7 @@ Dispatch a prompt to an agent in the Maestro desktop app and return its tab/sess
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | `--new-tab`      | Create a fresh AI tab and dispatch the prompt into it                                                                                                | -       |
 | `-t, --tab <id>` | Target an existing tab by its tab id (mutually exclusive with --new-tab)                                                                             | -       |
-| `-f, --force`    | Bypass the busy-state guard when writing to a busy tab; requires allowConcurrentSend (cannot be combined with --new-tab - a fresh tab is never busy) | -       |
+| `-f, --force`    | Bypass the busy-state guard when writing to a busy tab; requires allowConcurrentSend (cannot be combined with --new-tab — a fresh tab is never busy) | -       |
 
 ## `maestro-cli session`
 
@@ -174,10 +174,19 @@ Open a file as a preview tab in the Maestro desktop app
 
 Open a URL as a browser tab in the Maestro desktop app
 
-| Option             | Description                             | Default |
-| ------------------ | --------------------------------------- | ------- |
-| `-a, --agent <id>` | Target agent by ID (defaults to active) | -       |
-| `--json`           | Output as JSON (for scripting)          | -       |
+| Option             | Description                                                                                                   | Default |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- | ------- |
+| `-a, --agent <id>` | Target agent by ID (defaults to active)                                                                       | -       |
+| `--background`     | Create the tab without focusing it or switching agents (use for agent research, then close-browser when done) | -       |
+| `--json`           | Output as JSON (for scripting)                                                                                | -       |
+
+## `maestro-cli close-browser <tab-id>`
+
+Close a browser tab in the Maestro desktop app (owning agent resolved by tab ID)
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
 
 ## `maestro-cli open-terminal`
 
@@ -827,10 +836,10 @@ Show a toast notification (queued, click X or icon to dismiss)
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
 | `-c, --color <color>`     | green \| yellow \| orange \| red \| theme (default: theme)                                                                                                                                                                     | -       |
 | `-t, --timeout <seconds>` | Auto-dismiss after N seconds (range: (0, 60]; omitted = app default)                                                                                                                                                           | -       |
-| `--dismissible`           | Sticky toast - no auto-dismiss; user must click to close. Cannot combine with --timeout                                                                                                                                        | -       |
+| `--dismissible`           | Sticky toast — no auto-dismiss; user must click to close. Cannot combine with --timeout                                                                                                                                        | -       |
 | `-a, --agent <id>`        | Associate with an agent so clicking jumps to it                                                                                                                                                                                | -       |
 | `--source-agent <label>`  | Label shown in the toast header identifying which agent/pipeline fired it. Store-independent, so it shows even for cron/watchdog toasts. Wins over the name resolved from --agent; pair with --agent to also get click-to-jump | -       |
-| `--tab <id>`              | AI tab ID within the agent - clicking jumps to that tab (requires --agent)                                                                                                                                                     | -       |
+| `--tab <id>`              | AI tab ID within the agent — clicking jumps to that tab (requires --agent)                                                                                                                                                     | -       |
 | `--action-url <url>`      | Inline link rendered beneath the message body (opens in browser when clicked)                                                                                                                                                  | -       |
 | `--action-label <text>`   | Label for --action-url (defaults to the URL itself)                                                                                                                                                                            | -       |
 | `--open-file <path>`      | On click, switch to the agent and open this file in its File Preview pane (requires --agent; mutually exclusive with --open-url)                                                                                               | -       |
@@ -839,7 +848,7 @@ Show a toast notification (queued, click X or icon to dismiss)
 
 ## `maestro-cli notify flash <message>`
 
-Show a center-screen flash (momentary, exclusive - replaces any active flash)
+Show a center-screen flash (momentary, exclusive — replaces any active flash)
 
 | Option                    | Description                                                | Default |
 | ------------------------- | ---------------------------------------------------------- | ------- |
