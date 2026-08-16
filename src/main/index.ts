@@ -160,6 +160,7 @@ import {
 	type QuitHandler,
 } from './app-lifecycle';
 import { createTimeZoneWatcher } from './utils/timezone-watcher';
+import { noteSystemSuspend, noteSystemResume } from './utils/sleep-tracker';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
 import { setupWakaTimeListener } from './process-listeners/wakatime-listener';
@@ -1333,12 +1334,30 @@ app
 			}
 		});
 
+		// The main process is the only place that can measure a sleep gap: the
+		// renderer is frozen through the whole suspend and its Page Visibility
+		// state never changes, so a renderer-side `Date.now()` span silently
+		// counts an overnight sleep as work time.
+		powerMonitor.on('suspend', () => {
+			logger.info('System suspending', 'PowerMonitor');
+			noteSystemSuspend();
+		});
+
 		// Listen for system resume (after sleep/suspend) and notify renderer
 		// This allows the renderer to refresh settings that may have been reset
+		// and to subtract the sleep gap from Auto Run / achievement durations.
 		powerMonitor.on('resume', () => {
-			logger.info('System resumed from sleep/suspend', 'PowerMonitor');
-			if (isWebContentsAvailable(mainWindow)) {
-				mainWindow.webContents.send('app:systemResume');
+			const sleptMs = noteSystemResume();
+			logger.info(
+				`System resumed from sleep/suspend (slept ${Math.round(sleptMs / 1000)}s)`,
+				'PowerMonitor'
+			);
+			// Broadcast: every window runs its own Auto Run timers, so a secondary
+			// window must hear about the sleep too.
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (isWebContentsAvailable(win)) {
+					win.webContents.send('app:systemResume', { sleptMs });
+				}
 			}
 			// Apply any timezone change BEFORE reconciling: a laptop that flew
 			// across zones while asleep must measure the sleep gap and its missed

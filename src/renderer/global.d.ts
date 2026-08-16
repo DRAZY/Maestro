@@ -1522,7 +1522,8 @@ interface MaestroAPI {
 		confirmQuit: () => void;
 		cancelQuit: () => void;
 		quitConfirmationPending: () => void;
-		onSystemResume: (callback: () => void) => () => void;
+		/** `sleptMs` is the machine-sleep gap the main process measured for this wake. */
+		onSystemResume: (callback: (info: { sleptMs: number }) => void) => () => void;
 		onBrowserTabShortcutKey: (
 			callback: (input: {
 				key: string;
