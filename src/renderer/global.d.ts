@@ -399,11 +399,31 @@ interface MaestroAPI {
 		onRemoteOpenTerminalTab: (
 			callback: (
 				sessionId: string,
-				config: { cwd?: string; shell?: string; name?: string | null },
+				config: { cwd?: string; shell?: string; name?: string | null; command?: string },
 				responseChannel: string
 			) => void
 		) => () => void;
-		sendRemoteOpenTerminalTabResponse: (responseChannel: string, success: boolean) => void;
+		sendRemoteOpenTerminalTabResponse: (
+			responseChannel: string,
+			success: boolean,
+			tabId?: string
+		) => void;
+		onRemoteWriteTerminalTab: (
+			callback: (
+				sessionId: string,
+				payload: { tabRef?: string; data: string },
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteWriteTerminalTabResponse: (
+			responseChannel: string,
+			success: boolean,
+			result?: { error?: string; tabId?: string; tabName?: string }
+		) => void;
+		onRemoteListTerminalTabs: (
+			callback: (sessionId: string | undefined, responseChannel: string) => void
+		) => () => void;
+		sendRemoteListTerminalTabsResponse: (responseChannel: string, tabs: unknown[]) => void;
 		onRemoteNewAITabWithPrompt: (
 			callback: (sessionId: string, prompt: string, responseChannel: string) => void
 		) => () => void;

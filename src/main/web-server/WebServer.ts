@@ -71,6 +71,9 @@ import type {
 	OpenBrowserTabCallback,
 	CloseBrowserTabCallback,
 	OpenTerminalTabCallback,
+	WriteTerminalTabCallback,
+	WriteTerminalTabPayload,
+	ListTerminalTabsCallback,
 	NewAITabWithPromptCallback,
 	RefreshAutoRunDocsCallback,
 	ConfigureAutoRunCallback,
@@ -473,6 +476,14 @@ export class WebServer {
 
 	setOpenTerminalTabCallback(callback: OpenTerminalTabCallback): void {
 		this.callbackRegistry.setOpenTerminalTabCallback(callback);
+	}
+
+	setWriteTerminalTabCallback(callback: WriteTerminalTabCallback): void {
+		this.callbackRegistry.setWriteTerminalTabCallback(callback);
+	}
+
+	setListTerminalTabsCallback(callback: ListTerminalTabsCallback): void {
+		this.callbackRegistry.setListTerminalTabsCallback(callback);
 	}
 
 	setNewAITabWithPromptCallback(callback: NewAITabWithPromptCallback): void {
@@ -889,8 +900,12 @@ export class WebServer {
 			closeBrowserTab: async (tabId: string) => this.callbackRegistry.closeBrowserTab(tabId),
 			openTerminalTab: async (
 				sessionId: string,
-				config: { cwd?: string; shell?: string; name?: string | null }
+				config: { cwd?: string; shell?: string; name?: string | null; command?: string }
 			) => this.callbackRegistry.openTerminalTab(sessionId, config),
+			writeTerminalTab: async (sessionId: string, payload: WriteTerminalTabPayload) =>
+				this.callbackRegistry.writeTerminalTab(sessionId, payload),
+			listTerminalTabs: async (sessionId?: string) =>
+				this.callbackRegistry.listTerminalTabs(sessionId),
 			newAITabWithPrompt: async (sessionId: string, prompt: string) =>
 				this.callbackRegistry.newAITabWithPrompt(sessionId, prompt),
 			refreshAutoRunDocs: async (sessionId: string) =>

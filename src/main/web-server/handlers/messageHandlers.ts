@@ -80,6 +80,7 @@ import type {
 	DesktopSessionEntry,
 	SessionHistoryResult,
 	GetSessionHistoryOptions,
+	TerminalTabInfo,
 } from '../types';
 
 /** Canonical Toast / Center Flash color set (shared design language). */
@@ -209,8 +210,13 @@ export interface MessageHandlerCallbacks {
 	closeBrowserTab: (tabId: string) => Promise<boolean>;
 	openTerminalTab: (
 		sessionId: string,
-		config: { cwd?: string; shell?: string; name?: string | null }
-	) => Promise<boolean>;
+		config: { cwd?: string; shell?: string; name?: string | null; command?: string }
+	) => Promise<{ success: boolean; tabId?: string }>;
+	writeTerminalTab: (
+		sessionId: string,
+		payload: { tabRef?: string; data: string }
+	) => Promise<{ success: boolean; error?: string; tabId?: string; tabName?: string }>;
+	listTerminalTabs: (sessionId?: string) => Promise<TerminalTabInfo[]>;
 	newAITabWithPrompt: (
 		sessionId: string,
 		prompt: string
@@ -516,6 +522,14 @@ export class WebSocketMessageHandler {
 
 			case 'close_browser_tab':
 				this.handleCloseBrowserTab(client, message);
+				break;
+
+			case 'write_terminal_tab':
+				this.handleWriteTerminalTab(client, message);
+				break;
+
+			case 'list_terminal_tabs':
+				this.handleListTerminalTabs(client, message);
 				break;
 
 			case 'open_terminal_tab':
@@ -1998,14 +2012,17 @@ export class WebSocketMessageHandler {
 		const rawCwd = message.cwd;
 		const rawShell = message.shell;
 		const rawName = message.name;
-		// cwd/shell/name can leak local usernames or project names - log
-		// presence flags only.
+		const rawCommand = message.command;
+		// cwd/shell/name/command can leak local usernames, project names, or
+		// secrets in flags - log presence flags only.
 		logger.info(
 			`[Web] Received open_terminal_tab message: session=${sessionId}, cwdProvided=${
 				typeof rawCwd === 'string' && rawCwd.length > 0
 			}, shellProvided=${
 				typeof rawShell === 'string' && rawShell.length > 0
-			}, nameProvided=${rawName !== undefined}`,
+			}, nameProvided=${rawName !== undefined}, commandProvided=${
+				typeof rawCommand === 'string' && rawCommand.length > 0
+			}`,
 			LOG_CONTEXT
 		);
 
@@ -2038,9 +2055,17 @@ export class WebSocketMessageHandler {
 			sendErrorResult('Invalid name: must be a string or null');
 			return;
 		}
+		if (rawCommand !== undefined && typeof rawCommand !== 'string') {
+			sendErrorResult('Invalid command: must be a string');
+			return;
+		}
 		const cwd = typeof rawCwd === 'string' ? rawCwd : undefined;
 		const shell = typeof rawShell === 'string' ? rawShell : undefined;
 		const name = typeof rawName === 'string' ? rawName : rawName === null ? null : undefined;
+		// An all-whitespace command would spawn a terminal that runs a bare
+		// newline - treat it as "no command" rather than storing it.
+		const command =
+			typeof rawCommand === 'string' && rawCommand.trim() !== '' ? rawCommand.trim() : undefined;
 
 		const session = this.callbacks.getSessions?.().find((s) => s.id === sessionId);
 		if (!session) {
@@ -2080,11 +2105,12 @@ export class WebSocketMessageHandler {
 		}
 
 		this.callbacks
-			.openTerminalTab(sessionId, { cwd: resolvedCwd, shell, name })
-			.then((success) => {
+			.openTerminalTab(sessionId, { cwd: resolvedCwd, shell, name, command })
+			.then((result) => {
 				this.send(client, {
 					type: 'open_terminal_tab_result',
-					success,
+					success: result.success,
+					tabId: result.tabId,
 					sessionId,
 					requestId: message.requestId,
 				});
@@ -2092,6 +2118,134 @@ export class WebSocketMessageHandler {
 			.catch((error) => {
 				sendErrorResult(`Failed to open terminal tab: ${error.message}`);
 			});
+	}
+
+	/**
+	 * Handle write_terminal_tab message - type into an already-open terminal tab.
+	 *
+	 * Unlike `terminal_write`, which drives the web client's own PTY, this
+	 * targets one of the desktop's per-tab terminals. The tab is resolved in the
+	 * renderer, since terminal tabs live only in renderer state.
+	 */
+	private async handleWriteTerminalTab(
+		client: WebClient,
+		message: WebClientMessage
+	): Promise<void> {
+		const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
+		const rawTabRef = message.tabRef;
+		const rawData = message.data;
+		// Command text can carry secrets (tokens in flags, env assignments) -
+		// log length only, never the payload.
+		logger.info(
+			`[Web] Received write_terminal_tab message: session=${sessionId}, tabRefProvided=${
+				typeof rawTabRef === 'string' && rawTabRef.length > 0
+			}, dataLength=${typeof rawData === 'string' ? rawData.length : 0}`,
+			LOG_CONTEXT
+		);
+
+		const sendErrorResult = (error: string) => {
+			this.send(client, {
+				type: 'write_terminal_tab_result',
+				success: false,
+				error,
+				sessionId,
+				requestId: message.requestId,
+			});
+		};
+
+		if (!sessionId) {
+			sendErrorResult('Missing sessionId');
+			return;
+		}
+		if (typeof rawData !== 'string' || rawData === '') {
+			sendErrorResult('Invalid data: must be a non-empty string');
+			return;
+		}
+		if (rawTabRef !== undefined && typeof rawTabRef !== 'string') {
+			sendErrorResult('Invalid tabRef: must be a string');
+			return;
+		}
+
+		const session = this.callbacks.getSessions?.().find((s) => s.id === sessionId);
+		if (!session) {
+			sendErrorResult('Session not found');
+			return;
+		}
+
+		if (!this.callbacks.writeTerminalTab) {
+			sendErrorResult('Terminal writes not configured');
+			return;
+		}
+
+		try {
+			const result = await this.callbacks.writeTerminalTab(sessionId, {
+				tabRef: typeof rawTabRef === 'string' ? rawTabRef : undefined,
+				data: rawData,
+			});
+			this.send(client, {
+				type: 'write_terminal_tab_result',
+				success: result.success,
+				error: result.error,
+				tabId: result.tabId,
+				tabName: result.tabName,
+				sessionId,
+				requestId: message.requestId,
+			});
+		} catch (error) {
+			sendErrorResult(
+				`Failed to write to terminal tab: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
+
+	/**
+	 * Handle list_terminal_tabs message - enumerate open desktop terminal tabs,
+	 * optionally scoped to one agent.
+	 */
+	private async handleListTerminalTabs(
+		client: WebClient,
+		message: WebClientMessage
+	): Promise<void> {
+		const rawSessionId = message.sessionId;
+		if (rawSessionId !== undefined && typeof rawSessionId !== 'string') {
+			this.send(client, {
+				type: 'list_terminal_tabs_result',
+				success: false,
+				error: 'Invalid sessionId: must be a string',
+				requestId: message.requestId,
+			});
+			return;
+		}
+		const sessionId = typeof rawSessionId === 'string' && rawSessionId ? rawSessionId : undefined;
+
+		if (!this.callbacks.listTerminalTabs) {
+			this.send(client, {
+				type: 'list_terminal_tabs_result',
+				success: false,
+				error: 'Terminal tab listing not configured',
+				requestId: message.requestId,
+			});
+			return;
+		}
+
+		try {
+			const tabs = await this.callbacks.listTerminalTabs(sessionId);
+			this.send(client, {
+				type: 'list_terminal_tabs_result',
+				success: true,
+				tabs,
+				requestId: message.requestId,
+			});
+		} catch (error) {
+			this.send(client, {
+				type: 'list_terminal_tabs_result',
+				success: false,
+				error: `Failed to list terminal tabs: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				requestId: message.requestId,
+			});
+		}
 	}
 
 	/**
