@@ -21,6 +21,7 @@ import {
 import type { Theme, GroupChat, GroupChatState } from '../types';
 import { useClickOutside, useContextMenuPosition } from '../hooks';
 import { getStatusColor } from '../utils/theme';
+import { isGroupChatBusy, type GroupChatBusySnapshot } from '../utils/groupChatStatus';
 
 // ============================================================================
 // GroupChatContextMenu - Right-click context menu for group chat items
@@ -225,30 +226,28 @@ function GroupChatListInner({
 	const archivedCount = useMemo(() => groupChats.filter((c) => c.archived).length, [groupChats]);
 	const activeCount = groupChats.length - archivedCount;
 
-	// Determine which chats are busy (moderator thinking or any participant working).
-	// Mirrors the per-chat status logic in the render below so the unread filter
-	// matches what the user sees as a non-green status dot.
-	const isChatBusy = useCallback(
-		(chatId: string): boolean => {
-			const isActive = activeGroupChatId === chatId;
-			const chatState = isActive ? groupChatState : groupChatStates?.get(chatId) || 'idle';
-			if (chatState !== 'idle') return true;
-			const chatParticipantStates = isActive
-				? participantStates
-				: allGroupChatParticipantStates?.get(chatId);
-			if (!chatParticipantStates) return false;
-			for (const s of chatParticipantStates.values()) {
-				if (s === 'working') return true;
-			}
-			return false;
-		},
+	// Determine which chats are busy (moderator thinking or any participant
+	// working). Shared with the Left Bar wand and the agent jumper's LIVE bucket
+	// so a running chat can never light up in one place and not the others.
+	const busySnapshot = useMemo(
+		(): GroupChatBusySnapshot => ({
+			activeGroupChatId,
+			groupChatState,
+			participantStates,
+			groupChatStates,
+			allGroupChatParticipantStates,
+		}),
 		[
 			activeGroupChatId,
 			groupChatState,
-			groupChatStates,
 			participantStates,
+			groupChatStates,
 			allGroupChatParticipantStates,
 		]
+	);
+	const isChatBusy = useCallback(
+		(chatId: string): boolean => isGroupChatBusy(chatId, busySnapshot),
+		[busySnapshot]
 	);
 
 	// Filter and sort group chats: show active chats, plus archived if toggled.
@@ -403,21 +402,9 @@ function GroupChatListInner({
 							{sortedGroupChats.map((chat) => {
 								const isActive = activeGroupChatId === chat.id;
 								const isKeyboardSelected = keyboardSelectedChatId === chat.id;
-								// Determine status for this group chat
-								// For active chat, use the direct state props; for inactive chats, use the per-chat maps
-								const chatState = isActive
-									? groupChatState
-									: groupChatStates?.get(chat.id) || 'idle';
-								const isBusy = chatState !== 'idle';
-								// Check if any participant is working
-								const chatParticipantStates = isActive
-									? participantStates
-									: allGroupChatParticipantStates?.get(chat.id);
-								const hasWorkingParticipant =
-									chatParticipantStates &&
-									Array.from(chatParticipantStates.values()).some((s) => s === 'working');
-								// Show busy indicator if moderator is thinking OR any participant is working
-								const showBusy = isBusy || hasWorkingParticipant;
+								// Busy = moderator thinking OR any participant working, resolved
+								// from the active-chat props or the per-chat maps as appropriate.
+								const showBusy = isChatBusy(chat.id);
 								// Map to session state for getStatusColor compatibility
 								const effectiveState = showBusy ? 'busy' : 'idle';
 								const statusColor = getStatusColor(effectiveState, theme);

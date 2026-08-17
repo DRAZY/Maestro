@@ -54,6 +54,7 @@ import { useSessionCategories } from '../../hooks/session/useSessionCategories';
 import { useSessionFilterMode } from '../../hooks/session/useSessionFilterMode';
 import { cueService } from '../../services/cue';
 import { captureException } from '../../utils/sentry';
+import { getBusyGroupChatIds } from '../../utils/groupChatStatus';
 import { useEventListener } from '../../hooks/utils/useEventListener';
 import type { StarredItem } from '../../hooks/session/useStarredItems';
 
@@ -320,6 +321,27 @@ function SessionListInner(props: SessionListProps) {
 	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
 	const allGroupChatParticipantStates = useGroupChatStore((s) => s.allGroupChatParticipantStates);
 
+	// Shared with the group chat rows' status dots and the agent jumper's LIVE
+	// bucket, so all three agree on what "running" means.
+	const isAnyGroupChatBusy = useMemo(
+		() =>
+			getBusyGroupChatIds(groupChats, {
+				activeGroupChatId,
+				groupChatState,
+				participantStates,
+				groupChatStates,
+				allGroupChatParticipantStates,
+			}).length > 0,
+		[
+			groupChats,
+			activeGroupChatId,
+			groupChatState,
+			participantStates,
+			groupChatStates,
+			allGroupChatParticipantStates,
+		]
+	);
+
 	// Keep the keyboard-selected Left Bar row in view as navigation moves it.
 	// Rows are tagged with `data-nav-key`; we resolve the current key from the
 	// active cursor (priority: Starred/Group-Chat extra cursor, then the active
@@ -419,10 +441,15 @@ function SessionListInner(props: SessionListProps) {
 		onDeleteAllArchivedGroupChats,
 	} = props;
 
-	// Derive whether any session is busy or in auto-run (for wand sparkle animation)
+	// Derive whether any session is busy or in auto-run (for wand sparkle
+	// animation). A running group chat counts too: the room burns real agent
+	// time, and the wand is the app-wide "something is working" tell.
 	const isAnyBusy = useMemo(
-		() => sessions.some((s) => s.state === 'busy') || activeBatchSessionIds.length > 0,
-		[sessions, activeBatchSessionIds]
+		() =>
+			sessions.some((s) => s.state === 'busy') ||
+			activeBatchSessionIds.length > 0 ||
+			isAnyGroupChatBusy,
+		[sessions, activeBatchSessionIds, isAnyGroupChatBusy]
 	);
 
 	const { sessionFilter, setSessionFilter } = useSessionFilterMode();
