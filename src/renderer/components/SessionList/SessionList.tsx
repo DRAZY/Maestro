@@ -320,6 +320,7 @@ function SessionListInner(props: SessionListProps) {
 	const participantStates = useGroupChatStore((s) => s.participantStates);
 	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
 	const allGroupChatParticipantStates = useGroupChatStore((s) => s.allGroupChatParticipantStates);
+	const unreadGroupChatIds = useGroupChatStore((s) => s.unreadGroupChatIds);
 
 	// Shared with the group chat rows' status dots and the agent jumper's LIVE
 	// bucket, so all three agree on what "running" means.
@@ -474,11 +475,15 @@ function SessionListInner(props: SessionListProps) {
 	// Agent Resilience: agents stuck auto-retrying an outage count as "needs
 	// attention" and surface in the unread filter (see useSessionCategories).
 	const stuckOutageSignature = useActiveOutageSessionSignature();
+	// Drives the Bell button's dot. It must agree with what the unread filter
+	// would actually reveal, and that filter keeps unread group chats too - a
+	// dot-less bell that still un-hides a room reads as a bug.
 	const hasUnreadAgents = useMemo(
 		() =>
 			sessions.some((s) => s.aiTabs?.some((tab) => tab.hasUnread) || s.state === 'busy') ||
+			groupChats.some((c) => !c.archived && unreadGroupChatIds.has(c.id)) ||
 			stuckOutageSignature !== '',
-		[sessions, stuckOutageSignature]
+		[sessions, groupChats, unreadGroupChatIds, stuckOutageSignature]
 	);
 	const [menuOpen, setMenuOpen] = useState(false);
 
@@ -1791,6 +1796,7 @@ function SessionListInner(props: SessionListProps) {
 								groupChatStates={groupChatStates}
 								allGroupChatParticipantStates={allGroupChatParticipantStates}
 								showUnreadAgentsOnly={showUnreadAgentsOnly}
+								unreadGroupChatIds={unreadGroupChatIds}
 							/>
 						)}
 				</div>
