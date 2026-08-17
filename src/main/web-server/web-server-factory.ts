@@ -2995,6 +2995,12 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					if (s.id && s.name) sessionNameMap.set(s.id, s.name);
 				}
 
+				// Same cross-host corpus the desktop path folds in, so a CLI-driven
+				// synopsis covers work done by peer Maestro instances too.
+				const { prepareSharedHistoryForSynopsis } =
+					await import('../utils/director-notes-shared-history');
+				const cutoffTime = lookbackDays > 0 ? Date.now() - lookbackDays * 24 * 60 * 60 * 1000 : 0;
+
 				// Scope the manifest to the lookback window so the batch agent only
 				// reads files it needs (see director-notes-prompt for the rationale).
 				const { prompt, agentCount, entryCount } = await buildDirectorNotesSynopsisPrompt({
@@ -3011,6 +3017,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 						>;
 						return typeof dn.idealEndState === 'string' ? dn.idealEndState : '';
 					})(),
+					sharedHistoryFile: await prepareSharedHistoryForSynopsis(cutoffTime),
 				});
 
 				if (!prompt) {
