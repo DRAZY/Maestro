@@ -741,8 +741,8 @@ export const FilePreview = React.memo(
 				},
 				onFileClick: (filePath, options) => onFileClick?.(filePath, options),
 				onExternalLinkClick: (href, opts) => {
-					// Playable media stays in Maestro's player rather than going to the
-					// OS default app; everything else opens externally as before.
+					// A file:// target Maestro can render stays inside the app (preview
+					// tab or player); only OS-owned types go to the default app.
 					if (openFileUrl(href, (path) => onFileClick?.(path))) return;
 					if (/^https?:\/\/|^mailto:/.test(href)) {
 						openUrl(href, opts);
@@ -2238,8 +2238,8 @@ export const FilePreview = React.memo(
 								filePath={file.path}
 								onFileClick={onFileClick}
 								onExternalLinkClick={(href, opts) => {
-									// Playable media stays in Maestro's player rather than going
-									// to the OS default app.
+									// A file:// target Maestro can render stays inside the app;
+									// only OS-owned types go to the default app.
 									if (openFileUrl(href, (path) => onFileClick?.(path))) return;
 									if (/^https?:\/\/|^mailto:/.test(href)) {
 										openUrl(href, opts);
