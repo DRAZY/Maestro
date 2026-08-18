@@ -9,7 +9,10 @@ import {
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
 import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
 import { useUIStore } from '../../../renderer/stores/uiStore';
-import { useMediaPlaybackStore } from '../../../renderer/stores/mediaPlaybackStore';
+import {
+	selectShowNowPlayingIndicator,
+	useMediaPlaybackStore,
+} from '../../../renderer/stores/mediaPlaybackStore';
 import type { FileExplorerIconTheme } from '../../../renderer/utils/fileExplorerIcons/shared';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS } from '../../../renderer/constants/shortcuts';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../../../renderer/constants/themes';
@@ -1607,6 +1610,11 @@ describe('settingsStore', () => {
 				expect(state.dismissed).toBe(true);
 				expect(state.playing).toBe(false);
 				expect(state.pendingAutoplay).toBe(false);
+				// Dormant as well as hidden: a restored queue must not put media
+				// controls in the Left Bar header at launch, when the user has not
+				// played anything yet.
+				expect(state.dormant).toBe(true);
+				expect(selectShowNowPlayingIndicator(state)).toBe(false);
 				// History is per-boot by design: a fresh session must not open onto a
 				// log of last week's files.
 				expect(state.history).toEqual([]);
