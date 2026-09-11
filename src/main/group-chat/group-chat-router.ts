@@ -82,6 +82,7 @@ import {
 	setWorkflowRun,
 } from './workflow-run-registry';
 import type { GroupChatWorkflowRun } from '../../shared/group-chat-workflow-types';
+import { buildPlanContextBlock } from './workflow-prompt-context';
 
 // Import emitters from IPC handlers (will be populated after handlers are registered)
 import { groupChatEmitters } from '../ipc/handlers/groupChat';
@@ -152,6 +153,8 @@ function buildWorkflowRevisionContext(run: GroupChatWorkflowRun): string {
 
 ## Workflow Plan Revision
 The user is giving feedback on the pending plan below. Do not dispatch participants. Revise the plan in response, then emit a replacement \`maestro-plan\` block and end the turn as required by the planning instructions.
+
+${buildPlanContextBlock(run)}
 
 Current workflow plan JSON:
 \`\`\`json
