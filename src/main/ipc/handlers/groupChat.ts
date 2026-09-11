@@ -78,6 +78,8 @@ import {
 // Group chat router imports
 import {
 	routeUserMessage,
+	abortActiveWorkflowRun,
+	announceToChat,
 	clearPendingParticipants,
 	routeAgentResponse,
 	markParticipantResponded,
@@ -97,6 +99,7 @@ import type { ToolType } from '../../../shared/types';
 import type { GroupChatWorkflowRun } from '../../../shared/group-chat-workflow-types';
 import {
 	abortWorkflowRun,
+	clearWorkflowRun,
 	cleanupWorkflowRunArtifacts,
 	getWorkflowRun,
 	setWorkflowRunChangedEmitter,
@@ -387,6 +390,7 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 			await killModerator(id, processManager ?? undefined);
 			await clearAllParticipantSessions(id, processManager ?? undefined);
 			clearPendingParticipants(id);
+			await clearWorkflowRun(id);
 
 			// Delete the group chat data
 			await deleteGroupChat(id);
@@ -408,6 +412,7 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 					const processManager = getProcessManager();
 					await killModerator(id, processManager ?? undefined);
 					await clearAllParticipantSessions(id, processManager ?? undefined);
+					await clearWorkflowRun(id);
 				}
 
 				const updated = await updateGroupChat(id, { archived });
@@ -788,6 +793,7 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 		withIpcErrorLogging(handlerOpts('stopModerator'), async (id: string): Promise<void> => {
 			const processManager = getProcessManager();
 			await killModerator(id, processManager ?? undefined);
+			await abortActiveWorkflowRun(id, 'moderator-stopped');
 			logger.info(`Stopped moderator for group chat: ${id}`, LOG_CONTEXT);
 		})
 	);
@@ -802,11 +808,12 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 			// Kill moderator and all participant sessions
 			await killModerator(id, processManager ?? undefined);
 			await clearAllParticipantSessions(id, processManager ?? undefined);
+			const abortedRun = await abortActiveWorkflowRun(id, 'moderator-stopped');
 
 			// Clear pending participant tracking so next round starts clean.
 			// Without this, a subsequent user message would inherit the old pending Set
 			// and trigger synthesis prematurely when those (now-dead) processes "respond".
-			clearPendingParticipants(id);
+			if (!abortedRun) clearPendingParticipants(id);
 
 			// Load participants to emit idle states for each
 			const chat = await loadGroupChat(id);
@@ -816,13 +823,15 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 				}
 			}
 
-			// Emit idle state for the group chat
-			// D8: Stop All holds the queue. Nobody presses it expecting the room to
+			// Stop All holds the queue. Nobody presses it expecting the room to
 			// start again, and the send path auto-restarts a moderator that is not
 			// running - so without this the next queued item respawns what was just
 			// killed.
 			await pauseQueueFor(id);
-			groupChatEmitters.emitStateChange?.(id, 'idle');
+
+			// Emit idle state for the group chat when the workflow abort path did not
+			// already reconcile its lifecycle state.
+			if (!abortedRun) settleGroupChatToIdle(id);
 
 			logger.info(`Stopped all activity in group chat: ${id}`, LOG_CONTEXT);
 		})
@@ -979,6 +988,25 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 				if (removal) {
 					if (removal.removed) {
 						groupChatEmitters.emitParticipantsChanged?.(id, removal.chat.participants);
+						const run = getWorkflowRun(id);
+						if (run?.status === 'running') {
+							const affectedStages = run.plan.stages
+								.slice(run.currentStageIndex + 1)
+								.filter(
+									(stage) =>
+										stage.agents.some((agent) => mentionMatches(agent, name)) ||
+										(stage.autoRun?.participantName !== undefined &&
+											mentionMatches(stage.autoRun.participantName, name))
+								)
+								.map((stage) => stage.name);
+							if (affectedStages.length > 0) {
+								await announceToChat(
+									id,
+									removal.chat.logPath,
+									`Warning: ${name} was removed but is assigned to later workflow stages: ${affectedStages.join(', ')}. The workflow will continue so the moderator can redirect those stages.`
+								);
+							}
+						}
 					}
 					logger.info(
 						removal.removed
