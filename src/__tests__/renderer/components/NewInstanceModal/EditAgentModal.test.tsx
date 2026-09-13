@@ -210,10 +210,40 @@ describe('EditAgentModal', () => {
 
 		const input = await screen.findByDisplayValue('/home/user/project');
 		fireEvent.change(input, { target: { value: '/home/user/moved-project' } });
+
+		// Save waits for the directory to be confirmed on disk.
+		await waitFor(() => {
+			expect(window.maestro.fs.stat).toHaveBeenCalledWith('/home/user/moved-project', undefined);
+		});
+		await waitFor(() => {
+			expect(screen.getByText('Save Changes').closest('button')).not.toBeDisabled();
+		});
 		fireEvent.click(screen.getByText('Save Changes'));
 
 		expect(onSave).toHaveBeenCalledTimes(1);
 		expect(onSave.mock.calls[0][17]).toBe('/home/user/moved-project');
+	});
+
+	it('should refuse a local working directory that does not exist', async () => {
+		vi.mocked(window.maestro.fs.stat).mockResolvedValue(null);
+
+		render(
+			<EditAgentModal
+				isOpen={true}
+				onClose={onClose}
+				onSave={onSave}
+				theme={theme}
+				session={createSession({ projectRoot: '/home/user/project' })}
+				existingSessions={[]}
+			/>
+		);
+
+		const input = await screen.findByDisplayValue('/home/user/project');
+		fireEvent.change(input, { target: { value: '/home/user/projectt' } });
+
+		expect(await screen.findByText('Path not found or not accessible')).toBeInTheDocument();
+		fireEvent.click(screen.getByText('Save Changes'));
+		expect(onSave).not.toHaveBeenCalled();
 	});
 
 	it('should fill the working directory from the folder picker', async () => {
