@@ -40,6 +40,21 @@ The group chat system enables multi-agent collaboration through a hub-and-spoke 
 9. When all pending participants have responded, a moderator synthesis round is spawned
 10. The moderator reviews all responses and either delegates again or returns to the user
 
+**The routing protocol is injected at runtime.** A participant process starts only
+when the moderator response contains a literal `@AgentName` that resolves to that
+participant. `MODERATOR_ROUTING_PROTOCOL` in `group-chat-router.ts` states this
+contract in both initial and synthesis prompts. Keep it in the runtime prompt
+builder rather than only in `group-chat-moderator-system.md`: bundled moderator
+prompts are customizable, and an older customization must not silently lose a
+functional routing requirement after an app update. Natural-language claims such
+as "the agents were assigned" do not route work and must never be presented as a
+successful handoff without the corresponding mentions. When a user turn explicitly
+mentions participants, the router tracks the complete expected handoff. A response
+that omits any addressed participant is withheld and retried once with a routing
+correction. If the retry still lacks any required executable mention, the response
+is rejected and the chat receives an explicit system error instead of a false or
+partial handoff.
+
 ## Data Model
 
 ### GroupChat
