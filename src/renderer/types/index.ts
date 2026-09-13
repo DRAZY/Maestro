@@ -1238,7 +1238,7 @@ export interface Session {
 	state: SessionState;
 	cwd: string;
 	fullPath: string;
-	projectRoot: string; // The initial working directory (never changes, used for Claude session storage)
+	projectRoot: string; // The agent's working directory root (used for provider session storage). Moves only through withWorkingDirectory()
 	// Extra directories the agent may read from and/or write to beyond its
 	// working directory. Prompt-level grants: rendered into the Maestro system
 	// prompt as {{ADDITIONAL_DIRECTORIES}}, not enforced by a sandbox.

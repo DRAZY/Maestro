@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Info, Copy, Check, X } from 'lucide-react';
+import { Info, Copy, Check, X, Folder } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { AgentResilienceSection } from './AgentResilienceSection';
 import { resilienceEnabled } from '../../../shared/agentConstants';
@@ -30,17 +30,14 @@ import { RemotePathStatus } from './RemotePathStatus';
 import type { EditAgentModalProps } from './types';
 import { SUPPORTED_AGENTS, NEW_SESSION_MESSAGE_MAX_LENGTH } from './types';
 import { logger } from '../../utils/logger';
+import { isAbsolutePath } from '../../../shared/formatters';
+import { isSameDirectory, workingDirectoryChangeBlocker } from '../../utils/agentWorkingDirectory';
 
 /**
  * EditAgentModal - Modal for editing an existing agent's settings
  *
- * Allows editing:
- * - Agent name
- * - Nudge message
- *
- * Does NOT allow editing:
- * - Agent provider (toolType)
- * - Working directory (projectRoot)
+ * Allows editing the agent's name, provider, working directory (refused while
+ * the agent is running), messages, provider settings, and SSH configuration.
  */
 export function EditAgentModal({
 	isOpen,
@@ -51,6 +48,7 @@ export function EditAgentModal({
 	existingSessions,
 }: EditAgentModalProps) {
 	const [instanceName, setInstanceName] = useState('');
+	const [workingDir, setWorkingDir] = useState('');
 	const [nudgeMessage, setNudgeMessage] = useState('');
 	const [newSessionMessage, setNewSessionMessage] = useState('');
 	const [additionalDirectories, setAdditionalDirectories] = useState<AdditionalDirectory[]>([]);
@@ -328,6 +326,7 @@ export function EditAgentModal({
 	useEffect(() => {
 		if (isOpen && session) {
 			setInstanceName(session.name);
+			setWorkingDir(session.projectRoot);
 			setNudgeMessage(session.nudgeMessage || '');
 			setNewSessionMessage(session.newSessionMessage || '');
 			// Clone the grants so editing a row doesn't mutate the persisted array
@@ -361,13 +360,46 @@ export function EditAgentModal({
 		return remote?.host;
 	}, [isSshEnabled, sshRemoteConfig?.remoteId, sshRemotes]);
 
+	const trimmedWorkingDir = workingDir.trim();
+	// Compared as directories, so a trailing slash is not a move.
+	const workingDirChanged =
+		!!session &&
+		trimmedWorkingDir !== '' &&
+		!isSameDirectory(trimmedWorkingDir, session.projectRoot);
+	const workingDirBlocker = session ? workingDirectoryChangeBlocker(session) : null;
+	const workingDirError = useMemo(() => {
+		if (!session) return undefined;
+		if (!trimmedWorkingDir) return 'Working directory is required';
+		// A remote path may start with `~`, which only the remote shell can expand.
+		if (workingDirChanged && !isSshEnabled && !isAbsolutePath(trimmedWorkingDir)) {
+			return 'Enter an absolute path';
+		}
+		return undefined;
+	}, [session, trimmedWorkingDir, workingDirChanged, isSshEnabled]);
+
 	// Validate remote path when SSH is enabled (debounced)
-	// Prefer workingDirOverride (user-specified remote path) over session.projectRoot
+	// Prefer a newly entered directory, then workingDirOverride (user-specified
+	// remote path), then session.projectRoot
 	const remotePathValidation = useRemotePathValidation({
 		isSshEnabled: !!isSshEnabled,
-		path: sshRemoteConfig?.workingDirOverride ?? session?.projectRoot ?? '',
+		path: workingDirChanged
+			? trimmedWorkingDir
+			: (sshRemoteConfig?.workingDirOverride ?? session?.projectRoot ?? ''),
 		sshRemoteId: sshRemoteConfig?.remoteId,
 	});
+	// A new remote directory must be confirmed to exist before it is saved: the
+	// SSH spawn cwd comes from it, and a typo would strand every later launch.
+	// The existing path is not gated, so an agent whose remote is offline can
+	// still have its other settings edited.
+	const remoteWorkingDirInvalid =
+		!!isSshEnabled &&
+		workingDirChanged &&
+		(remotePathValidation.checking || !remotePathValidation.isDirectory);
+
+	const handleSelectFolder = useCallback(async () => {
+		const folder = await window.maestro.dialog.selectFolder();
+		if (folder) setWorkingDir(folder);
+	}, []);
 
 	/** Live store entry for this agent; see the snapshot note in the memo below. */
 	const liveSession = useSessionStore(selectSessionById(session?.id ?? ''));
@@ -427,7 +459,7 @@ export function EditAgentModal({
 
 		// Validate before saving
 		const result = validateEditSession(name, session.id, existingSessions);
-		if (!result.valid) return;
+		if (!result.valid || workingDirError || remoteWorkingDirInvalid) return;
 
 		// Get model, contextWindow and effort from agentConfig (updated via onConfigChange).
 		// Pass empty string to explicitly clear (distinguishes from undefined = never set)
@@ -460,10 +492,12 @@ export function EditAgentModal({
 				? {
 						enabled: true,
 						remoteId: sshRemoteConfig.remoteId,
-						// Ensure workingDirOverride is set: prefer explicit override, then session's
-						// projectRoot (which is the remote path the user originally configured).
-						workingDirOverride:
-							sshRemoteConfig.workingDirOverride || session?.projectRoot || undefined,
+						// Ensure workingDirOverride is set: a newly entered directory wins, then
+						// the explicit override, then session's projectRoot (which is the remote
+						// path the user originally configured).
+						workingDirOverride: workingDirChanged
+							? trimmedWorkingDir
+							: sshRemoteConfig.workingDirOverride || session?.projectRoot || undefined,
 						syncHistory: sshRemoteConfig.syncHistory,
 						shareHistoryToProjectDir: sshRemoteConfig.shareHistoryToProjectDir,
 					}
@@ -496,12 +530,17 @@ export function EditAgentModal({
 			retryOnTokenExhaustion,
 			normalizeAdditionalDirectories(additionalDirectories, homeDir),
 			contextWindowSource,
-			Object.keys(customEnvVarsDisabled).length > 0 ? customEnvVarsDisabled : undefined
+			Object.keys(customEnvVarsDisabled).length > 0 ? customEnvVarsDisabled : undefined,
+			workingDirChanged ? trimmedWorkingDir : undefined
 		);
 		onClose();
 	}, [
 		session,
 		instanceName,
+		workingDirChanged,
+		trimmedWorkingDir,
+		workingDirError,
+		remoteWorkingDirInvalid,
 		nudgeMessage,
 		newSessionMessage,
 		additionalDirectories,
@@ -555,10 +594,13 @@ export function EditAgentModal({
 
 	// Check if form is valid for submission
 	const isFormValid = useMemo(() => {
-		// Remote path validation is informational only - don't block save
-		// Users may want to configure SSH remote before the path exists
-		return !!instanceName.trim() && validation.valid;
-	}, [instanceName, validation.valid]);
+		// Remote path validation only blocks a NEW directory (remoteWorkingDirInvalid).
+		// The existing path stays informational so an agent whose remote is offline
+		// can still be edited.
+		return (
+			!!instanceName.trim() && validation.valid && !workingDirError && !remoteWorkingDirInvalid
+		);
+	}, [instanceName, validation.valid, workingDirError, remoteWorkingDirInvalid]);
 
 	// Handle keyboard shortcuts via window listener (Modal stops propagation on its backdrop)
 	useEffect(() => {
@@ -694,28 +736,47 @@ export function EditAgentModal({
 					onChangeTokenExhaustion={setRetryOnTokenExhaustion}
 				/>
 
-				{/* Working Directory (read-only) */}
+				{/* Working Directory */}
 				<div>
-					<div
-						className="block text-xs font-bold opacity-70 uppercase mb-2"
-						style={{ color: theme.colors.textMain }}
-					>
-						Working Directory
-					</div>
-					<div
-						className="p-2 rounded border font-mono text-sm overflow-hidden text-ellipsis"
-						style={{
-							borderColor: theme.colors.border,
-							color: theme.colors.textDim,
-							backgroundColor: theme.colors.bgActivity,
-						}}
-						title={session.projectRoot}
-					>
-						{session.projectRoot}
-					</div>
-					<p className="mt-1 text-xs" style={{ color: theme.colors.textDim }}>
-						Directory cannot be changed. Create a new agent for a different directory.
-					</p>
+					<FormInput
+						id="edit-agent-working-dir-input"
+						theme={theme}
+						label="Working Directory"
+						value={workingDir}
+						onChange={setWorkingDir}
+						placeholder={
+							isSshEnabled
+								? `Enter remote path${sshRemoteHost ? ` on ${sshRemoteHost}` : ''} (e.g., /home/user/project)`
+								: 'Select directory...'
+						}
+						error={workingDirError}
+						helperText={
+							workingDirBlocker ??
+							(workingDirChanged
+								? 'On save, the Files panel, Auto Run folder, and git follow the new directory. Conversations the provider stored under the old path may not resume.'
+								: undefined)
+						}
+						disabled={!!workingDirBlocker}
+						monospace
+						heightClass="p-2"
+						addon={
+							<button
+								type="button"
+								onClick={handleSelectFolder}
+								disabled={isSshEnabled || !!workingDirBlocker}
+								className={`p-2 rounded border transition-colors ${isSshEnabled || workingDirBlocker ? 'opacity-40 cursor-not-allowed' : 'row-hover'}`}
+								style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+								title={
+									isSshEnabled
+										? `Folder picker unavailable for SSH remote${sshRemoteHost ? ` (${sshRemoteHost})` : ''}. Enter the remote path manually.`
+										: 'Browse folders'
+								}
+								aria-label="Browse folders"
+							>
+								<Folder className="w-5 h-5" />
+							</button>
+						}
+					/>
 					{/* Remote path validation status (only shown when SSH is enabled) */}
 					{isSshEnabled && (
 						<RemotePathStatus

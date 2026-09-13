@@ -92,7 +92,9 @@ export interface EditAgentModalProps {
 		/** Provenance of `customContextWindow` (finding AD1). */
 		contextWindowSource?: 'user-edited',
 		/** Env vars parked with the eye button: kept, but never handed to a spawn. */
-		customEnvVarsDisabled?: Record<string, string>
+		customEnvVarsDisabled?: Record<string, string>,
+		/** New working directory; `undefined` when the user left it unchanged. */
+		workingDirectory?: string
 	) => void;
 	theme: Theme;
 	session: Session | null;

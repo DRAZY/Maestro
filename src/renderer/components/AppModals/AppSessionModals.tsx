@@ -85,7 +85,8 @@ export interface AppSessionModalsProps {
 		/** Provenance of `customContextWindow` (finding AD1). */
 		contextWindowSource?: 'user-edited',
 		/** Env vars parked with the eye button: kept, but never handed to a spawn. */
-		customEnvVarsDisabled?: Record<string, string>
+		customEnvVarsDisabled?: Record<string, string>,
+		workingDirectory?: string
 	) => void;
 	editAgentSession: Session | null;
 
