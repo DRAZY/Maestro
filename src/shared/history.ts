@@ -90,6 +90,27 @@ export const MAX_ENTRIES_PER_SESSION = 5000;
 export const ORPHANED_SESSION_ID = '_orphaned';
 
 /**
+ * Resolve the per-session entry cap from a raw `maxLogBuffer` setting value.
+ *
+ * Every writer (main process, Cue, CLI) MUST run the setting through this so a
+ * single writer can't quietly trim a file the others are allowed to grow: the
+ * trim is destructive, so the smallest cap in play wins on disk. A busy Auto
+ * Run agent hit exactly this - its Cue writes used the 5,000 fallback and
+ * truncated a history the user had raised to 25,000, leaving only the last
+ * few days visible.
+ *
+ * @param value - Raw setting value (may be undefined, a string, or garbage)
+ * @returns A positive integer cap, or MAX_ENTRIES_PER_SESSION when unusable
+ */
+export function resolveHistoryEntryLimit(value: unknown): number {
+	const parsed = typeof value === 'string' ? Number(value) : value;
+	if (typeof parsed !== 'number' || !Number.isFinite(parsed) || parsed < 1) {
+		return MAX_ENTRIES_PER_SESSION;
+	}
+	return Math.floor(parsed);
+}
+
+/**
  * Single bucket of the activity graph: counts of each entry type within the
  * bucket's time slice. This is the freshly-computed shape - `agent` is
  * always populated by every producer (director-notes handlers, the history

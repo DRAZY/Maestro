@@ -108,6 +108,7 @@ import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';
 import { getHistoryManager } from './history-manager';
 import { initDispatchCallbacks } from './dispatch-callbacks';
+import { MAX_ENTRIES_PER_SESSION } from '../shared/history';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -2725,6 +2726,11 @@ app
 		// Initialize history manager (handles migration from legacy format if needed)
 		logger.info('Initializing history manager', 'Startup');
 		const historyManager = getHistoryManager();
+		// Before initialize(): every writer - including the fire-and-forget Cue
+		// paths below, which pass no explicit cap - must trim to the user's
+		// maxLogBuffer. A writer using the lower built-in fallback silently
+		// truncates history the user raised the cap to keep.
+		historyManager.setMaxEntriesResolver(() => store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION));
 		try {
 			await historyManager.initialize();
 			logger.info('History manager initialized', 'Startup');
