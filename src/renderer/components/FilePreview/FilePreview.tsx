@@ -326,6 +326,24 @@ export const FilePreview = React.memo(
 			return () => clearInterval(interval);
 		}, [file?.path, lastModified, sshRemoteId, fileChangedOnDisk, fileMissingOnDisk]);
 
+		// Adopt the mtime of a write we just made, so the poller above does not
+		// report our own save as an external change in the window before the tab
+		// store comes back with the new timestamp. Best effort: a failed stat only
+		// means the banner may flash.
+		const adoptOwnWriteMtime = useCallback(
+			async (path: string) => {
+				try {
+					const stat = await window.maestro?.fs?.stat(path, sshRemoteId);
+					if (stat?.modifiedAt) {
+						lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
+					}
+				} catch {
+					// Non-critical - worst case the change banner appears briefly.
+				}
+			},
+			[sshRemoteId]
+		);
+
 		// Handle reload click
 		const handleReloadFile = useCallback(() => {
 			setFileChangedOnDisk(false);
@@ -882,14 +900,7 @@ export const FilePreview = React.memo(
 						return false;
 					}
 					// Keep the file-change poller from flagging our own write.
-					try {
-						const stat = await window.maestro?.fs?.stat(file.path, sshRemoteId);
-						if (stat?.modifiedAt) {
-							lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
-						}
-					} catch {
-						// Non-critical - worst case the banner appears briefly
-					}
+					await adoptOwnWriteMtime(file.path);
 					return true;
 				} catch (err) {
 					revert();
@@ -902,7 +913,7 @@ export const FilePreview = React.memo(
 					return false;
 				}
 			},
-			[file, onSave, hasChanges, sshRemoteId]
+			[file, onSave, hasChanges, adoptOwnWriteMtime]
 		);
 
 		// Pinned to one identity before it reaches the component map below. The
@@ -1214,15 +1225,8 @@ export const FilePreview = React.memo(
 			try {
 				const result = await onSave(file.path, editContent);
 				if (result === false) return; // User cancelled save dialog
-				// Update lastModifiedRef so the file-change poller doesn't flag our own save
-				try {
-					const stat = await window.maestro?.fs?.stat(file.path, sshRemoteId);
-					if (stat?.modifiedAt) {
-						lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
-					}
-				} catch {
-					// Non-critical - worst case the banner appears briefly
-				}
+				// Keep the file-change poller from flagging our own write.
+				await adoptOwnWriteMtime(file.path);
 				notifyCenterFlash({ message: 'File Saved', color: 'theme' });
 			} catch (err) {
 				logger.error('Failed to save file:', undefined, err);
@@ -1234,7 +1238,7 @@ export const FilePreview = React.memo(
 			} finally {
 				setIsSaving(false);
 			}
-		}, [file, onSave, hasChanges, isSaving, editContent, sshRemoteId]);
+		}, [file, onSave, hasChanges, isSaving, editContent, adoptOwnWriteMtime]);
 
 		// Open the previewed image in the annotator. The annotator hands back a
 		// composited data URL via onSave; we stash it and let the user pick a save
@@ -1296,15 +1300,9 @@ export const FilePreview = React.memo(
 				setImageSaveBusy(true);
 				try {
 					await window.maestro.fs.writeImageFile(targetPath, imageSaveData, sshRemoteId);
-					// Keep our own write from tripping the file-change poller.
-					try {
-						const stat = await window.maestro?.fs?.stat(targetPath, sshRemoteId);
-						if (stat?.modifiedAt && reloadAfter) {
-							lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
-						}
-					} catch {
-						// Non-critical - worst case the change banner flashes briefly.
-					}
+					// Keep our own write from tripping the file-change poller. Only an
+					// overwrite matters: saving to a new file leaves this tab's file alone.
+					if (reloadAfter) await adoptOwnWriteMtime(targetPath);
 					setImageSaveData(null);
 					notifyCenterFlash({ message: flashMessage, color: 'theme' });
 					// Overwrite changes the file we're viewing - refresh so the preview
@@ -1321,7 +1319,7 @@ export const FilePreview = React.memo(
 					setImageSaveBusy(false);
 				}
 			},
-			[imageSaveData, sshRemoteId, onReloadFile]
+			[imageSaveData, sshRemoteId, onReloadFile, adoptOwnWriteMtime]
 		);
 
 		const handleOverwriteImage = useCallback(() => {

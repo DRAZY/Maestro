@@ -62,11 +62,20 @@ const quota = () => err({ type: 'rate_limited', message: 'Usage limit reached' }
 
 /** Put a single resilience-enabled session (with one AI tab) into the store. */
 function setupSession(id: string, tabId: string, overrides = {}) {
-	const tab = createMockAITab({ id: tabId });
+	setupTabs(id, [tabId], overrides);
+}
+
+/**
+ * An agent with several tabs. A replay dispatches onto the item's OWN tab, so a
+ * multi-tab case has to exist in the store: a snapshot naming a tab the agent
+ * does not have is not replayable, and the store now says so instead of spawning
+ * into nothing.
+ */
+function setupTabs(id: string, tabIds: string[], overrides = {}) {
 	const session = createMockSession({
 		id,
-		aiTabs: [tab],
-		activeTabId: tabId,
+		aiTabs: tabIds.map((tabId) => createMockAITab({ id: tabId })),
+		activeTabId: tabIds[0],
 		...overrides,
 	});
 	useSessionStore.setState({ sessions: [session] } as any);
@@ -717,7 +726,7 @@ describe('replayAfterAuth', () => {
 	});
 
 	it('replays every failed tab of a multi-tab agent', () => {
-		setupSession('sess-1', 'tab-1');
+		setupTabs('sess-1', ['tab-1', 'tab-2']);
 		seedSnapshot('sess-1', 'tab-1');
 		noteDispatch(
 			'sess-1',
@@ -770,6 +779,12 @@ describe('replayAfterAuth', () => {
 		expect(processQueuedItem).toHaveBeenCalledTimes(1);
 	});
 
+	// A `resend` outage parks the failed turn back in the execution queue
+	// (holdFailedItemInQueue), so by the time the login lands the work is already
+	// accounted for. The replay must then cancel the timer and NOT dispatch: the
+	// queue owns that item and drains it on the tab's next idle render, and a
+	// direct replay on top of it would send one ask twice - which is exactly what
+	// applyReplayDispatch's `already-queued` refusal exists to prevent.
 	it('supersedes a pending auto-retry on the same tab', () => {
 		setupSession('sess-1', 'tab-1');
 		seedSnapshot('sess-1', 'tab-1');
@@ -781,11 +796,16 @@ describe('replayAfterAuth', () => {
 		// We are dispatching that work right now; the timer must not fire it again.
 		expect(getRetryEntry('sess-1', 'tab-1')).toBeUndefined();
 		vi.runAllTimers();
-		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+		expect(processQueuedItem).not.toHaveBeenCalled();
+		// Still there, exactly once, and runnable - so it is dispatched, not lost.
+		const queue =
+			useSessionStore.getState().sessions.find((s) => s.id === 'sess-1')?.executionQueue ?? [];
+		expect(queue.filter((i) => i.tabId === 'tab-1')).toHaveLength(1);
+		expect(queue[0].paused).toBeFalsy();
 	});
 
 	it('keeps replaying after a dispatch throws', () => {
-		setupSession('sess-1', 'tab-1');
+		setupTabs('sess-1', ['tab-1', 'tab-2']);
 		seedSnapshot('sess-1', 'tab-1');
 		noteDispatch(
 			'sess-1',
@@ -796,6 +816,105 @@ describe('replayAfterAuth', () => {
 
 		expect(() => replayAfterAuth('sess-1', ['tab-1', 'tab-2'])).not.toThrow();
 		expect(processQueuedItem).toHaveBeenCalledTimes(2);
+	});
+
+	// The bug this path exists to fix: a replayed turn used to spawn a real
+	// process while its tab still read idle, so nothing pulsed, nothing counted,
+	// and nothing appeared in the transcript. The user concluded the resume had
+	// done nothing and re-sent by hand - which queued behind the invisible turn
+	// and then ran the same prompt a second time.
+	it('marks the tab and the agent busy before dispatching', () => {
+		setupSession('sess-busy', 'tab-1');
+		seedSnapshot('sess-busy', 'tab-1');
+
+		replayAfterAuth('sess-busy', ['tab-1']);
+
+		const session = useSessionStore.getState().sessions.find((s) => s.id === 'sess-busy')!;
+		expect(session.state).toBe('busy');
+		expect(session.busySource).toBe('ai');
+		expect(session.thinkingStartTime).toBe(NOW);
+		const tab = session.aiTabs.find((t) => t.id === 'tab-1')!;
+		expect(tab.state).toBe('busy');
+		expect(tab.thinkingStartTime).toBe(NOW);
+	});
+
+	it('says in the transcript that the turn was re-sent', () => {
+		setupSession('sess-note', 'tab-1');
+		seedSnapshot('sess-note', 'tab-1');
+
+		replayAfterAuth('sess-note', ['tab-1']);
+
+		const tab = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === 'sess-note')!
+			.aiTabs.find((t) => t.id === 'tab-1')!;
+		const last = tab.logs[tab.logs.length - 1];
+		expect(last.source).toBe('system');
+		expect(last.text).toContain('Re-sent after re-authentication');
+		// NOT a second copy of the user's message: the original send already wrote
+		// one before the turn died.
+		expect(tab.logs.filter((l) => l.source === 'user' && l.text === 'hi')).toHaveLength(0);
+	});
+
+	it('settles the tab when the dispatch throws, so nothing blinks forever', async () => {
+		setupSession('sess-throw', 'tab-1');
+		seedSnapshot('sess-throw', 'tab-1');
+		processQueuedItem.mockRejectedValueOnce(new Error('spawn failed'));
+
+		replayAfterAuth('sess-throw', ['tab-1']);
+		await vi.runAllTimersAsync();
+
+		const session = useSessionStore.getState().sessions.find((s) => s.id === 'sess-throw')!;
+		expect(session.aiTabs.find((t) => t.id === 'tab-1')!.state).toBe('idle');
+		expect(session.state).toBe('idle');
+	});
+
+	// A second spawn on one tab key makes the main process KILL the live one, so
+	// a replay must never race a turn that is already running there.
+	it('does not replay onto a tab that is already mid-turn', () => {
+		setupSession('sess-live', 'tab-1');
+		seedSnapshot('sess-live', 'tab-1');
+		useSessionStore.setState({
+			sessions: useSessionStore
+				.getState()
+				.sessions.map((s) =>
+					s.id === 'sess-live'
+						? { ...s, aiTabs: s.aiTabs.map((t) => ({ ...t, state: 'busy' as const })) }
+						: s
+				),
+		} as any);
+
+		replayAfterAuth('sess-live', ['tab-1']);
+
+		expect(processQueuedItem).not.toHaveBeenCalled();
+	});
+
+	// Both copies exist because the failed turn was invisible: the user re-sent
+	// by hand while the resume still held the snapshot. Running both spends two
+	// turns on one question and lands two sets of edits.
+	it('skips the replay when the user already re-sent the same prompt', () => {
+		setupSession('sess-dup', 'tab-1');
+		seedSnapshot('sess-dup', 'tab-1');
+		useSessionStore.setState({
+			sessions: useSessionStore.getState().sessions.map((s) =>
+				s.id === 'sess-dup'
+					? {
+							...s,
+							executionQueue: [
+								{ id: 'user-copy', timestamp: 5, tabId: 'tab-1', type: 'message', text: 'hi' },
+							],
+						}
+					: s
+			),
+		} as any);
+
+		replayAfterAuth('sess-dup', ['tab-1']);
+
+		expect(processQueuedItem).not.toHaveBeenCalled();
+		// The user's own copy is untouched - it drains through the normal queue.
+		const session = useSessionStore.getState().sessions.find((s) => s.id === 'sess-dup')!;
+		expect(session.executionQueue).toHaveLength(1);
+		expect(session.state).not.toBe('busy');
 	});
 });
 
