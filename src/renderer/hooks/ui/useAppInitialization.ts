@@ -77,6 +77,7 @@ export function useAppInitialization(): AppInitializationReturn {
 	const themePromptSeen = useSettingsStore((s) => s.themePromptSeen);
 	const updatesPromptSeen = useSettingsStore((s) => s.updatesPromptSeen);
 	const agentPowersPromptSeen = useSettingsStore((s) => s.agentPowersPromptSeen);
+	const hasPriorInstallation = useSettingsStore((s) => s.hasPriorInstallation);
 	const activeThemeId = useSettingsStore((s) => s.activeThemeId);
 	// "Does this user already have agents" is the only signal that separates a
 	// fresh install from one that predates these steps, and it needs no new
@@ -176,8 +177,12 @@ export function useAppInitialization(): AppInitializationReturn {
 	// modals change their own copy.
 	//
 	// Gated on sessionsLoaded because "does this user already have agents" is
-	// what tells a new user from a returning one. There is no second-window
-	// context on this branch, so the series always starts in this process.
+	// the primary signal for a new user vs a returning one. It is not the only
+	// one: a returning user who has deleted every agent also has zero sessions,
+	// so `hasPriorInstallation` (true once this install has ever booted before,
+	// regardless of current agent count) also counts as returning. There is no
+	// second-window context on this branch, so the series always starts in this
+	// process.
 	const onboardingSeriesStartedRef = useRef(false);
 	useEffect(() => {
 		exposeOnboardingSeriesDebug();
@@ -187,7 +192,7 @@ export function useAppInitialization(): AppInitializationReturn {
 		onboardingSeriesStartedRef.current = true;
 
 		startOnboardingSeries({
-			audience: hasAnySession ? 'returning' : 'new',
+			audience: hasAnySession || hasPriorInstallation ? 'returning' : 'new',
 			seen: {
 				typography: typographyPromptSeen,
 				theme: themePromptSeen,
@@ -200,6 +205,7 @@ export function useAppInitialization(): AppInitializationReturn {
 		settingsLoaded,
 		sessionsLoaded,
 		hasAnySession,
+		hasPriorInstallation,
 		typographyPromptSeen,
 		themePromptSeen,
 		updatesPromptSeen,

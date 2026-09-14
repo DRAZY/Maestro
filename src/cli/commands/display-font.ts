@@ -16,6 +16,7 @@ import {
 	clampSurfaceFontSize,
 	resolveSurfaceFontSize,
 	resolveInheritRoot,
+	resolveInheritedFont,
 	resolveTypographySurface,
 	canInherit,
 	inheritValueForRoot,
@@ -23,6 +24,7 @@ import {
 	SURFACE_FONT_SIZE_MAX,
 	SURFACE_FONT_SIZE_MIN,
 } from '../../shared/typography';
+import { resolveSurfaceFont, withMonoFallback } from '../../shared/fontStack';
 import {
 	TYPOGRAPHY_PRESETS,
 	TYPOGRAPHY_PRESET_IDS,
@@ -43,6 +45,7 @@ function readFonts(): TypographyPresetFonts {
 		chatFontFamily: String(readSettingValue('chatFontFamily') ?? ''),
 		terminalFontFamily: String(readSettingValue('terminalFontFamily') ?? ''),
 		filePreviewFontFamily: String(readSettingValue('filePreviewFontFamily') ?? ''),
+		documentGraphFontFamily: String(readSettingValue('documentGraphFontFamily') ?? ''),
 		fileEditorFontFamily: String(readSettingValue('fileEditorFontFamily') ?? ''),
 	};
 }
@@ -53,6 +56,7 @@ function readSizes(): TypographyPresetSizes {
 		chatFontSize: Number(readSettingValue('chatFontSize') ?? 0),
 		terminalFontSize: Number(readSettingValue('terminalFontSize') ?? 0),
 		filePreviewFontSize: Number(readSettingValue('filePreviewFontSize') ?? 0),
+		documentGraphFontSize: Number(readSettingValue('documentGraphFontSize') ?? 0),
 		fileEditorFontSize: Number(readSettingValue('fileEditorFontSize') ?? 0),
 	};
 }
@@ -69,16 +73,28 @@ export function displayFontList(options: DisplayFontOptions): void {
 		const rows = TYPOGRAPHY_SURFACE_LIST.map((spec) => {
 			const rawFont = (fonts as unknown as Record<string, string>)[spec.fontKey] ?? '';
 			const rawSize = Number((sizes as unknown as Record<string, number>)[spec.sizeKey] ?? 0);
+			// The root this surface follows, for the "(inherits X)" note - kept
+			// separate from effectiveFont below, which must stay the actual family
+			// that renders so JSON consumers can answer "what am I looking at"
+			// without also parsing a human-readable label out of it.
+			const inheritsFrom = canInherit(spec) ? resolveInheritRoot(rawFont) : null;
+			const effectiveFont = canInherit(spec)
+				? resolveSurfaceFont(
+						resolveInheritedFont(rawFont, {
+							interface: fonts.fontFamily,
+							terminal: fonts.terminalFontFamily,
+						}),
+						fonts.fontFamily
+					)
+				: withMonoFallback(fonts.fontFamily);
 			return {
 				surface: spec.id,
 				label: spec.label,
 				font: rawFont,
+				inheritsFrom,
 				// What actually renders, so the output answers "what am I looking
 				// at" rather than only "what is stored".
-				effectiveFont:
-					resolveInheritRoot(rawFont) && canInherit(spec)
-						? `(inherits ${resolveInheritRoot(rawFont)})`
-						: rawFont,
+				effectiveFont,
 				size: rawSize,
 				effectiveSize: resolveSurfaceFontSize(
 					canInherit(spec) ? rawSize : baseSize,
@@ -96,7 +112,8 @@ export function displayFontList(options: DisplayFontOptions): void {
 		console.log(`Typography${preset ? ` (preset: ${TYPOGRAPHY_PRESETS[preset].label})` : ''}`);
 		console.log(`Zoom: ${Math.round(zoom * 100)}%\n`);
 		for (const row of rows) {
-			console.log(`  ${row.label.padEnd(14)} ${row.effectiveFont}`);
+			const inheritsNote = row.inheritsFrom ? ` (inherits ${row.inheritsFrom})` : '';
+			console.log(`  ${row.label.padEnd(14)} ${row.effectiveFont}${inheritsNote}`);
 			console.log(
 				`  ${''.padEnd(14)} ${row.size === 0 ? 'inherit' : `${row.size}px`} -> renders at ${row.effectiveSize}px\n`
 			);

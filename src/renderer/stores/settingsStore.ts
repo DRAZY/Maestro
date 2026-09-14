@@ -384,6 +384,14 @@ export interface SettingsStoreState {
 	themePromptSeen: boolean;
 	updatesPromptSeen: boolean;
 	agentPowersPromptSeen: boolean;
+	/**
+	 * Set once, on the first boot where an `installationId` already existed on
+	 * disk (i.e. this is not the app's very first launch ever). Read-only from
+	 * the renderer's side; the main process is the sole writer. Lets the
+	 * first-run series tell a returning user who deleted every agent from a
+	 * genuinely new install.
+	 */
+	hasPriorInstallation: boolean;
 	/** Playback speed for audio/video in the file preview. Sticky across files. */
 	mediaPlaybackRate: number;
 	activeThemeId: ThemeId;
@@ -817,6 +825,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		themePromptSeen: false,
 		updatesPromptSeen: false,
 		agentPowersPromptSeen: false,
+		hasPriorInstallation: false,
 		mediaPlaybackRate: 1,
 		activeThemeId: 'dracula',
 		customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
@@ -1125,9 +1134,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		},
 
 		applyTypographyPreset: (id) => {
-			const fonts = TYPOGRAPHY_PRESETS[id].fonts;
-			set(fonts);
-			for (const [key, value] of Object.entries(fonts)) {
+			const preset = TYPOGRAPHY_PRESETS[id];
+			const patch = { ...preset.fonts, ...preset.sizes };
+			set(patch);
+			for (const [key, value] of Object.entries(patch)) {
 				window.maestro.settings.set(key, value);
 			}
 		},
@@ -2613,23 +2623,26 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['ghPath'] !== undefined) patch.ghPath = allSettings['ghPath'] as string;
 
-		if (allSettings['fontFamily'] !== undefined)
-			patch.fontFamily = allSettings['fontFamily'] as string;
+		// Guarded with typeof rather than a blind cast: a corrupted or
+		// hand-edited settings file can hold a non-string here, and assigning it
+		// straight into a CSS custom property (see typography.ts) would break
+		// every surface that inherits from it rather than just this one.
+		if (typeof allSettings['fontFamily'] === 'string') patch.fontFamily = allSettings['fontFamily'];
 
-		if (allSettings['terminalFontFamily'] !== undefined)
-			patch.terminalFontFamily = allSettings['terminalFontFamily'] as string;
+		if (typeof allSettings['terminalFontFamily'] === 'string')
+			patch.terminalFontFamily = allSettings['terminalFontFamily'];
 
-		if (allSettings['chatFontFamily'] !== undefined)
-			patch.chatFontFamily = allSettings['chatFontFamily'] as string;
+		if (typeof allSettings['chatFontFamily'] === 'string')
+			patch.chatFontFamily = allSettings['chatFontFamily'];
 
-		if (allSettings['filePreviewFontFamily'] !== undefined)
-			patch.filePreviewFontFamily = allSettings['filePreviewFontFamily'] as string;
+		if (typeof allSettings['filePreviewFontFamily'] === 'string')
+			patch.filePreviewFontFamily = allSettings['filePreviewFontFamily'];
 
-		if (allSettings['fileEditorFontFamily'] !== undefined)
-			patch.fileEditorFontFamily = allSettings['fileEditorFontFamily'] as string;
+		if (typeof allSettings['fileEditorFontFamily'] === 'string')
+			patch.fileEditorFontFamily = allSettings['fileEditorFontFamily'];
 
-		if (allSettings['documentGraphFontFamily'] !== undefined)
-			patch.documentGraphFontFamily = allSettings['documentGraphFontFamily'] as string;
+		if (typeof allSettings['documentGraphFontFamily'] === 'string')
+			patch.documentGraphFontFamily = allSettings['documentGraphFontFamily'];
 
 		if (allSettings['fontSize'] !== undefined) patch.fontSize = allSettings['fontSize'] as number;
 
@@ -2658,6 +2671,9 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['agentPowersPromptSeen'] !== undefined)
 			patch.agentPowersPromptSeen = Boolean(allSettings['agentPowersPromptSeen']);
+
+		if (allSettings['hasPriorInstallation'] !== undefined)
+			patch.hasPriorInstallation = Boolean(allSettings['hasPriorInstallation']);
 
 		if (allSettings['mediaPlaybackRate'] !== undefined)
 			patch.mediaPlaybackRate = normalizePlaybackRate(allSettings['mediaPlaybackRate']);

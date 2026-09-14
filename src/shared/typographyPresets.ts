@@ -49,7 +49,7 @@ export const DEFAULT_CODE_FONT = 'JetBrains Mono, ui-monospace, SFMono-Regular, 
 export type TypographyPresetId = 'default' | 'hacker';
 
 /**
- * The five font settings a preset writes. Keys match the settings-store fields
+ * The six font settings a preset writes. Keys match the settings-store fields
  * exactly, so applying one is a spread rather than a hand-written mapping that
  * could miss a surface.
  */
@@ -58,6 +58,7 @@ export interface TypographyPresetFonts {
 	chatFontFamily: string;
 	terminalFontFamily: string;
 	filePreviewFontFamily: string;
+	documentGraphFontFamily: string;
 	fileEditorFontFamily: string;
 }
 
@@ -75,6 +76,7 @@ export interface TypographyPresetSizes {
 	chatFontSize: number;
 	terminalFontSize: number;
 	filePreviewFontSize: number;
+	documentGraphFontSize: number;
 	fileEditorFontSize: number;
 }
 
@@ -100,6 +102,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			{ label: 'AI chat', kind: 'proportional' },
 			{ label: 'Terminal', kind: 'mono' },
 			{ label: 'File preview', kind: 'proportional' },
+			{ label: 'Document graph', kind: 'proportional' },
 			{ label: 'File editor', kind: 'mono' },
 		],
 		fonts: {
@@ -113,6 +116,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			// the terminal's box drawing and column output, and the editor's
 			// line-number gutter - stay monospace.
 			filePreviewFontFamily: '',
+			documentGraphFontFamily: '',
 			terminalFontFamily: DEFAULT_CODE_FONT,
 			fileEditorFontFamily: DEFAULT_CODE_FONT,
 		},
@@ -123,6 +127,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			fontSize: 15,
 			chatFontSize: 0,
 			filePreviewFontSize: 0,
+			documentGraphFontSize: 0,
 			// The code surfaces keep the tighter size they were tuned at, so
 			// they do not balloon alongside the larger reading base.
 			terminalFontSize: 13,
@@ -138,6 +143,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			{ label: 'AI chat', kind: 'mono' },
 			{ label: 'Terminal', kind: 'mono' },
 			{ label: 'File preview', kind: 'mono' },
+			{ label: 'Document graph', kind: 'mono' },
 			{ label: 'File editor', kind: 'mono' },
 		],
 		fonts: {
@@ -147,6 +153,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			chatFontFamily: '',
 			terminalFontFamily: '',
 			filePreviewFontFamily: '',
+			documentGraphFontFamily: '',
 			fileEditorFontFamily: '',
 		},
 		sizes: {
@@ -155,6 +162,7 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPresetId, TypographyPreset> = 
 			chatFontSize: 0,
 			terminalFontSize: 0,
 			filePreviewFontSize: 0,
+			documentGraphFontSize: 0,
 			fileEditorFontSize: 0,
 		},
 	},

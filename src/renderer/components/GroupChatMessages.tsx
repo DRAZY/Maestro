@@ -388,7 +388,12 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										// Collapsed view
 										<div>
 											<div
-												className="text-sm overflow-hidden"
+												// No text-sm: Tailwind pins that to a fixed 0.875rem,
+												// which would override the AI Chat font size the
+												// container set inline (see fontSize on
+												// .group-chat-messages above) and make the setting a
+												// no-op for message bodies.
+												className="overflow-hidden"
 												style={{ maxHeight: `${maxOutputLines * 1.5}em` }}
 											>
 												{!markdownEditMode ? (
@@ -422,7 +427,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										// Expanded view (was collapsed)
 										<div>
 											<div
-												className="text-sm overflow-auto scrollbar-thin"
+												className="overflow-auto scrollbar-thin"
 												style={{ maxHeight: '600px', overscrollBehavior: 'contain' }}
 												onWheel={(e) => {
 													const el = e.currentTarget;
@@ -466,7 +471,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										// messages get the same markdown treatment as
 										// assistant messages by default - toggle exposes
 										// the raw view consistently for both)
-										<div className="text-sm">
+										<div>
 											<MarkdownRenderer
 												content={msg.content}
 												theme={theme}
@@ -479,7 +484,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										// Raw mode - user sees their literal input; for
 										// assistant content we strip markdown so the raw
 										// view is readable as plain text.
-										<div className="text-sm whitespace-pre-wrap">
+										<div className="whitespace-pre-wrap">
 											{isUser ? msg.content : stripMarkdown(msg.content)}
 										</div>
 									)}

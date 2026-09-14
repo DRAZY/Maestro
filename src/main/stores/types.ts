@@ -68,6 +68,12 @@ export interface MaestroSettings {
 	themePromptSeen: boolean;
 	updatesPromptSeen: boolean;
 	agentPowersPromptSeen: boolean;
+	// Set once, on the first boot where `installationId` already existed (i.e.
+	// this is not the very first launch of this install ever). Distinguishes a
+	// returning user who has deleted every agent from a genuinely new one, since
+	// `sessions.length > 0` alone reads the former as new. See
+	// useAppInitialization.ts's first-run series gate.
+	hasPriorInstallation: boolean;
 	customFonts: string[];
 	mediaPlaybackRate: number;
 	/**
