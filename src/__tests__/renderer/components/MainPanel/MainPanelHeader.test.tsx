@@ -18,6 +18,10 @@ vi.mock('../../../../renderer/stores/settingsStore', () => ({
 			showAgentName: true,
 			showSessionIdPill: true,
 			showSessionCostPill: true,
+			// The header derives the Context Details width from the Timeline's
+			// remembered modal size, so the partial store needs the record even
+			// when no size was ever saved.
+			modalSizes: {},
 		})
 	),
 }));
