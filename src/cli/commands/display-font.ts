@@ -182,17 +182,25 @@ export function displayFont(
 			emitJsonl({ type: 'display-font-set', surface: spec.id, font: normalized });
 			return;
 		}
+		// Checked via resolveInheritRoot, not truthiness: INHERIT_TERMINAL
+		// ('@terminal') is itself a non-empty string, so a plain `normalized ?`
+		// took this branch for "inherit:terminal" too and printed the raw
+		// sentinel as if it were a font name instead of the inheritance message.
+		const inheritsRoot = resolveInheritRoot(normalized);
 		console.log(
 			formatSuccess(
-				normalized
-					? `${spec.label} font set to "${normalized}"`
-					: `${spec.label} font now inherits the ${resolveInheritRoot(normalized)} font`
+				inheritsRoot
+					? `${spec.label} font now inherits the ${inheritsRoot} font`
+					: `${spec.label} font set to "${normalized}"`
 			)
 		);
 		// A bundled font is guaranteed to render; anything else may silently
-		// fall back, and the CLI has no way to check what is installed.
+		// fall back, and the CLI has no way to check what is installed. Gated on
+		// !inheritsRoot for the same reason as the message above: '@terminal' is
+		// not a font name, so it must not trip the "not bundled" warning either.
 		if (
 			normalized &&
+			!inheritsRoot &&
 			!BUNDLED_FONTS.some((f) => f.name.toLowerCase() === normalized.toLowerCase())
 		) {
 			console.error(

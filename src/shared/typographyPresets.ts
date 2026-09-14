@@ -3,11 +3,12 @@
  *
  * Maestro was monospace everywhere until per-surface fonts existed, which is a
  * deliberate look rather than an oversight: it reads like a terminal. Now that
- * the interface, the chat transcript, the file preview, and the file editor can
- * each carry their own face, "which font?" is five questions, and asking a new
- * user five is worse than asking none. A preset answers all five at once, and
- * the individual pickers in Settings -> Display stay available for anyone who
- * wants to take them apart afterwards.
+ * the interface, the terminal, the chat transcript, the file preview, the
+ * document graph, and the file editor can each carry their own face, "which
+ * font?" is six questions, and asking a new user six is worse than asking
+ * none. A preset answers all six at once, and the individual pickers in
+ * Settings -> Display stay available for anyone who wants to take them apart
+ * afterwards.
  *
  * Shared rather than renderer-local so the preset the picker writes and the
  * preset the first-run modal writes cannot drift into two different definitions

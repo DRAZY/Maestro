@@ -352,12 +352,17 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.activeFocus === 'right' &&
 					ctx.activeRightTab === 'files' &&
 					ctx.fileTreeFilterOpen;
-				// Allow font size shortcuts (Cmd+=/+, Cmd+-, Cmd+0) even when modals/overlays are open
+				// Allow the zoom shortcuts (Cmd+=/+, Cmd+-, Cmd+Shift+0) even when
+				// modals/overlays are open. `=`/`+`/`-` take no Shift (matching the
+				// in/out handler below) and `0` takes Shift ONLY - the actual reset
+				// is Cmd+Shift+0 (see the comment above that handler); a bare Cmd+0
+				// is "Go to Last Tab" and must NOT fall through here, or it switches
+				// tabs behind an open modal instead of being blocked by the guard.
 				const isFontSizeShortcut =
 					(e.metaKey || e.ctrlKey) &&
 					!e.altKey &&
-					!e.shiftKey &&
-					(e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0');
+					((!e.shiftKey && (e.key === '=' || e.key === '+' || e.key === '-')) ||
+						(e.shiftKey && e.key === '0'));
 				// Allow the openPromptComposer shortcut to fall through while the Prompt
 				// Composer is the open modal, so pressing it again cycles windowed ->
 				// full screen -> windowed (cyclePromptComposer) instead of being eaten

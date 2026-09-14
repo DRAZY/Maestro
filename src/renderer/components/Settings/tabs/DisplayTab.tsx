@@ -205,6 +205,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 					chatFontFamily: settings.chatFontFamily,
 					terminalFontFamily: settings.terminalFontFamily,
 					filePreviewFontFamily: settings.filePreviewFontFamily,
+					documentGraphFontFamily: settings.documentGraphFontFamily,
 					fileEditorFontFamily: settings.fileEditorFontFamily,
 				}}
 				sizes={{
@@ -212,6 +213,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 					chatFontSize: settings.chatFontSize,
 					terminalFontSize: settings.terminalFontSize,
 					filePreviewFontSize: settings.filePreviewFontSize,
+					documentGraphFontSize: settings.documentGraphFontSize,
 					fileEditorFontSize: settings.fileEditorFontSize,
 				}}
 				onReset={settings.resetTypography}
