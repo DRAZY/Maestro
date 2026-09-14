@@ -37,6 +37,7 @@ import { resilienceEnabled } from '../../shared/agentConstants';
 import { parseQuotaLimitDetail, type QuotaLimitDetail } from '../../shared/quotaLimitDetail';
 import { generateId } from '../utils/ids';
 import { captureQueuedTurnSettings } from '../utils/providerTabSessions';
+import { applyReplayDispatch, type ReplayBlockedReason } from '../utils/executionQueue';
 import { settleTabThinkingState } from '../utils/tabHelpers';
 import { logger } from '../utils/logger';
 import { useSessionStore, selectSessionById, updateSessionWith } from './sessionStore';
@@ -571,6 +572,67 @@ function truncateForToast(text: string, max = 80): string {
 	return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
+/** What the transcript says where a replayed turn resumes. */
+const AUTH_REPLAY_NOTE = 'Re-sent after re-authentication.';
+
+/**
+ * Put the agent into the running state for a replayed turn, then dispatch it.
+ *
+ * The state transition is the whole point and it happens BEFORE the spawn.
+ * `processQueuedItem` deliberately does not mark anything busy - its callers do
+ * (see the NOTE in `agentStore.processQueuedItem`), and this caller used to skip
+ * it. The result was a GHOST TURN: after "Resume Agent" a real process ran while
+ * the tab still read idle from the exit listener's error branch, so there was no
+ * pulsing dot, no Thinking pill, and no bubble. Users concluded the resume had
+ * done nothing, re-sent by hand, and that copy queued behind the invisible turn -
+ * then ran a second time when it exited. One ask, two full turns, and the
+ * transcript's queued card looked like it was running while it was not.
+ *
+ * `applyReplayDispatch` also refuses the three cases where replaying is wrong
+ * outright (tab gone, tab mid-turn, user already re-sent it). A refusal is not a
+ * failure: it means the work is accounted for somewhere else.
+ *
+ * @returns true when a turn was dispatched.
+ */
+function dispatchReplay(
+	sessionId: string,
+	item: QueuedItem,
+	deps: ProcessQueuedItemDeps,
+	key: string
+): boolean {
+	type ReplayOutcome = ReplayBlockedReason | 'dispatched';
+	let outcome: ReplayOutcome = 'no-target-tab' as ReplayOutcome;
+	// The updater runs synchronously inside the store's `set`, so reading the
+	// outcome back after this call is deterministic - and it is the only honest
+	// answer, because the decision depends on live state this caller cannot see.
+	updateSessionWith(sessionId, (session) => {
+		const result = applyReplayDispatch(session, item, AUTH_REPLAY_NOTE);
+		outcome = result.blocked ?? 'dispatched';
+		return result.session;
+	});
+
+	if (outcome !== 'dispatched') {
+		logger.info('[retry] Skipped replaying a turn after re-auth', undefined, {
+			key,
+			reason: outcome,
+		});
+		return false;
+	}
+
+	const tabId = item.tabId;
+	void useAgentStore
+		.getState()
+		.processQueuedItem(sessionId, item, deps)
+		.catch((error: unknown) => {
+			// A dispatch-time throw means no process ever started, so the busy state
+			// set above belongs to nothing. Settle it or the tab blinks forever and
+			// the Thinking pill counts elapsed time for work nobody is doing.
+			if (tabId) updateSessionWith(sessionId, (s) => settleTabThinkingState(s, tabId));
+			logger.error('[retry] Replay after re-auth threw', undefined, error);
+		});
+	return true;
+}
+
 /**
  * Restart path: the in-memory snapshot is gone, so look for the copy written to
  * disk when the outage was reported. Async because it reads settings; the
@@ -587,12 +649,7 @@ async function replayPersistedSnapshot(
 		// entry outliving its outage is how the wrong message reaches the wire later.
 		void forgetPersistedSnapshot(key);
 		logger.info('[retry] Replaying a turn from the persisted snapshot', undefined, { key });
-		void useAgentStore
-			.getState()
-			.processQueuedItem(sessionId, persisted.item, persisted.deps)
-			.catch((error: unknown) => {
-				logger.error('[retry] Replay after re-auth threw', undefined, error);
-			});
+		dispatchReplay(sessionId, { ...persisted.item, tabId }, persisted.deps, key);
 		return;
 	}
 
@@ -640,14 +697,9 @@ export function replayAfterAuth(sessionId: string, tabIds: string[]): void {
 		void forgetPersistedSnapshot(key);
 
 		logger.info('[retry] Replaying a turn lost to expired credentials', undefined, { key });
-		void useAgentStore
-			.getState()
-			.processQueuedItem(sessionId, snapshot.item, snapshot.deps)
-			.catch((error: unknown) => {
-				// A dispatch-time throw surfaces through the normal agent-error path;
-				// it must not abort the replay of the remaining tabs.
-				logger.error('[retry] Replay after re-auth threw', undefined, error);
-			});
+		// A dispatch-time throw is handled inside dispatchReplay (it settles the
+		// tab); it must not abort the replay of the remaining tabs.
+		dispatchReplay(sessionId, { ...snapshot.item, tabId }, snapshot.deps, key);
 	}
 }
 
