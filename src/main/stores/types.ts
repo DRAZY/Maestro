@@ -52,6 +52,22 @@ export interface MaestroSettings {
 	shortcuts: Record<string, any>;
 	fontSize: number;
 	fontFamily: string;
+	terminalFontFamily: string;
+	chatFontFamily: string;
+	filePreviewFontFamily: string;
+	fileEditorFontFamily: string;
+	documentGraphFontFamily: string;
+	chatFontSize: number;
+	terminalFontSize: number;
+	filePreviewFontSize: number;
+	fileEditorFontSize: number;
+	documentGraphFontSize: number;
+	fontZoom: number;
+	typographySnapshot: unknown;
+	typographyPromptSeen: boolean;
+	themePromptSeen: boolean;
+	updatesPromptSeen: boolean;
+	agentPowersPromptSeen: boolean;
 	customFonts: string[];
 	mediaPlaybackRate: number;
 	/**

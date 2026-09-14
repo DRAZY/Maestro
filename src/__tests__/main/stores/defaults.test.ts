@@ -12,7 +12,7 @@ import {
 	CLAUDE_SESSION_ORIGINS_DEFAULTS,
 	AGENT_SESSION_ORIGINS_DEFAULTS,
 } from '../../../main/stores/defaults';
-import { MAESTRO_FONT_STACK } from '../../../shared/fontStacks';
+import { MAESTRO_FONT_STACK } from '../../../shared/fontStack';
 
 describe('stores/defaults', () => {
 	describe('resolveConfiguredShell', () => {

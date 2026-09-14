@@ -35,6 +35,7 @@ import { DEFAULT_SCROLL_MODE, type GraphScrollMode } from './scrollMode';
 import { clusterColor, clusterHullStyle } from './clusterColors';
 import { logger } from '../../utils/logger';
 import { GraphMiniMap } from './GraphMiniMap';
+import { useSurfaceFontFamily } from '../../hooks/ui/useSurfaceTypography';
 
 // ============================================================================
 // Types
@@ -183,6 +184,9 @@ const NODE_BORDER_RADIUS = 12;
 const OPEN_ICON_SIZE = 14;
 /** Open icon padding from node edge */
 const OPEN_ICON_PADDING = 8;
+/** Historical canvas stack. Canvas cannot read a CSS variable, so an unset
+ *  Document Graph setting still paints exactly as before. */
+const DEFAULT_GRAPH_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
 /**
  * Where the open-file icon sits inside a document node, in canvas space.
@@ -432,7 +436,10 @@ function renderDocumentNode(
 	isHovered: boolean,
 	matchesSearch: boolean,
 	searchActive: boolean,
-	previewCharLimit: number = 100
+	previewCharLimit: number = 100,
+	// The Document Graph font setting. Canvas needs a real family string - it
+	// cannot read a CSS variable - so it is threaded in rather than inherited.
+	fontFamily: string = DEFAULT_GRAPH_FONT
 ): void {
 	const {
 		x,
@@ -503,7 +510,7 @@ function renderDocumentNode(
 		ctx.setLineDash([]);
 
 		ctx.fillStyle = '#FFFFFF';
-		ctx.font = `600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+		ctx.font = `600 12px ${fontFamily}`;
 		ctx.textAlign = 'left';
 		ctx.textBaseline = 'middle';
 		const pillTitleWidth = width - NODE_PILL_CHROME_WIDTH;
@@ -566,7 +573,7 @@ function renderDocumentNode(
 
 	// Title text (in header, white or light colored for contrast)
 	ctx.fillStyle = '#FFFFFF';
-	ctx.font = `600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+	ctx.font = `600 12px ${fontFamily}`;
 	ctx.textAlign = 'left';
 	ctx.textBaseline = 'middle';
 	const maxTitleWidth = width - OPEN_ICON_SIZE - OPEN_ICON_PADDING * 3 - 12;
@@ -598,7 +605,7 @@ function renderDocumentNode(
 		const folderPath = pathParts.length > 0 ? pathParts.join('/') : './';
 
 		ctx.fillStyle = theme.colors.textDim;
-		ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+		ctx.font = `10px ${fontFamily}`;
 		ctx.textAlign = 'left';
 		ctx.textBaseline = 'middle';
 
@@ -614,7 +621,7 @@ function renderDocumentNode(
 	// Preview text (description or content preview, in body, if present)
 	if (previewText) {
 		ctx.fillStyle = theme.colors.textDim;
-		ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+		ctx.font = `11px ${fontFamily}`;
 		ctx.textAlign = 'left';
 		ctx.textBaseline = 'top';
 
@@ -652,7 +659,8 @@ function renderExternalNode(
 	theme: Theme,
 	isHovered: boolean,
 	matchesSearch: boolean,
-	searchActive: boolean
+	searchActive: boolean,
+	fontFamily: string = DEFAULT_GRAPH_FONT
 ): void {
 	const { x, y, width, height, domain, isSelected, isFocused } = node;
 
@@ -679,7 +687,7 @@ function renderExternalNode(
 
 	// Domain text
 	ctx.fillStyle = theme.colors.textDim;
-	ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+	ctx.font = `11px ${fontFamily}`;
 	ctx.textAlign = 'center';
 	ctx.textBaseline = 'middle';
 	ctx.fillText(truncateText(domain || '', 18), x, y);
@@ -721,6 +729,10 @@ export function MindMap({
 	fitToken = 0,
 	scrollMode = DEFAULT_SCROLL_MODE,
 }: MindMapProps) {
+	// Canvas measures and paints glyphs itself, so it needs a resolved family
+	// string rather than the CSS variable the DOM surfaces inherit.
+	const graphFontFamily = useSurfaceFontFamily('documentGraph');
+
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const internalContainerRef = useRef<HTMLDivElement>(null);
 	// Use external ref if provided, otherwise use internal ref
@@ -955,7 +967,7 @@ export function MindMap({
 				ctx.setLineDash([]);
 
 				ctx.fillStyle = ungrouped ? theme.colors.textDim : stroke;
-				ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+				ctx.font = `600 13px ${graphFontFamily}`;
 				ctx.textAlign = 'center';
 				ctx.textBaseline = 'middle';
 				ctx.fillText(cluster.label, cluster.labelX, cluster.labelY);
@@ -967,7 +979,7 @@ export function MindMap({
 		// axis with no dates on it is just an arbitrary left-to-right ordering.
 		if (layout.axisLabels && layout.axisLabels.length > 0) {
 			ctx.save();
-			ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+			ctx.font = `600 13px ${graphFontFamily}`;
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'middle';
 			layout.axisLabels.forEach((label) => {
@@ -1045,10 +1057,19 @@ export function MindMap({
 					isHovered,
 					matchesSearch,
 					searchActive,
-					previewCharLimit
+					previewCharLimit,
+					graphFontFamily
 				);
 			} else {
-				renderExternalNode(ctx, node, theme, isHovered, matchesSearch, searchActive);
+				renderExternalNode(
+					ctx,
+					node,
+					theme,
+					isHovered,
+					matchesSearch,
+					searchActive,
+					graphFontFamily
+				);
 			}
 		});
 
@@ -1094,6 +1115,7 @@ export function MindMap({
 		focusedNodeId,
 		searchQuery,
 		nodeMatchesSearch,
+		graphFontFamily,
 	]);
 
 	// Render on changes

@@ -27,6 +27,7 @@ import { isDirectModeratorMessage } from '../../shared/groupChatModeratorView';
 import { useMessageGistStore } from '../stores/messageGistStore';
 import { jumpToMessageEdge, isTextInputTarget } from '../utils/messageScrollNavigation';
 import { JumpToMessageTopButton } from './JumpToMessageTopButton';
+import { useSurfaceTypography } from '../hooks/ui/useSurfaceTypography';
 
 interface GroupChatMessagesProps {
 	theme: Theme;
@@ -71,6 +72,10 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 		},
 		ref
 	) {
+		// Group chat is an AI transcript, so it rides the AI Chat surface rather
+		// than inheriting whatever the app shell happens to be set to.
+		const { fontFamily: chatFontFamily, fontSize: chatFontSize } = useSurfaceTypography('chat');
+
 		const containerRef = useRef<HTMLDivElement>(null);
 		const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
 
@@ -214,6 +219,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 				role="region"
 				aria-label="Group chat messages"
 				className="group-chat-messages flex-1 overflow-y-auto scrollbar-thin py-2 outline-none"
+				style={{ fontFamily: chatFontFamily, fontSize: `${chatFontSize}px` }}
 				onKeyDown={(e) => {
 					if (
 						(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||

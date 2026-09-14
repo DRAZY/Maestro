@@ -53,6 +53,7 @@ import { hardBreakInlineFields } from '../Markdown/preprocess';
 import { REMARK_GFM_PLUGINS, createMarkdownComponents } from '../../utils/markdownConfig';
 import { remarkMaestroMarkers } from '../Markdown/remarkMaestroMarkers';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { useSessionStore } from '../../stores/sessionStore';
 import { buildFileDeepLink } from '../../../shared/deep-link-urls';
 import { useUIStore } from '../../stores/uiStore';
@@ -601,6 +602,10 @@ export const FilePreview = React.memo(
 		const setFileEditWordWrap = useSettingsStore((s) => s.setFileEditWordWrap);
 		const fileEditShowLineNumbers = useSettingsStore((s) => s.fileEditShowLineNumbers);
 		const filePreviewToolbarVisibility = useSettingsStore((s) => s.filePreviewToolbarVisibility);
+		const previewTypography = useSurfaceTypography('filePreview');
+		const editorTypography = useSurfaceTypography('fileEditor');
+		const previewFontFamily = previewTypography.fontFamily;
+		const editorFontFamily = editorTypography.fontFamily;
 		const hasActiveSearch = searchQuery.trim().length > 0;
 		const effectiveBionifyReadingMode = bionifyReadingMode && !hasActiveSearch;
 
@@ -1985,6 +1990,8 @@ export const FilePreview = React.memo(
 						{
 							overscrollBehavior: 'contain',
 							'--fp-font-scale': String(fontScale),
+							fontFamily: previewFontFamily,
+							fontSize: `${previewTypography.fontSize}px`,
 						} as React.CSSProperties
 					}
 				>
@@ -2356,6 +2363,8 @@ export const FilePreview = React.memo(
 							wrap={fileEditWordWrap}
 							showLineNumbers={fileEditShowLineNumbers}
 							fontScale={fontScale}
+							fontFamily={editorFontFamily}
+							baseFontPx={editorTypography.fontSize}
 							onLineNumberContextMenu={(lineNumber, event) => {
 								setLineCtxMenu({
 									lineNumber,
@@ -2461,6 +2470,8 @@ export const FilePreview = React.memo(
 								containerRef={markdownContainerRef}
 								filePath={file.path}
 								fontScale={fontScale}
+								fontFamily={previewFontFamily}
+								baseFontPx={previewTypography.fontSize}
 							/>
 						</Suspense>
 					) : isMarkdown && previewTier === 'fast' && !markdownEditMode ? (
