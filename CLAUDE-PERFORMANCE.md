@@ -344,6 +344,33 @@ instead of pairing raw `addEventListener` / `removeEventListener` inside a
 `useEffect`. The hook handles cleanup, ref-stable handlers, and SSR safety.
 See the canonical-utilities table in [[CLAUDE.md]] for the full rule.
 
+## CSS Animation Cost
+
+An `infinite` CSS animation is a permanent, unbounded cost. It runs at 60fps for
+as long as the class is present, whether or not the user is looking at it, and
+no task in a trace will be long enough to make it look like the problem.
+
+Two rules, both learned from a field trace in which one 20px twinkling icon
+repainted a 772x2724 device-px sidebar gradient three times per frame for eleven
+seconds in which the user touched nothing:
+
+1. **Animate only compositable properties.** `opacity` and `transform` run on the
+   compositor thread. `filter`, `box-shadow`, `background`, and color repaint on
+   the main thread every frame. So does a `transform` on an SVG sub-element -
+   Chrome does not composite those, so animating a `<path>` costs layout or paint
+   even though the same property on a `<div>` would be free.
+2. **When the repaint is unavoidable, confine it.** A main-thread repaint
+   invalidates the animated element's whole compositing layer, and a small icon
+   normally shares a layer with its entire parent surface. Add
+   `will-change: transform` to the animated element so it gets its own layer, and
+   scope the rule to the class that is only present _while_ animating, so nothing
+   is promoted at rest. Mirror it with `will-change: auto` in any
+   `prefers-reduced-motion` block that stops the animation.
+
+Lowering the animation's frequency does NOT help: a 1.5s pulse and a 0.2s one
+both repaint every frame. Working example: the wand sparkle/profiling rules in
+`src/renderer/index.css`.
+
 ## Performance Profiling
 
 For React DevTools profiling workflow, see [[CONTRIBUTING.md#profiling]].
@@ -422,7 +449,12 @@ when a user reports lag.
    top-left Left Bar header turns recording-red and pulses for as long as the
    capture is running, so it's obvious profiling is on.
 2. Reproduce the slow interaction (type in the prompt, switch agents, open a
-   file, etc.).
+   file, etc.). **Keep it short - seconds, not minutes.** The trace buffer
+   (`buildTraceConfig` in `src/main/profiling/categories.ts`) is applied _per
+   process_, not per capture, and a busy renderer fills its own in well under a
+   minute. What survives an overrun is the TAIL, so a 14-minute recording can
+   end up describing only its last 90 seconds while silently discarding the
+   start - including whatever the user was actually reporting.
 3. `Cmd+K` -> **Debug: End Performance Profiling** (this entry only appears while
    recording). A native Save dialog writes a compressed `.zip` (default to the
    Desktop, `maestro-profile-<timestamp>.zip`). A progress modal
@@ -458,11 +490,17 @@ agent activity. Do not add in-app trace parsing.
    # accepts a .zip bundle, a raw trace.json, or a trace.json.gz
    ```
 
-   It prints, in Markdown: the longest main-thread tasks (the jank the user
-   feels), self-time grouped by subsystem (Layout / RecalcStyles / Paint /
-   FunctionCall / GC), and the hottest JS functions with `url:line` when the
-   trace carried script coordinates. Pipe to a file and read it, or let the
-   script's output drive the fix.
+   It prints, in Markdown: a buffer-overrun warning when the bundle covers less
+   than the recording asked for, the longest main-thread tasks (the jank the
+   user feels), frame production and V8 idle share, self-time grouped by
+   subsystem (Layout / RecalcStyles / Paint / GC), and the hottest JS functions
+   with `url:line`. Pipe to a file and read it, or let the script's output drive
+   the fix.
+
+   The script streams the trace line by line, so a multi-gigabyte `trace.json`
+   is fine. Do not "simplify" it back to `JSON.parse(readFileSync(...))`: a real
+   field trace is routinely past V8's 512MB max string length, and that is
+   exactly how this script used to fail on every capture worth reading.
 
 3. **For frame-level detail**, load `trace.json` into <https://ui.perfetto.dev>
    (or `chrome://tracing`) and jump to the task start times the script reported.
@@ -472,8 +510,18 @@ agent activity. Do not add in-app trace parsing.
 - **Long tasks on `CrRendererMain`** are the user-perceived lag: a single task
   over ~50 ms blocks input and frame production for its whole duration. Rank by
   duration, start with the worst.
-- **High `FunctionCall` / `EvaluateScript` self-time** -> JavaScript is the
-  cost. Map the hottest `url:line` back to `src/renderer/`. Usual suspects:
+- **A renderer that commits a frame every ~16.7ms for the whole window while
+  V8 sits idle** is the most expensive thing a trace can show and the easiest to
+  miss, because no task in it is long. It means something is animating forever:
+  an `infinite` CSS animation on a non-composited property (`box-shadow`,
+  `filter`, `background`, SVG sub-element `transform`) or a permanent
+  `requestAnimationFrame` loop. Each frame costs the renderer, the compositor
+  thread and the GPU process, so a static-looking window can burn half a core.
+  The script calls this out under "Frame production".
+- **High JS self-time** -> map the hottest `url:line` back to `src/renderer/`.
+  Attribution comes from the V8 sampling profiler, so the file:line is the
+  bundled chunk; find the minified function body in
+  `app.asar > dist/renderer/assets/` to identify it. Usual suspects:
   unmemoized React re-renders, work done in a render body, state lifted too high
   so a keystroke re-renders the whole tree (see "React Component Optimization"
   above), synchronous IPC on a hot path.
