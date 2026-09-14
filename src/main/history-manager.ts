@@ -28,6 +28,7 @@ import { HistoryEntry } from '../shared/types';
 import {
 	HISTORY_VERSION,
 	MAX_ENTRIES_PER_SESSION,
+	resolveHistoryEntryLimit,
 	HistoryFileData,
 	MigrationMarker,
 	PaginationOptions,
@@ -159,12 +160,43 @@ export class HistoryManager {
 	 * busy (high-frequency Cue) agents.
 	 */
 	private writeQueue = createKeyedWriteQueue();
+	/**
+	 * Resolves the user's per-session entry cap (`maxLogBuffer`). Set once at
+	 * startup by the main process so fire-and-forget writers - Cue notify,
+	 * Cue command, Cue agent runs - trim to the SAME cap the IPC path uses.
+	 * When each writer picked its own limit, the smallest one won on disk and
+	 * silently destroyed entries the user had asked to keep.
+	 */
+	private maxEntriesResolver: (() => number) | null = null;
 
 	constructor() {
 		this.configDir = app.getPath('userData');
 		this.historyDir = path.join(this.configDir, 'history');
 		this.legacyFilePath = path.join(this.configDir, 'maestro-history.json');
 		this.migrationMarkerPath = path.join(this.configDir, 'history-migrated.json');
+	}
+
+	/**
+	 * Point the manager at the user's `maxLogBuffer` setting. Call before
+	 * `initialize()` so the migration path honours it too.
+	 */
+	setMaxEntriesResolver(resolver: () => number): void {
+		this.maxEntriesResolver = resolver;
+	}
+
+	/**
+	 * The entry cap for a write: an explicit argument wins, then the user's
+	 * setting, then the built-in fallback.
+	 */
+	private resolveMaxEntries(explicit?: number): number {
+		if (explicit !== undefined) return resolveHistoryEntryLimit(explicit);
+		if (!this.maxEntriesResolver) return MAX_ENTRIES_PER_SESSION;
+		try {
+			return resolveHistoryEntryLimit(this.maxEntriesResolver());
+		} catch {
+			// A settings-store read should never take history writes down.
+			return MAX_ENTRIES_PER_SESSION;
+		}
 	}
 
 	/**
@@ -224,6 +256,7 @@ export class HistoryManager {
 
 			// Group entries by sessionId (skip entries without sessionId)
 			const entriesBySession = new Map<string, HistoryEntry[]>();
+			const migrationLimit = this.resolveMaxEntries();
 			let skippedCount = 0;
 
 			for (const entry of entries) {
@@ -252,7 +285,7 @@ export class HistoryManager {
 						version: HISTORY_VERSION,
 						sessionId,
 						projectPath,
-						entries: sessionEntries.slice(0, MAX_ENTRIES_PER_SESSION),
+						entries: sessionEntries.slice(0, migrationLimit),
 					};
 					const filePath = this.getSessionFilePath(sessionId);
 					await atomicWriteJson(filePath, fileData);
@@ -337,8 +370,8 @@ export class HistoryManager {
 
 	/**
 	 * Add an entry to a session's history
-	 * @param maxEntries - Maximum entries to retain (defaults to MAX_ENTRIES_PER_SESSION).
-	 *                     Pass the user's maxLogBuffer setting to unify the cap.
+	 * @param maxEntries - Maximum entries to retain. Omit to use the user's
+	 *                     maxLogBuffer setting (see setMaxEntriesResolver).
 	 */
 	async addEntry(
 		sessionId: string,
@@ -347,7 +380,7 @@ export class HistoryManager {
 		maxEntries?: number
 	): Promise<void> {
 		const filePath = this.getSessionFilePath(sessionId);
-		const limit = maxEntries ?? MAX_ENTRIES_PER_SESSION;
+		const limit = this.resolveMaxEntries(maxEntries);
 
 		// Serialize per session so two concurrent adds (e.g. overlapping Cue
 		// schedules) can't interleave their read-modify-write and clobber each

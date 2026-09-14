@@ -38,6 +38,7 @@ import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';
 import { getHistoryManager } from './history-manager';
+import { MAX_ENTRIES_PER_SESSION, resolveHistoryEntryLimit } from '../shared/history';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -1222,6 +1223,11 @@ app
 		// Initialize history manager (handles migration from legacy format if needed)
 		logger.info('Initializing history manager', 'Startup');
 		const historyManager = getHistoryManager();
+		// Before initialize(): every writer - including the fire-and-forget Cue
+		// paths below, which pass no explicit cap - must trim to the user's
+		// maxLogBuffer. A writer using the lower built-in fallback silently
+		// truncates history the user raised the cap to keep.
+		historyManager.setMaxEntriesResolver(() => store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION));
 		try {
 			await historyManager.initialize();
 			logger.info('History manager initialized', 'Startup');
@@ -1484,7 +1490,8 @@ function setupIpcHandlers() {
 	// Uses HistoryManager singleton for per-session storage
 	registerHistoryHandlers({
 		safeSend,
-		getMaxEntries: () => store.get('maxLogBuffer', 5000) as number,
+		getMaxEntries: () =>
+			resolveHistoryEntryLimit(store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION)),
 		getSshRemoteById,
 		getSessionById: (id: string) => {
 			const sessions = (sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(

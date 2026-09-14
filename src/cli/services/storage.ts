@@ -7,7 +7,7 @@ import * as os from 'os';
 import type { Group, SessionInfo, HistoryEntry, SshRemoteConfig } from '../../shared/types';
 import {
 	HISTORY_VERSION,
-	MAX_ENTRIES_PER_SESSION,
+	resolveHistoryEntryLimit,
 	HistoryFileData,
 	PaginationOptions,
 	PaginatedResult,
@@ -634,9 +634,12 @@ export function addHistoryEntry(entry: HistoryEntry): void {
 			// Add to beginning (most recent first)
 			data.entries.unshift(entry);
 
-			// Trim to max entries
-			if (data.entries.length > MAX_ENTRIES_PER_SESSION) {
-				data.entries = data.entries.slice(0, MAX_ENTRIES_PER_SESSION);
+			// Trim to max entries. Must read the user's maxLogBuffer, not the
+			// built-in fallback: the trim is destructive, so a CLI write with a
+			// lower cap would permanently delete entries the desktop app kept.
+			const maxEntries = resolveHistoryEntryLimit(readSettings().maxLogBuffer);
+			if (data.entries.length > maxEntries) {
+				data.entries = data.entries.slice(0, maxEntries);
 			}
 
 			// Update projectPath if it changed

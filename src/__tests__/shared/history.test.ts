@@ -9,6 +9,7 @@ import {
 	HISTORY_VERSION,
 	MAX_ENTRIES_PER_SESSION,
 	ORPHANED_SESSION_ID,
+	resolveHistoryEntryLimit,
 	sanitizeSessionId,
 	paginateEntries,
 	sortEntriesByTimestamp,
@@ -43,6 +44,27 @@ describe('shared/history', () => {
 
 		it('exports ORPHANED_SESSION_ID as _orphaned', () => {
 			expect(ORPHANED_SESSION_ID).toBe('_orphaned');
+		});
+	});
+
+	describe('resolveHistoryEntryLimit', () => {
+		it('returns the configured cap when it is a positive number', () => {
+			expect(resolveHistoryEntryLimit(25000)).toBe(25000);
+			expect(resolveHistoryEntryLimit(1)).toBe(1);
+		});
+
+		it('parses a numeric string (settings files hand-edited as text)', () => {
+			expect(resolveHistoryEntryLimit('12000')).toBe(12000);
+		});
+
+		it('floors a fractional cap so slice() gets an integer', () => {
+			expect(resolveHistoryEntryLimit(10.9)).toBe(10);
+		});
+
+		it('falls back to MAX_ENTRIES_PER_SESSION for unusable values', () => {
+			for (const value of [undefined, null, 0, -5, NaN, Infinity, 'abc', {}, []]) {
+				expect(resolveHistoryEntryLimit(value)).toBe(MAX_ENTRIES_PER_SESSION);
+			}
 		});
 	});
 

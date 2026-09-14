@@ -673,6 +673,71 @@ describe('HistoryManager', () => {
 			expect(written.entries[0].id).toBe('overflow');
 		});
 
+		it('honours the maxLogBuffer resolver instead of the built-in fallback', async () => {
+			// Regression: the Cue write paths pass no explicit cap, so before the
+			// resolver existed they trimmed to 5,000 and destroyed entries on an
+			// agent whose maxLogBuffer was raised to 25,000. Busy Auto Run agents
+			// lost everything older than ~4 days.
+			const existingEntries: HistoryEntry[] = [];
+			for (let i = 0; i < MAX_ENTRIES_PER_SESSION; i++) {
+				existingEntries.push(createMockEntry({ id: `e-${i}` }));
+			}
+			const filePath = path.join(
+				'/mock/userData',
+				'history',
+				`${sanitizeSessionId('session-1')}.json`
+			);
+			mockExistsSync.mockImplementation((p: fs.PathLike) => p.toString() === filePath);
+			mockReadFileSync.mockReturnValue(createHistoryFileData('session-1', existingEntries));
+
+			manager.setMaxEntriesResolver(() => 25000);
+			await manager.addEntry('session-1', '/test/project', createMockEntry({ id: 'kept' }));
+
+			const written = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+			expect(written.entries).toHaveLength(MAX_ENTRIES_PER_SESSION + 1);
+			expect(written.entries[0].id).toBe('kept');
+		});
+
+		it('lets an explicit maxEntries argument win over the resolver', async () => {
+			const existingEntries: HistoryEntry[] = [];
+			for (let i = 0; i < 50; i++) existingEntries.push(createMockEntry({ id: `e-${i}` }));
+			const filePath = path.join(
+				'/mock/userData',
+				'history',
+				`${sanitizeSessionId('session-1')}.json`
+			);
+			mockExistsSync.mockImplementation((p: fs.PathLike) => p.toString() === filePath);
+			mockReadFileSync.mockReturnValue(createHistoryFileData('session-1', existingEntries));
+
+			manager.setMaxEntriesResolver(() => 25000);
+			await manager.addEntry('session-1', '/test/project', createMockEntry({ id: 'fresh' }), 10);
+
+			const written = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+			expect(written.entries).toHaveLength(10);
+		});
+
+		it('falls back to the default cap when the resolver throws', async () => {
+			const existingEntries: HistoryEntry[] = [];
+			for (let i = 0; i < MAX_ENTRIES_PER_SESSION; i++) {
+				existingEntries.push(createMockEntry({ id: `e-${i}` }));
+			}
+			const filePath = path.join(
+				'/mock/userData',
+				'history',
+				`${sanitizeSessionId('session-1')}.json`
+			);
+			mockExistsSync.mockImplementation((p: fs.PathLike) => p.toString() === filePath);
+			mockReadFileSync.mockReturnValue(createHistoryFileData('session-1', existingEntries));
+
+			manager.setMaxEntriesResolver(() => {
+				throw new Error('settings store unavailable');
+			});
+			await manager.addEntry('session-1', '/test/project', createMockEntry({ id: 'fresh' }));
+
+			const written = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+			expect(written.entries).toHaveLength(MAX_ENTRIES_PER_SESSION);
+		});
+
 		it('should update projectPath on existing file', async () => {
 			const existingEntry = createMockEntry({ id: 'e1' });
 			const filePath = path.join(
