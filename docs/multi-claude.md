@@ -124,10 +124,10 @@ This way you can see at a glance which account's quota you're using. When one ac
 
 Agent names are a convention, not a guarantee - a renamed agent or a `CLAUDE_CONFIG_DIR` edited after the fact can leave the two out of step. To read the account off the tab itself, hover the **Context Window** gauge in the Main Window header. The tooltip names the provider and, for providers that keep credentials per account, the **Profile** it resolves to:
 
-| Row          | Shows                                                                                                                        |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Provider** | The agent's provider, for example `Claude Code`                                                                              |
-| **Profile**  | The account, derived from the config dir: `.claude-work` shows as `work`, and a plain `~/.claude` shows as `Default account` |
+| Row          | Shows                                                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Provider** | The agent's provider, for example `Claude Code`                                                                                  |
+| **Profile**  | The account, derived from the config dir: `.claude-work` shows as `work`, and a plain `~/.claude` shows as `Claude Code default` |
 
 The profile is resolved the same way the [Usage Dashboard](./usage-dashboard.md) attributes an agent, so the account named here and the quota bars beneath it are the same account. Hover the profile name to see the full config directory path.
 
