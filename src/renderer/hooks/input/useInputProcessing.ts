@@ -28,7 +28,7 @@ import {
 import { getAiCommandEntry } from '../../stores/aiCommandStore';
 import { gitService } from '../../services/git';
 import type { CrossAgentMentionPlan } from '../../services/crossAgentMentions';
-import { hasWorkAheadOfNewMessage } from '../../utils/executionQueue';
+import { hasRunnableQueueItem, hasWorkAheadOfNewMessage } from '../../utils/executionQueue';
 import { probeSessionAiProcesses } from '../../services/process';
 import { isAgentAlreadyRunningError } from '../../../shared/processErrors';
 import { hasPendingRetry, noteDirectDispatch } from '../../stores/retryStore';
@@ -718,14 +718,20 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					// consult fired in that window is exactly the premature ping this
 					// whole path exists to prevent.
 					const mentionProbe = await probeSessionAiProcesses(activeSession.id, mentionSourceTabId);
+					const liveMentionSession =
+						useSessionStore.getState().sessions.find((s) => s.id === activeSession.id) ??
+						activeSession;
+					const connectionHold = liveMentionSession.executionQueue.some(
+						(item) => item.waitingForConnection
+					);
 					if (
 						mentionProbe.probeFailed ||
 						mentionProbe.anyActive ||
-						hasWorkAheadOfNewMessage(activeSession, {
+						hasWorkAheadOfNewMessage(liveMentionSession, {
 							autoRunActive: getBatchState(activeSession.id).isRunning,
 						})
 					) {
-						const activeTab = resolveTargetTab(activeSession);
+						const activeTab = resolveTargetTab(liveMentionSession);
 						const mentionQueuedItem: QueuedItem = {
 							id: generateId(),
 							timestamp: Date.now(),
@@ -741,7 +747,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							readOnlyMode: activeTab?.readOnlyMode === true,
 							crossAgentMention: true,
 							crossAgentOnly: true,
-							...(mentionProbe.probeFailed && { waitingForConnection: true }),
+							...((mentionProbe.probeFailed || connectionHold) && {
+								waitingForConnection: true,
+							}),
 						};
 
 						updateSessionWith(resolvedSessionId, (s) => {
@@ -871,6 +879,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					useSessionStore.getState().sessions.find((s) => s.id === activeSession.id) ??
 					activeSession;
 				const liveTab = resolveTargetTab(liveSession) ?? activeTab;
+				const connectionHold = liveSession.executionQueue.some((item) => item.waitingForConnection);
+				const queuedWorkAhead = hasRunnableQueueItem(liveSession.executionQueue);
 
 				// Check if write command can bypass queue (all running/queued items are read-only)
 				const canWriteBypassQueue = (): boolean => {
@@ -938,8 +948,10 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 				);
 
 				const shouldQueue =
+					connectionHold ||
 					retryHoldsTab ||
 					processStateRequiresQueue ||
+					(!forceParallel && queuedWorkAhead) ||
 					(forceParallel
 						? liveTab?.state === 'busy' // Force parallel: only queue if THIS tab is busy
 						: isReadOnlyMode
@@ -957,6 +969,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					sameTabProcessActive,
 					anySessionAiProcessActive,
 					processStateRequiresQueue,
+					connectionHold,
+					queuedWorkAhead,
 					retryHoldsTab,
 					shouldQueue,
 					queueLength: liveSession.executionQueue.length,
@@ -978,7 +992,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						// Consult the mentioned agent(s) when this item is dispatched, not
 						// now: see the mention-resolution block above.
 						...(crossAgentMentionPlan && { crossAgentMention: true }),
-						...(processState.probeFailed && { waitingForConnection: true }),
+						...((processState.probeFailed || connectionHold) && {
+							waitingForConnection: true,
+						}),
 						// Freeze the model/effort now - see the slash-command queue path
 						// above. Queuing is the send; the dispatch happens later.
 						turnSettings: captureQueuedTurnSettings(liveTab, liveSession),
