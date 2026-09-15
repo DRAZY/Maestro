@@ -13,6 +13,7 @@
  */
 
 import path from 'path';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from './cue/retention';
 import { isWindows } from './platformDetection';
 
 // ============================================================================
@@ -1040,6 +1041,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		description: "Director's Notes settings: provider, lookback window, optional ideal end state.",
 		type: 'object',
 		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
+		category: 'advanced',
+	},
+	cueHistoryRetentionDays: {
+		description:
+			'How many days of Maestro Cue run history to keep in the Cue database. Rows older than this are pruned when the Cue engine starts. Raise it to keep a longer Activity Log, lower it to keep the database small.',
+		type: 'number',
+		default: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 		category: 'advanced',
 	},
 

@@ -98,6 +98,10 @@ export interface MaestroSettings {
 	// Empty array disables it. Stored in the same format as `shortcuts` so the UI can reuse
 	// the existing capture helpers; converted to an Electron Accelerator at registration time.
 	globalShowHotkey: string[];
+	// Days of Maestro Cue run history kept in cue.db. Read by the Cue engine's
+	// prune pass at startup; declared explicitly (rather than left to the index
+	// signature) so main-process readers get `number` instead of `any`.
+	cueHistoryRetentionDays: number;
 	// Allow dynamic settings keys (electron-store is a key-value store
 	// with many settings not explicitly declared above)
 	[key: string]: any;

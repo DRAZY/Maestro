@@ -8,6 +8,7 @@
 import path from 'path';
 import { isWindows } from '../../shared/platformDetection';
 import { MAESTRO_FONT_STACK } from '../../shared/fontStacks';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../shared/cue/retention';
 
 import type {
 	MaestroSettings,
@@ -113,6 +114,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	annotatorTextFont: 'sans-serif',
 	annotatorTextBgColor: '',
 	globalShowHotkey: [],
+	cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

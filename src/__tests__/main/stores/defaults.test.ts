@@ -13,6 +13,7 @@ import {
 	AGENT_SESSION_ORIGINS_DEFAULTS,
 } from '../../../main/stores/defaults';
 import { MAESTRO_FONT_STACK } from '../../../shared/fontStacks';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../../shared/cue/retention';
 
 describe('stores/defaults', () => {
 	describe('resolveConfiguredShell', () => {
@@ -175,6 +176,13 @@ describe('stores/defaults', () => {
 
 		it('should have null installationId by default', () => {
 			expect(SETTINGS_DEFAULTS.installationId).toBeNull();
+		});
+
+		// The Cue prune reads this from the store at engine start, so the default
+		// has to be present here - not just in the renderer - or a fresh install
+		// prunes against `undefined`.
+		it('should default cueHistoryRetentionDays to the shared retention constant', () => {
+			expect(SETTINGS_DEFAULTS.cueHistoryRetentionDays).toBe(DEFAULT_CUE_HISTORY_RETENTION_DAYS);
 		});
 	});
 

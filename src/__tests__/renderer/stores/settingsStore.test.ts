@@ -9,6 +9,7 @@ import {
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
 import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
 import { MAESTRO_FONT_STACK } from '../../../shared/fontStacks';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../../shared/cue/retention';
 import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 import {
@@ -649,6 +650,20 @@ describe('settingsStore', () => {
 					'documentGraphLayoutType',
 					'hierarchical'
 				);
+			});
+		});
+
+		describe('Cue history retention', () => {
+			it('defaults to the shared retention constant', () => {
+				expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(
+					DEFAULT_CUE_HISTORY_RETENTION_DAYS
+				);
+			});
+
+			it('setCueHistoryRetentionDays updates state and persists', () => {
+				useSettingsStore.getState().setCueHistoryRetentionDays(30);
+				expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('cueHistoryRetentionDays', 30);
 			});
 		});
 
@@ -1609,6 +1624,37 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			expect(useSettingsStore.getState().activeThemeId).toBe('dracula');
+		});
+
+		it('loads a persisted Cue retention window', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: 30,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+		});
+
+		// The number shown in the UI is a promise about what the prune keeps, so
+		// an unusable stored value must read back as the default rather than as
+		// NaN or 0 - a 0-day window would mean "delete everything".
+		it.each([
+			['a string', '30'],
+			['zero', 0],
+			['a negative count', -5],
+			['NaN', Number.NaN],
+			['null', null],
+		])('falls back to the default when the stored value is %s', async (_label, stored) => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: stored,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(
+				DEFAULT_CUE_HISTORY_RETENTION_DAYS
+			);
 		});
 
 		it('restores both halves of the environment editor', async () => {

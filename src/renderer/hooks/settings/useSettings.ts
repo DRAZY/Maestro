@@ -384,6 +384,10 @@ export interface UseSettingsReturn {
 	directorNotesSettings: DirectorNotesSettings;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
 
+	// Maestro Cue history retention (days kept in cue.db)
+	cueHistoryRetentionDays: number;
+	setCueHistoryRetentionDays: (value: number) => void;
+
 	// WakaTime integration settings
 	wakatimeApiKey: string;
 	setWakatimeApiKey: (value: string) => void;

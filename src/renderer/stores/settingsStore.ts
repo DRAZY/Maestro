@@ -37,6 +37,7 @@ import { resolveThemeId } from '../../shared/theme-types';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../constants/shortcuts';
 import { findReservedShortcutCombo } from '../../shared/shortcutKeys';
 import { MAESTRO_FONT_STACK } from '../../shared/fontStacks';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../shared/cue/retention';
 import {
 	collectBoundShortcuts,
 	countUsedBoundShortcuts,
@@ -446,6 +447,7 @@ export interface SettingsStoreState {
 	encoreFeatures: EncoreFeatureFlags;
 	symphonyRegistryUrls: string[];
 	directorNotesSettings: DirectorNotesSettings;
+	cueHistoryRetentionDays: number;
 	wakatimeApiKey: string;
 	wakatimeEnabled: boolean;
 	wakatimeDetailedTracking: boolean;
@@ -598,6 +600,7 @@ export interface SettingsStoreActions {
 	setEncoreFeatures: (value: EncoreFeatureFlags) => void;
 	setSymphonyRegistryUrls: (value: string[]) => void;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
+	setCueHistoryRetentionDays: (value: number) => void;
 	setWakatimeApiKey: (value: string) => void;
 	setWakatimeEnabled: (value: boolean) => void;
 	setWakatimeDetailedTracking: (value: boolean) => void;
@@ -841,6 +844,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		encoreFeatures: DEFAULT_ENCORE_FEATURES,
 		symphonyRegistryUrls: [],
 		directorNotesSettings: DEFAULT_DIRECTOR_NOTES_SETTINGS,
+		cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
 		wakatimeDetailedTracking: false,
@@ -1538,6 +1542,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setDirectorNotesSettings: (value) => {
 			set({ directorNotesSettings: value });
 			window.maestro.settings.set('directorNotesSettings', value);
+		},
+
+		setCueHistoryRetentionDays: (value) => {
+			set({ cueHistoryRetentionDays: value });
+			window.maestro.settings.set('cueHistoryRetentionDays', value);
 		},
 
 		setWakatimeApiKey: (value) => {
@@ -3049,6 +3058,18 @@ export async function loadAllSettings(): Promise<void> {
 				...DEFAULT_DIRECTOR_NOTES_SETTINGS,
 				...(allSettings['directorNotesSettings'] as Partial<DirectorNotesSettings>),
 			};
+		}
+
+		// Cue history retention. A stored value that isn't a usable day count
+		// falls back to the default rather than being shown as-is: the number in
+		// the UI is a promise about what the prune keeps, so it must never read
+		// back as NaN or 0.
+		if (allSettings['cueHistoryRetentionDays'] !== undefined) {
+			const days = allSettings['cueHistoryRetentionDays'];
+			patch.cueHistoryRetentionDays =
+				typeof days === 'number' && Number.isFinite(days) && days >= 1
+					? Math.floor(days)
+					: DEFAULT_CUE_HISTORY_RETENTION_DAYS;
 		}
 
 		if (allSettings['wakatimeApiKey'] !== undefined)
