@@ -48,6 +48,7 @@ import {
 	getCueHistoryBuckets,
 	getCueHistoryEntries,
 	getCueHistoryFingerprint,
+	getCueHistoryGroupRuns,
 	getCueHistoryGroups,
 } from '../../cue/stats/cue-stats-query';
 import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from './documentGraph';
@@ -212,6 +213,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		getAllSessions: readSessionRecords,
 		getCueHistoryEntries,
 		getCueHistoryGroups,
+		getCueHistoryGroupRuns,
 		getCueHistoryBuckets,
 		getCueHistoryFingerprint,
 	});

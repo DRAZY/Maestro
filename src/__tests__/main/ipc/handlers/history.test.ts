@@ -854,6 +854,102 @@ describe('history IPC handlers', () => {
 			});
 		});
 
+		// The expander behind a collapsed row. A group that reported 1,382 runs
+		// is only honest if those runs stay reachable, and this channel is how
+		// the row reaches them. CUE-HISTORY-03 task #4.
+		describe('history:getCueGroupRuns', () => {
+			it('returns the runs behind one group, newest first', async () => {
+				const getCueHistoryGroupRuns = vi.fn(() => [
+					cueRow({ id: 'run-new', timestamp: 3000 }),
+					cueRow({ id: 'run-old', timestamp: 1000 }),
+				]);
+
+				const handler = registerWith({ getCueHistoryGroupRuns })('history:getCueGroupRuns');
+				const result = await handler({} as any, {
+					sessionId: 'session-1',
+					groupKey: 'PR-Sweep',
+				});
+
+				expect(result.map((e: HistoryEntry) => e.id)).toEqual(['run-new', 'run-old']);
+			});
+
+			it('scopes the query to the agent, the group and the same lookback', async () => {
+				// A different window than the grouped read used would show a set
+				// of runs that disagrees with the count on the row.
+				const getCueHistoryGroupRuns = vi.fn(() => []);
+				const now = 1_000_000_000_000;
+				vi.useFakeTimers();
+				vi.setSystemTime(now);
+
+				const handler = registerWith({
+					getCueHistoryGroupRuns,
+					getMaxEntries: () => 500,
+					getSessionById: () => ({ id: 'session-1', name: 'rc', projectRoot: '/repo/rc' }),
+				})('history:getCueGroupRuns');
+				await handler({} as any, {
+					sessionId: 'session-1',
+					groupKey: 'PR-Sweep',
+					lookbackHours: 24,
+					limit: 200,
+				});
+
+				expect(getCueHistoryGroupRuns).toHaveBeenCalledWith({
+					sessionId: 'session-1',
+					sessionName: 'rc',
+					projectPath: '/repo/rc',
+					groupKey: 'PR-Sweep',
+					since: now - 24 * 60 * 60 * 1000,
+					limit: 200,
+				});
+				vi.useRealTimers();
+			});
+
+			it('falls back to the history entry limit when no cap is given', async () => {
+				const getCueHistoryGroupRuns = vi.fn(() => []);
+
+				const handler = registerWith({ getCueHistoryGroupRuns, getMaxEntries: () => 500 })(
+					'history:getCueGroupRuns'
+				);
+				await handler({} as any, { sessionId: 'session-1', groupKey: 'PR-Sweep' });
+
+				expect(getCueHistoryGroupRuns).toHaveBeenCalledWith(
+					expect.objectContaining({ limit: 500 })
+				);
+			});
+
+			it('asks for nothing without both an agent and a group', async () => {
+				const getCueHistoryGroupRuns = vi.fn(() => [cueRow()]);
+
+				const handler = registerWith({ getCueHistoryGroupRuns })('history:getCueGroupRuns');
+
+				expect(await handler({} as any, { sessionId: 'session-1' })).toEqual([]);
+				expect(await handler({} as any, { groupKey: 'PR-Sweep' })).toEqual([]);
+				expect(await handler({} as any, undefined)).toEqual([]);
+				expect(getCueHistoryGroupRuns).not.toHaveBeenCalled();
+			});
+
+			it('degrades to no runs when the database throws', async () => {
+				// The expander failing must not take the row - or the panel - down.
+				const getCueHistoryGroupRuns = vi.fn(() => {
+					throw new Error('database is locked');
+				});
+
+				const handler = registerWith({ getCueHistoryGroupRuns })('history:getCueGroupRuns');
+
+				expect(await handler({} as any, { sessionId: 'session-1', groupKey: 'PR-Sweep' })).toEqual(
+					[]
+				);
+			});
+
+			it('returns nothing when no Cue query is wired at all', async () => {
+				const handler = registerWith({})('history:getCueGroupRuns');
+
+				expect(await handler({} as any, { sessionId: 'session-1', groupKey: 'PR-Sweep' })).toEqual(
+					[]
+				);
+			});
+		});
+
 		it('counts Cue rows when resolving a graph-click offset', async () => {
 			// The offset indexes the rendered list, which now includes rows that
 			// are not in the JSONL file.

@@ -47,6 +47,7 @@ import { buildBucketAggregate, LOCAL_HOST_AGG_KEY } from '../../utils/history-bu
 import type {
 	CueHistoryBucket,
 	CueHistoryBucketQuery,
+	CueHistoryGroupRunsQuery,
 	CueHistoryQuery,
 } from '../../cue/stats/cue-stats-query';
 import {
@@ -56,6 +57,7 @@ import {
 	mergeEntriesById,
 	readCueEntries as readCueEntriesForAgents,
 	readCueGroupedEntries as readCueGroupedEntriesForAgents,
+	readCueGroupRuns as readCueGroupRunsForAgent,
 	readCueGraphBuckets as readCueGraphBucketsForAgent,
 	readCueGraphFingerprint as readCueGraphFingerprintForAgent,
 	type CueScopeAgent,
@@ -194,6 +196,13 @@ export interface HistoryHandlerDependencies {
 	 */
 	getCueHistoryGroups?: (query: CueHistoryQuery) => CueHistoryGroup[];
 	/**
+	 * The individual runs behind ONE group produced by
+	 * {@link getCueHistoryGroups} - what the panel's expander opens, so a
+	 * collapsed row never hides a run from the user. See
+	 * `getCueHistoryGroupRuns()` in the same module.
+	 */
+	getCueHistoryGroupRuns?: (query: CueHistoryGroupRunsQuery) => HistoryEntry[];
+	/**
 	 * Per-minute Cue run counts for the activity graph - see
 	 * `getCueHistoryBuckets()` in `src/main/cue/stats/cue-stats-query.ts`.
 	 * Counts rather than rows because a bar chart never needs the text.
@@ -250,6 +259,15 @@ function readCueGroupedEntries(
 		since: options.since,
 		limit: deps.getMaxEntries?.(),
 	});
+}
+
+/** The individual runs behind one collapsed group, newest first. */
+function readCueGroupRuns(
+	deps: HistoryHandlerDependencies,
+	agent: CueScopeAgent,
+	options: { groupKey: string; since?: number; limit?: number }
+): HistoryEntry[] {
+	return readCueGroupRunsForAgent(deps.getCueHistoryGroupRuns, agent, options);
 }
 
 /** The Cue half of one agent's activity-graph cache key. */
@@ -484,6 +502,42 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 
 				const result = await historyManager.getAllEntriesPaginated(undefined);
 				return paginateEntries(applyFilters(mergeCueEntries(result.entries)), pagination);
+			}
+		)
+	);
+
+	// The individual runs behind ONE collapsed Cue row, for the History
+	// panel's expander. Scoped to the agent that ran them (the row carries
+	// its `sessionId`) and to the same lookback the grouped read used, so the
+	// runs returned are exactly the ones the group counted.
+	ipcMain.handle(
+		'history:getCueGroupRuns',
+		withIpcErrorLogging(
+			handlerOpts('getCueGroupRuns'),
+			async (options?: {
+				sessionId?: string;
+				projectPath?: string;
+				groupKey?: string;
+				lookbackHours?: number | null;
+				limit?: number;
+			}) => {
+				const { sessionId, projectPath, groupKey, lookbackHours, limit } = options || {};
+				if (!sessionId || !groupKey) return [];
+
+				const since =
+					lookbackHours !== null && lookbackHours !== undefined && lookbackHours > 0
+						? Date.now() - lookbackHours * 60 * 60 * 1000
+						: undefined;
+				const agent = cueScopeAgentFromRecord(
+					sessionId,
+					deps.getSessionById?.(sessionId),
+					projectPath
+				);
+				return readCueGroupRuns(deps, agent, {
+					groupKey,
+					since,
+					limit: limit ?? deps.getMaxEntries?.(),
+				});
 			}
 		)
 	);

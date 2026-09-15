@@ -738,6 +738,49 @@ function cueHistoryGroupLabel(pipelineId: string | null, subscriptionName: strin
 	return base || subscriptionName;
 }
 
+/** One collapsed group's window, for {@link getCueHistoryGroupRuns}. */
+export interface CueHistoryGroupRunsQuery extends CueHistoryQuery {
+	/**
+	 * The group to open, as {@link getCueHistoryGroups} keyed it - the pipeline
+	 * name, or the subscription name with its chain suffix stripped.
+	 */
+	groupKey: string;
+}
+
+/**
+ * The individual runs behind ONE collapsed group - what the History panel's
+ * expander shows so a grouped row never hides a run from the user.
+ *
+ * `limit` caps RUNS here (unlike {@link getCueHistoryGroups}, where it caps
+ * groups), and the cap applies newest-first, so expanding a 1,382-run group
+ * opens on the runs the user most likely came for.
+ *
+ * Why the group filter runs in TypeScript rather than SQL: the group key is
+ * produced by {@link cueHistoryGroupLabel}, which strips `-chain-N` / `-fanin`
+ * with `parseSubscriptionName()`. Reversing that rule into a `WHERE` clause
+ * would be a second copy of the regex free to drift from the one the grouped
+ * read used, and a filter that disagreed with the rollup would show a group
+ * whose expander is missing runs it counted. The cost is bounded by what the
+ * UNGROUPED read of the same agent and window already costs, which the panel
+ * pays whenever `groupCueEntries` is off.
+ */
+export function getCueHistoryGroupRuns(query: CueHistoryGroupRunsQuery): HistoryEntry[] {
+	const events = getCueEventsForHistory({
+		sessionId: query.sessionId,
+		since: query.since,
+		until: query.until,
+	});
+
+	const runs: HistoryEntry[] = [];
+	for (const event of events) {
+		if (cueHistoryGroupLabel(event.pipelineId ?? null, event.subscriptionName) !== query.groupKey)
+			continue;
+		runs.push(cueEventToHistoryEntry(event, query));
+		if (query.limit !== undefined && runs.length >= query.limit) break;
+	}
+	return runs;
+}
+
 /** Window for {@link getCueHistoryBuckets} / {@link getCueHistoryFingerprint}. */
 export interface CueHistoryBucketQuery {
 	/**

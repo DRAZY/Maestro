@@ -26,6 +26,7 @@ import { captureException } from './sentry';
 import type {
 	CueHistoryBucket,
 	CueHistoryBucketQuery,
+	CueHistoryGroupRunsQuery,
 	CueHistoryQuery,
 } from '../cue/stats/cue-stats-query';
 
@@ -35,6 +36,8 @@ const LOG_CONTEXT = '[CueHistory]';
 export type CueHistoryEntriesQuery = (query: CueHistoryQuery) => HistoryEntry[];
 /** One agent's Cue runs collapsed to one row per pipeline-level trigger. */
 export type CueHistoryGroupsQuery = (query: CueHistoryQuery) => CueHistoryGroup[];
+/** The individual runs behind one collapsed group, newest first. */
+export type CueHistoryGroupRunsQueryFn = (query: CueHistoryGroupRunsQuery) => HistoryEntry[];
 /** Per-minute Cue run counts for the activity graph. */
 export type CueHistoryBucketsQuery = (query: CueHistoryBucketQuery) => CueHistoryBucket[];
 /** Change-detector for the activity-graph cache key. */
@@ -201,6 +204,43 @@ export function readCueGroupedEntries(
 		}
 	}
 	return entries;
+}
+
+/**
+ * The runs behind ONE collapsed group, for the History panel's expander.
+ *
+ * Takes a single agent rather than a scope list because a group belongs to the
+ * agent that ran it: the row carries its `sessionId`, so the expander asks for
+ * exactly that agent's runs. Two agents whose triggers share a name each get
+ * their own row and their own expansion, which is what the user sees.
+ *
+ * Degrades to "no runs" on a database failure, the same way
+ * {@link readCueEntries} does - an unreadable Cue database must leave the rest
+ * of the panel working.
+ */
+export function readCueGroupRuns(
+	query: CueHistoryGroupRunsQueryFn | undefined,
+	agent: CueScopeAgent,
+	options: { groupKey: string; since?: number; limit?: number }
+): HistoryEntry[] {
+	if (!query) return [];
+	try {
+		return query({
+			sessionId: agent.id,
+			sessionName: agent.name,
+			projectPath: agent.projectPath,
+			groupKey: options.groupKey,
+			since: options.since,
+			limit: options.limit,
+		});
+	} catch (error) {
+		void captureException(error);
+		logger.warn(
+			`Failed to read Cue group "${options.groupKey}" for session ${agent.id}: ${error}`,
+			LOG_CONTEXT
+		);
+		return [];
+	}
 }
 
 /**

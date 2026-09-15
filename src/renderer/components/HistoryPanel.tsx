@@ -16,6 +16,7 @@ import { HistoryHelpModal } from './HistoryHelpModal';
 import { useThrottledCallback, useListNavigation } from '../hooks';
 import { useHistoryPagination } from '../hooks/history/useHistoryPagination';
 import type { PaginatedPage } from '../hooks/history/useHistoryPagination';
+import { useExpandedCueGroups } from '../hooks/history/useExpandedCueGroups';
 import {
 	ActivityGraph,
 	HistoryEntryItem,
@@ -225,6 +226,16 @@ export const HistoryPanel = React.memo(
 				selectedHost,
 				groupCueEntries,
 			]
+		);
+
+		// Which collapsed Cue rows are open, and how a row fetches the runs
+		// behind it. Bound to the same lookback the grouped read used, so an
+		// expander can never show a different set of runs than the row counted.
+		const { expandedIds: expandedCueGroupIds, expansion: cueGroupExpansion } = useExpandedCueGroups(
+			{
+				lookbackHours: graphLookbackHours,
+				projectPath: projectPathForHistory,
+			}
 		);
 
 		const getEntryId = useCallback((entry: HistoryEntry) => entry.id, []);
@@ -968,6 +979,8 @@ export const HistoryPanel = React.memo(
 											onOpenDetailModal={openDetailModal}
 											onOpenSessionAsTab={onOpenSessionAsTab}
 											onOpenAboutModal={onOpenAboutModal}
+											cueGroupExpansion={cueGroupExpansion}
+											isCueGroupExpanded={expandedCueGroupIds.has(entry.id)}
 										/>
 									</div>
 								);

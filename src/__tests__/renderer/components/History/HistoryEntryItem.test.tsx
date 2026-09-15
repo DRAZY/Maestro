@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { HistoryEntryItem } from '../../../../renderer/components/History';
 import type { HistoryEntry, HistoryEntryType } from '../../../../renderer/types';
 
@@ -583,6 +583,154 @@ describe('HistoryEntryItem', () => {
 			expect(container.textContent).toContain('Triggered by: File Change');
 			expect(container.querySelector('[data-cue-group]')).toBeNull();
 			expect(container.querySelector('[title="Task completed successfully"]')).not.toBeNull();
+		});
+	});
+
+	/**
+	 * Expanding a collapsed row (CUE-HISTORY-03 task #4).
+	 *
+	 * Collapsing 1,382 runs to one line is only honest if the runs stay
+	 * reachable, so these pin the escape hatch: the control exists on a group,
+	 * opening it fetches and lists the runs, a run opens the detail modal on
+	 * ITSELF rather than on the group, and a row with nothing behind it - an
+	 * ungrouped row, or a caller that wired no loader - grows no control.
+	 */
+	describe('expanding a collapsed Cue group', () => {
+		// The runs arrive from an async load, and `waitFor` cannot make progress
+		// against the suite-wide fake clock. These cases do not assert on
+		// timestamps, so real timers cost them nothing.
+		beforeEach(() => {
+			vi.useRealTimers();
+		});
+
+		const runs: HistoryEntry[] = [
+			{
+				id: 'run-new',
+				type: 'CUE' as HistoryEntryType,
+				timestamp: Date.now(),
+				summary: 'Newest run body',
+				projectPath: '/test/project',
+				success: true,
+			},
+			{
+				id: 'run-failed',
+				type: 'CUE' as HistoryEntryType,
+				timestamp: Date.now() - 60_000,
+				summary: 'Failed run body',
+				projectPath: '/test/project',
+				success: false,
+			},
+		];
+
+		const groupedRow = (overrides: Partial<HistoryEntry> = {}): HistoryEntry =>
+			createMockEntry({
+				type: 'CUE' as HistoryEntryType,
+				summary: 'Bus drained 4 commands',
+				sessionId: 'agent-rc',
+				cueTriggerName: 'Pedsidian-Command-Bus',
+				cueGroup: {
+					key: 'Pedsidian-Command-Bus',
+					label: 'Pedsidian-Command-Bus',
+					runCount: 1382,
+					failureCount: 3,
+				},
+				...overrides,
+			});
+
+		const renderRow = (
+			entry: HistoryEntry,
+			opts: {
+				expanded?: boolean;
+				loadRuns?: () => Promise<HistoryEntry[]>;
+				toggle?: (id: string) => void;
+				onOpenDetailModal?: (entry: HistoryEntry, index: number) => void;
+				wired?: boolean;
+			} = {}
+		) => {
+			const expansion = {
+				toggle: opts.toggle ?? vi.fn(),
+				loadRuns: opts.loadRuns ?? vi.fn(async () => runs),
+			};
+			return render(
+				<HistoryEntryItem
+					entry={entry}
+					index={7}
+					isSelected={false}
+					theme={mockTheme}
+					onOpenDetailModal={opts.onOpenDetailModal ?? vi.fn()}
+					cueGroupExpansion={opts.wired === false ? undefined : expansion}
+					isCueGroupExpanded={opts.expanded ?? false}
+				/>
+			);
+		};
+
+		it('renders collapsed by default, with a control to open the runs', () => {
+			renderRow(groupedRow());
+			const expander = screen.getByTitle('Show individual runs');
+			expect(expander).toHaveAttribute('aria-expanded', 'false');
+			expect(screen.queryByText('Newest run body')).not.toBeInTheDocument();
+		});
+
+		it('toggles the group without opening the detail modal', () => {
+			const toggle = vi.fn();
+			const onOpenDetailModal = vi.fn();
+			renderRow(groupedRow({ id: 'group-row' }), { toggle, onOpenDetailModal });
+
+			fireEvent.click(screen.getByTitle('Show individual runs'));
+
+			expect(toggle).toHaveBeenCalledWith('group-row');
+			// The row's own click handler opens the modal; the expander must not.
+			expect(onOpenDetailModal).not.toHaveBeenCalled();
+		});
+
+		it('lists the individual runs once expanded', async () => {
+			const loadRuns = vi.fn(async () => runs);
+			renderRow(groupedRow(), { expanded: true, loadRuns });
+
+			await waitFor(() => expect(screen.getByText('Newest run body')).toBeInTheDocument());
+			expect(screen.getByText('Failed run body')).toBeInTheDocument();
+			expect(loadRuns).toHaveBeenCalledTimes(1);
+			expect(screen.getByTitle('Hide individual runs')).toHaveAttribute('aria-expanded', 'true');
+		});
+
+		it('opens the detail modal on the RUN that was clicked, not the group', async () => {
+			const onOpenDetailModal = vi.fn();
+			renderRow(groupedRow(), { expanded: true, onOpenDetailModal });
+
+			await waitFor(() => expect(screen.getByText('Failed run body')).toBeInTheDocument());
+			fireEvent.click(screen.getByTitle('Failed run body'));
+
+			expect(onOpenDetailModal).toHaveBeenCalledTimes(1);
+			expect(onOpenDetailModal).toHaveBeenCalledWith(runs[1], 7);
+		});
+
+		it('reports a failed load instead of rendering an empty list', async () => {
+			const loadRuns = vi.fn(async () => {
+				throw new Error('database is locked');
+			});
+			renderRow(groupedRow(), { expanded: true, loadRuns });
+
+			await waitFor(() =>
+				expect(screen.getByText(/Failed to load runs: database is locked/)).toBeInTheDocument()
+			);
+		});
+
+		it('says so when the window holds no runs', async () => {
+			renderRow(groupedRow(), { expanded: true, loadRuns: vi.fn(async () => []) });
+
+			await waitFor(() => expect(screen.getByText('No runs in this window.')).toBeInTheDocument());
+		});
+
+		it('gives an UNGROUPED row no expander - there is nothing behind it', () => {
+			renderRow(groupedRow({ cueGroup: undefined }));
+			expect(screen.queryByTitle('Show individual runs')).not.toBeInTheDocument();
+		});
+
+		it('gives a group no expander when the caller wired no loader', () => {
+			// Surfaces that never request grouped rows would otherwise draw a
+			// control that cannot fetch anything.
+			renderRow(groupedRow(), { wired: false });
+			expect(screen.queryByTitle('Show individual runs')).not.toBeInTheDocument();
 		});
 	});
 

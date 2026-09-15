@@ -52,6 +52,7 @@ import {
 	getCueHistoryEntries,
 	getCueHistoryFingerprint,
 	getCueHistoryGroups,
+	getCueHistoryGroupRuns,
 } from '../../../main/cue/stats/cue-stats-query';
 import type { HistoryEntry } from '../../../shared/types';
 
@@ -714,5 +715,199 @@ describe.skipIf(!canLoadNodeSqlite())('getCueHistoryGroups (real SQLite)', () =>
 		expect(groups[0].label).toBe('Pedsidian-Command-Bus');
 		// The cap dropped a GROUP; it did not shrink the surviving group's count.
 		expect(groups[0].runCount).toBe(2);
+	});
+});
+
+/**
+ * CUE-HISTORY-03 task #4 - `getCueHistoryGroupRuns()`, the expander behind a
+ * collapsed row.
+ *
+ * The contract these pin is the one that makes the collapse honest: what the
+ * expander returns must be exactly the set of runs the group COUNTED. So the
+ * group filter, the chain-suffix fold and the window all have to agree with
+ * `getCueHistoryGroups()` run over the same seeded rows - which is why the
+ * assertions read a count off the group and then expect that many runs back.
+ */
+describe.skipIf(!canLoadNodeSqlite())('getCueHistoryGroupRuns (real SQLite)', () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(BASE_MS);
+		closeCueDb();
+		initCueDb(undefined, ':memory:');
+	});
+
+	afterEach(() => {
+		closeCueDb();
+		vi.useRealTimers();
+	});
+
+	it('returns every run the group counted, newest first', () => {
+		for (let i = 0; i < 5; i++) {
+			seedRun({
+				id: `bus-${i}`,
+				subscriptionName: 'Pedsidian-Command-Bus',
+				status: 'completed',
+				outputExcerpt: `Handled command ${i}.`,
+				createdAt: BASE_MS + i * 60_000,
+			});
+		}
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+		const runs = getCueHistoryGroupRuns({
+			sessionId: AGENT_ID,
+			sessionName: 'rc',
+			groupKey: group.key,
+		});
+
+		expect(runs).toHaveLength(group.runCount);
+		expect(idsOf(runs)).toEqual(['bus-4', 'bus-3', 'bus-2', 'bus-1', 'bus-0']);
+		// Each run is shaped exactly as the ungrouped read shapes it, so the
+		// detail modal opens on a run indistinguishable from an ordinary row.
+		expect(runs[0]).toEqual(group.latestEntry);
+	});
+
+	it('gathers the chain steps of one pipeline the same way the group did', () => {
+		seedRun({
+			id: 'step-1',
+			subscriptionName: 'PR-Sweep',
+			status: 'completed',
+			outputExcerpt: 'Swept.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'step-2',
+			subscriptionName: 'PR-Sweep-chain-1',
+			status: 'completed',
+			outputExcerpt: 'Chained.',
+			createdAt: BASE_MS + 60_000,
+		});
+		seedRun({
+			id: 'step-3',
+			subscriptionName: 'PR-Sweep-fanin',
+			status: 'completed',
+			outputExcerpt: 'Fanned in.',
+			createdAt: BASE_MS + 120_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID });
+		const runs = getCueHistoryGroupRuns({ sessionId: AGENT_ID, groupKey: group.key });
+
+		expect(group.runCount).toBe(3);
+		expect(idsOf(runs)).toEqual(['step-3', 'step-2', 'step-1']);
+	});
+
+	it("leaves another trigger's runs out of the group it was asked for", () => {
+		seedRun({
+			id: 'bus-run',
+			subscriptionName: 'Pedsidian-Command-Bus',
+			status: 'completed',
+			outputExcerpt: 'Bus.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'sync-run',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Sync.',
+			createdAt: BASE_MS + 60_000,
+		});
+
+		const runs = getCueHistoryGroupRuns({ sessionId: AGENT_ID, groupKey: 'Nightly Sync' });
+
+		expect(idsOf(runs)).toEqual(['sync-run']);
+	});
+
+	it('honors the same agent and window the group was counted over', () => {
+		seedRun({
+			id: 'mine',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Mine.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'theirs',
+			sessionId: OTHER_AGENT_ID,
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Theirs.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'too-old',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Ancient.',
+			createdAt: BASE_MS - 600_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID, since: BASE_MS });
+		const runs = getCueHistoryGroupRuns({
+			sessionId: AGENT_ID,
+			since: BASE_MS,
+			groupKey: group.key,
+		});
+
+		expect(runs).toHaveLength(group.runCount);
+		expect(idsOf(runs)).toEqual(['mine']);
+	});
+
+	it('caps RUNS with `limit`, keeping the newest', () => {
+		// The opposite of `getCueHistoryGroups`, where `limit` caps groups. A
+		// 1,382-run group opens on the runs the user most likely came for.
+		for (let i = 0; i < 4; i++) {
+			seedRun({
+				id: `bus-${i}`,
+				subscriptionName: 'Pedsidian-Command-Bus',
+				status: 'completed',
+				outputExcerpt: `Handled command ${i}.`,
+				createdAt: BASE_MS + i * 60_000,
+			});
+		}
+
+		const runs = getCueHistoryGroupRuns({
+			sessionId: AGENT_ID,
+			groupKey: 'Pedsidian-Command-Bus',
+			limit: 2,
+		});
+
+		expect(idsOf(runs)).toEqual(['bus-3', 'bus-2']);
+	});
+
+	it('keeps the silent failures the group counted', () => {
+		// A failed run with no output is exactly the row worth reaching, and the
+		// group's failure tally promises it is in there.
+		seedRun({
+			id: 'ok',
+			subscriptionName: 'Fact Check',
+			status: 'completed',
+			outputExcerpt: 'Checked 12 claims.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'silent-fail',
+			subscriptionName: 'Fact Check',
+			status: 'failed',
+			outputExcerpt: null,
+			createdAt: BASE_MS + 60_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID });
+		const runs = getCueHistoryGroupRuns({ sessionId: AGENT_ID, groupKey: group.key });
+
+		expect(group.failureCount).toBe(1);
+		expect(idsOf(runs)).toEqual(['silent-fail', 'ok']);
+		expect(runs[0].success).toBe(false);
+	});
+
+	it('returns nothing for a group key no run belongs to', () => {
+		seedRun({
+			id: 'bus-run',
+			subscriptionName: 'Pedsidian-Command-Bus',
+			status: 'completed',
+			outputExcerpt: 'Bus.',
+		});
+
+		expect(getCueHistoryGroupRuns({ sessionId: AGENT_ID, groupKey: 'Nothing' })).toEqual([]);
 	});
 });
