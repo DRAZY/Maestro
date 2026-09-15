@@ -454,8 +454,6 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			setGroupChats,
 			setParticipantStates,
 			clearGroupChatUnread,
-			groupChatStates,
-			allGroupChatParticipantStates,
 		} = useGroupChatStore.getState();
 		const { setActiveFocus } = useUIStore.getState();
 
@@ -468,11 +466,22 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			const messages = await window.maestro.groupChat.getMessages(id);
 			setGroupChatMessages(messages);
 
-			// Restore the state for this specific chat from the per-chat state map
-			setGroupChatState(groupChatStates.get(id) ?? 'idle');
+			// Restore the state for this specific chat from the per-chat state map.
+			//
+			// Re-read the store rather than using the copy destructured at the top of
+			// this function: two awaits have happened since (`load` and `getMessages`,
+			// which are WebSocket round trips on the web bridge), and a
+			// `groupChat:stateChange` that landed during either one has already
+			// updated the map. Writing the pre-await snapshot puts a stale
+			// `moderator-thinking` back onto the scalar the execution-queue drain
+			// reads, and nothing ever re-derives it - no timer, no retry, no
+			// reconciliation on reconnect. The room then stays busy forever and every
+			// queued message sits behind a QUEUED badge that will never clear.
+			const liveStore = useGroupChatStore.getState();
+			setGroupChatState(liveStore.groupChatStates.get(id) ?? 'idle');
 
-			// Restore participant states for this chat
-			setParticipantStates(allGroupChatParticipantStates.get(id) ?? new Map());
+			// Restore participant states for this chat (same staleness applies).
+			setParticipantStates(liveStore.allGroupChatParticipantStates.get(id) ?? new Map());
 
 			// Load saved right tab preference for this group chat
 			const savedTab = await window.maestro.settings.get(`groupChatRightTab:${id}`);

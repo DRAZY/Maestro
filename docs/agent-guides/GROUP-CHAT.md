@@ -153,6 +153,7 @@ group-chats/
     metadata.json    # GroupChat object
     chat.log         # Pipe-delimited message log
     history.jsonl    # Activity history entries (one JSON per line)
+    queue.json       # Pending sends (GroupChatQueueState), owned by main
     images/          # Image attachments
 ```
 
@@ -289,6 +290,56 @@ Manages participant agents:
 
 Participants run with **read-write access** (not read-only) so they can make code changes.
 
+### group-chat-queue.ts
+
+The main process's ownership of each chat's pending sends. The rules themselves
+are pure functions in `src/shared/groupChatQueueModel.ts`; this module adds the
+file, the broadcast, and the send.
+
+**Why main owns it.** The queue used to be a zustand array in the renderer, so
+every client had its own. A message queued on a phone was invisible to the
+desktop, died with the browser tab that held it, and was delivered only if that
+one client happened to observe the moderator going idle. One queue per chat, in
+main, is visible to every client and drained exactly once by the process that
+actually knows when the moderator is free.
+
+| Function                    | Purpose                                                                             |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `installGroupChatQueue()`   | Injects the deps (broadcast, send, `postSystemMessage`, `isIdle`) from the handlers |
+| `submitMessage()`           | MAIN decides: send now, or queue. A client's copy is too stale to decide            |
+| `addToQueue()`              | Appends and schedules a drain                                                       |
+| `getQueue()`                | The whole state, read through the same write chain                                  |
+| `removeFromQueue()`         | Drops one item by id; refuses an item already in flight                             |
+| `reorderQueue()`            | Moves an item, clamping a stale index instead of discarding the drag                |
+| `resumeQueueFor()`          | Clears the pause and the failed mark on the head, then drains                       |
+| `pauseQueueFor()`           | Holds the queue. Called by Stop All                                                 |
+| `onModeratorStateChanged()` | The hook `emitStateChange` calls; only an idle transition releases the queue        |
+
+**The one invariant:** a message the user typed is delivered, or it is still in
+the queue with the chat paused and the user told why. There is no third outcome.
+A failed send keeps the item, marks it, pauses the chat and posts a system
+message; it is never retried unattended, because a cause that does not clear (the
+Encore Feature switched off, a missing binary) would re-fire on every idle
+forever.
+
+**Three things that look like details and are not:**
+
+- The whole read-modify-write runs inside the keyed write chain
+  (`createKeyedWriteQueue`), not just the write. Serializing only the write still
+  lets two callers compute changes from the same state and the second save erase
+  the first caller's item.
+- Completion and failure are recorded **by id**, never by position. A send is
+  awaited and the queue can be edited while it is in flight, so "drop whatever is
+  first now" discards a message the moderator never received.
+- A queue restored from disk comes back **paused**, and a `sending` mark left in
+  the file is stripped. Launching the app must not spawn a moderator just to
+  flush a previous session, and a stale in-flight mark makes an item permanently
+  un-removable.
+
+An unreadable `queue.json` is renamed to `queue.json.corrupt-<timestamp>` and
+reported, never quietly replaced with an empty queue - the next save would
+otherwise erase what the user had waiting.
+
 ### group-chat-storage.ts
 
 CRUD operations for group chat metadata:
@@ -387,15 +438,30 @@ Registered in `src/main/ipc/handlers/groupChat.ts`. All handler names are prefix
 | `groupChat:saveImage`       | Saves an image attachment                   |
 | `groupChat:getImages`       | Lists saved image attachments for the chat  |
 
+### Execution Queue
+
+The queue lives in main, so every verb answers with the WHOLE state and main also
+broadcasts it on `groupChat:queueState`. A client renders what it is told rather
+than its own private copy.
+
+| Handler                   | Description                                                              |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `groupChat:submitMessage` | Hands a composed message to main, which decides whether to send or queue |
+| `groupChat:getQueue`      | Returns the chat's `GroupChatQueueState`                                 |
+| `groupChat:queueAdd`      | Appends an item without asking main to send it now                       |
+| `groupChat:queueRemove`   | Drops an item by id; answers `{ state, refused }`                        |
+| `groupChat:queueReorder`  | Moves an item to an index; answers `{ state, refused }`                  |
+| `groupChat:queueResume`   | Clears the pause (and the failed mark on the head) and drains            |
+
 ### Moderator
 
-| Handler                           | Description                                          |
-| --------------------------------- | ---------------------------------------------------- |
-| `groupChat:startModerator`        | Spawns the moderator agent                           |
-| `groupChat:stopModerator`         | Kills the moderator                                  |
-| `groupChat:stopAll`               | Kills moderator + all participants                   |
-| `groupChat:getModeratorSessionId` | Returns the moderator's provider session ID (if any) |
-| `groupChat:reportAutoRunComplete` | Signal from an Auto Run batch run that it finished   |
+| Handler                           | Description                                                                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `groupChat:startModerator`        | Spawns the moderator agent                                                                                                                                                  |
+| `groupChat:stopModerator`         | Kills the moderator                                                                                                                                                         |
+| `groupChat:stopAll`               | Kills moderator + all participants, and PAUSES the queue (the send path auto-restarts a moderator, so without the pause the next queued item respawns what was just killed) |
+| `groupChat:getModeratorSessionId` | Returns the moderator's provider session ID (if any)                                                                                                                        |
+| `groupChat:reportAutoRunComplete` | Signal from an Auto Run batch run that it finished                                                                                                                          |
 
 ### Participants
 
@@ -428,6 +494,7 @@ The `groupChatEmitters` object provides real-time event broadcasting to the rend
 | `emitModeratorUsage`      | `groupChat:moderatorUsage`      | Context/cost/token updates |
 | `emitHistoryEntry`        | `groupChat:historyEntry`        | New history entry          |
 | `emitParticipantState`    | `groupChat:participantState`    | Participant working/idle   |
+| (queue broadcast)         | `groupChat:queueState`          | Whole pending-send queue   |
 
 ## Renderer Components
 
