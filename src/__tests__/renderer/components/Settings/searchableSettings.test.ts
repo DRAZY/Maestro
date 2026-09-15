@@ -162,6 +162,9 @@ describe('searchableSettings', () => {
 			['spell check', 'general-spell-check'],
 			['spelling', 'general-spell-check'],
 			['typo', 'general-spell-check'],
+			['group cue', 'general-group-cue-entries'],
+			['collapse cue runs', 'general-group-cue-entries'],
+			['repeated', 'general-group-cue-entries'],
 
 			// Display tab. The single Small/Medium/Large global size was replaced
 			// by a per-surface stepper plus a global zoom, so "font size" now

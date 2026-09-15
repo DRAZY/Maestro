@@ -212,6 +212,7 @@ import type { FirstPartyBridgeState } from '../main/plugins/first-party-bridge';
 import type { FirstPartyEncoreFlag } from '../shared/plugins/first-party';
 import type { AgentRunApi } from '../main/preload/agentRun';
 import type { BrowserOp } from '../shared/coworkingBrowser';
+import type { HistoryEntry } from '../shared/types';
 
 interface MaestroAPI {
 	// Context merging API (for session context transfer and grooming)
@@ -2380,6 +2381,8 @@ interface MaestroAPI {
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: HistoryEntryType[];
 			hostKey?: string | null;
+			/** Collapse Cue runs to one row per trigger (`groupCueEntries`). */
+			groupCue?: boolean;
 		}) => Promise<{
 			entries: Array<{
 				id: string;
@@ -2403,6 +2406,18 @@ interface MaestroAPI {
 			offset: number;
 			hasMore: boolean;
 		}>;
+		/**
+		 * The individual runs behind one collapsed Cue row (`cueGroup.key`),
+		 * newest first. `lookbackHours` must match the window the group was
+		 * counted over, or the expander and the count disagree.
+		 */
+		getCueGroupRuns: (options: {
+			sessionId: string;
+			groupKey: string;
+			projectPath?: string;
+			lookbackHours?: number | null;
+			limit?: number;
+		}) => Promise<HistoryEntry[]>;
 		add: (
 			entry: {
 				id: string;

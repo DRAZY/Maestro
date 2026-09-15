@@ -148,7 +148,7 @@ export function ContextTimelinePanel({ theme }: ContextTimelinePanelProps) {
 		resizeKey: CONTEXT_TIMELINE_RESIZE_KEY,
 		defaultSize: sourceSize ?? { width: CONTEXT_SURFACE_WIDTH, height: PANEL_FALLBACK_HEIGHT },
 		minSize: { width: CONTEXT_SURFACE_MIN_WIDTH, height: PANEL_MIN_HEIGHT },
-		anchor: 'topLeft',
+		anchor: 'top-left',
 	});
 
 	// Reclamp the anchored position on viewport resize so an open panel never ends

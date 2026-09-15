@@ -18,7 +18,6 @@ import { create } from 'zustand';
 import type { BrowserConfirmPolicy } from '../../shared/coworkingBrowser';
 import { isWindowsPlatform } from '../utils/platformUtils';
 import type {
-	LLMProvider,
 	CustomAICommand,
 	AchievementTimeSource,
 	AutoRunStats,
@@ -32,6 +31,10 @@ import type {
 	EncoreFeatureFlags,
 } from '../types';
 import { FIXED_SHORTCUTS } from '../constants/shortcuts';
+import {
+	DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+	resolveCueHistoryRetentionDays,
+} from '../../shared/cue/retention';
 import {
 	collectBoundShortcuts,
 	countUsedBoundShortcuts,
@@ -331,9 +334,6 @@ export interface SettingsStoreState
 	settingsLoaded: boolean;
 	conductorProfile: string;
 	globalShowHotkey: string[];
-	llmProvider: LLMProvider;
-	modelSlug: string;
-	apiKey: string;
 	defaultShell: string;
 	customShellPath: string;
 	shellArgs: string;
@@ -439,6 +439,8 @@ export interface SettingsStoreState
 	coworkingBackgroundBrowsers: boolean;
 	coworkingBackgroundBrowsersLimit: number;
 	directorNotesSettings: DirectorNotesSettings;
+	cueHistoryRetentionDays: number;
+	groupCueEntries: boolean;
 	useNativeTitleBar: boolean;
 	autoHideMenuBar: boolean;
 	// File Edit & Preview
@@ -470,9 +472,6 @@ export interface SettingsStoreActions
 	// Simple setters
 	setConductorProfile: (value: string) => void;
 	setGlobalShowHotkey: (value: string[]) => void;
-	setLlmProvider: (value: LLMProvider) => void;
-	setModelSlug: (value: string) => void;
-	setApiKey: (value: string) => void;
 	setDefaultShell: (value: string) => void;
 	setCustomShellPath: (value: string) => void;
 	setShellArgs: (value: string) => void;
@@ -552,6 +551,8 @@ export interface SettingsStoreActions
 	setCoworkingBackgroundBrowsers: (value: boolean) => void;
 	setCoworkingBackgroundBrowsersLimit: (value: number) => void;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
+	setCueHistoryRetentionDays: (value: number) => void;
+	setGroupCueEntries: (value: boolean) => void;
 	setUseNativeTitleBar: (value: boolean) => void;
 	setAutoHideMenuBar: (value: boolean) => void;
 	setFileEditWordWrap: (value: boolean) => void;
@@ -709,9 +710,6 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		settingsLoaded: false,
 		conductorProfile: '',
 		globalShowHotkey: [],
-		llmProvider: 'openrouter',
-		modelSlug: 'anthropic/claude-3.5-sonnet',
-		apiKey: '',
 		defaultShell: isWindowsPlatform() ? 'powershell' : 'zsh',
 		customShellPath: '',
 		shellArgs: '',
@@ -798,6 +796,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		coworkingBackgroundBrowsers: false,
 		coworkingBackgroundBrowsersLimit: 2,
 		directorNotesSettings: DEFAULT_DIRECTOR_NOTES_SETTINGS,
+		cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+		groupCueEntries: true,
 		useNativeTitleBar: isWindowsPlatform(),
 		autoHideMenuBar: false,
 		fileEditWordWrap: true,
@@ -836,21 +836,6 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		setGlobalShowHotkey: (value) => {
 			set({ globalShowHotkey: value });
 			window.maestro.settings.set('globalShowHotkey', value);
-		},
-
-		setLlmProvider: (value) => {
-			set({ llmProvider: value });
-			window.maestro.settings.set('llmProvider', value);
-		},
-
-		setModelSlug: (value) => {
-			set({ modelSlug: value });
-			window.maestro.settings.set('modelSlug', value);
-		},
-
-		setApiKey: (value) => {
-			set({ apiKey: value });
-			window.maestro.settings.set('apiKey', value);
 		},
 
 		setDefaultShell: (value) => {
@@ -1345,6 +1330,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		setDirectorNotesSettings: (value) => {
 			set({ directorNotesSettings: value });
 			window.maestro.settings.set('directorNotesSettings', value);
+		},
+
+		setCueHistoryRetentionDays: (value) => {
+			set({ cueHistoryRetentionDays: value });
+			window.maestro.settings.set('cueHistoryRetentionDays', value);
+		},
+
+		setGroupCueEntries: (value) => {
+			set({ groupCueEntries: value });
+			window.maestro.settings.set('groupCueEntries', value);
 		},
 
 		setUseNativeTitleBar: (value) => {
@@ -1939,14 +1934,6 @@ export async function loadAllSettings(): Promise<void> {
 		if (Array.isArray(allSettings['globalShowHotkey']))
 			patch.globalShowHotkey = allSettings['globalShowHotkey'] as string[];
 
-		if (allSettings['llmProvider'] !== undefined)
-			patch.llmProvider = allSettings['llmProvider'] as LLMProvider;
-
-		if (allSettings['modelSlug'] !== undefined)
-			patch.modelSlug = allSettings['modelSlug'] as string;
-
-		if (allSettings['apiKey'] !== undefined) patch.apiKey = allSettings['apiKey'] as string;
-
 		if (allSettings['defaultShell'] !== undefined)
 			patch.defaultShell = allSettings['defaultShell'] as string;
 
@@ -2487,6 +2474,19 @@ export async function loadAllSettings(): Promise<void> {
 		}
 
 		hydrateWakatimeSettings(allSettings, patch);
+		// Cue history retention. A stored value that isn't a usable day count
+		// falls back to the default rather than being shown as-is: the number in
+		// the UI is a promise about what the prune keeps, so it must never read
+		// back as NaN or 0. Shared with the engine's prune so the window shown
+		// and the window deleted by can't disagree.
+		if (allSettings['cueHistoryRetentionDays'] !== undefined) {
+			patch.cueHistoryRetentionDays = resolveCueHistoryRetentionDays(
+				allSettings['cueHistoryRetentionDays']
+			);
+		}
+
+		if (allSettings['groupCueEntries'] !== undefined)
+			patch.groupCueEntries = allSettings['groupCueEntries'] as boolean;
 
 		if (allSettings['useNativeTitleBar'] !== undefined)
 			patch.useNativeTitleBar = allSettings['useNativeTitleBar'] as boolean;
@@ -2651,9 +2651,6 @@ export function getSettingsActions() {
 	return {
 		setConductorProfile: state.setConductorProfile,
 		setGlobalShowHotkey: state.setGlobalShowHotkey,
-		setLlmProvider: state.setLlmProvider,
-		setModelSlug: state.setModelSlug,
-		setApiKey: state.setApiKey,
 		setDefaultShell: state.setDefaultShell,
 		setCustomShellPath: state.setCustomShellPath,
 		setShellArgs: state.setShellArgs,

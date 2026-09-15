@@ -10,3 +10,5 @@ export { createMockAITab, createMockFileTab } from './mockTab';
 export { createMockSession } from './mockSession';
 export { installLocalStorageMock, installSessionStorageMock } from './mockLocalStorage';
 export { ALL_RENDERER_STORES, resetAllStores, resetStore, resetStores } from './resetStores';
+export { canLoadNodeSqlite, nodeSqliteBetterSqlite3Mock } from './nodeSqlite';
+export { markdownEditorModuleMock } from './mockMarkdownEditor';

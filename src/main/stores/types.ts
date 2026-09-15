@@ -47,9 +47,6 @@ export interface BootstrapSettings {
 
 export interface MaestroSettings {
 	activeThemeId: string;
-	llmProvider: string;
-	modelSlug: string;
-	apiKey: string;
 	shortcuts: Record<string, any>;
 	fontSize: number;
 	fontFamily: string;
@@ -112,6 +109,13 @@ export interface MaestroSettings {
 	utilityAgentId: string | null;
 	// Optional model override for the utility agent. When null, the agent default model is used.
 	utilityModelId: string | null;
+	// Days of Maestro Cue run history kept in cue.db. Read by the Cue engine's
+	// prune pass at startup; declared explicitly (rather than left to the index
+	// signature) so main-process readers get `number` instead of `any`.
+	cueHistoryRetentionDays: number;
+	// Collapse repeated Cue runs in the History panel into one row per trigger.
+	// Declared explicitly for the same reason as the retention days above.
+	groupCueEntries: boolean;
 	// Allow dynamic settings keys (electron-store is a key-value store
 	// with many settings not explicitly declared above)
 	[key: string]: any;
