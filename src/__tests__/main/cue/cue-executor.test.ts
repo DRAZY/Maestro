@@ -11,14 +11,13 @@
  * - Successful completion and failure detection
  * - SSH remote execution wrapping
  * - stopCueRun process termination
- * - recordCueHistoryEntry construction
- * - History entry field population and response truncation
+ * - stdout clean extraction via the agent output parser
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import type { ChildProcess } from 'child_process';
-import type { CueEvent, CueSubscription, CueRunResult } from '../../../main/cue/cue-types';
+import type { CueEvent, CueSubscription } from '../../../main/cue/cue-types';
 import type { SessionInfo } from '../../../shared/types';
 import type { TemplateContext } from '../../../shared/templateVariables';
 
@@ -163,7 +162,6 @@ import {
 	stopCueRun,
 	getActiveProcesses,
 	getCueProcessList,
-	recordCueHistoryEntry,
 	type CueExecutionConfig,
 } from '../../../main/cue/cue-executor';
 
@@ -1041,232 +1039,6 @@ describe('cue-executor', () => {
 
 			mockChild.emit('close', null);
 			await resultPromise;
-		});
-	});
-
-	describe('recordCueHistoryEntry', () => {
-		it('should construct a proper CUE history entry', () => {
-			const result: CueRunResult = {
-				runId: 'run-1',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Watch config',
-				event: createMockEvent(),
-				status: 'completed',
-				stdout: 'Task completed successfully',
-				stderr: '',
-				exitCode: 0,
-				durationMs: 5000,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:05.000Z',
-			};
-
-			const session = createMockSession();
-			const entry = recordCueHistoryEntry(result, session);
-
-			expect(entry?.type).toBe('CUE');
-			expect(entry?.id).toBe('test-uuid-1234');
-			// summary prefers a stdout excerpt when available, falling back to the
-			// trigger-label format (see buildCueRunSummary / extractCueOutputExcerpt).
-			expect(entry?.summary).toBe('Task completed successfully');
-			expect(entry?.fullResponse).toBe('Task completed successfully');
-			expect(entry?.projectPath).toBe('/projects/test');
-			expect(entry?.sessionId).toBe('session-1');
-			expect(entry?.sessionName).toBe('Test Session');
-			expect(entry?.success).toBe(true);
-			expect(entry?.elapsedTimeMs).toBe(5000);
-			expect(entry?.cueTriggerName).toBe('Watch config');
-			expect(entry?.cueEventType).toBe('file.changed');
-		});
-
-		it('should set success to false for failed runs', () => {
-			const result: CueRunResult = {
-				runId: 'run-2',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Periodic check',
-				event: createMockEvent({ type: 'time.heartbeat' }),
-				status: 'failed',
-				stdout: '',
-				stderr: 'Error occurred',
-				exitCode: 1,
-				durationMs: 2000,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:02.000Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, createMockSession());
-
-			expect(entry?.success).toBe(false);
-			// stdout was empty, so the row body falls back to stderr rather than
-			// the bare trigger label - the error is the useful part.
-			expect(entry?.summary).toBe('Error occurred');
-		});
-
-		it('should truncate long stdout in fullResponse', () => {
-			const longOutput = 'x'.repeat(15000);
-			const result: CueRunResult = {
-				runId: 'run-3',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Large output',
-				event: createMockEvent(),
-				status: 'completed',
-				stdout: longOutput,
-				stderr: '',
-				exitCode: 0,
-				durationMs: 1000,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:01.000Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, createMockSession());
-
-			expect(entry?.fullResponse?.length).toBe(10000);
-		});
-
-		it('should set fullResponse to undefined when stdout is empty but stderr is not', () => {
-			const result: CueRunResult = {
-				runId: 'run-4',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Silent run',
-				event: createMockEvent(),
-				status: 'completed',
-				stdout: '',
-				stderr: 'warning: config drifted',
-				exitCode: 0,
-				durationMs: 500,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:00.500Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, createMockSession());
-
-			// fullResponse only ever carries stdout, but the row body falls back
-			// to stderr so the retained entry isn't a bare trigger label.
-			expect(entry?.fullResponse).toBeUndefined();
-			expect(entry?.summary).toBe('warning: config drifted');
-		});
-
-		it('returns null for a clean run that produced no output at all', () => {
-			// The heartbeat-noise case: succeeds every few minutes, prints nothing,
-			// and would otherwise log a row whose detail view reads "This run
-			// produced no captured output".
-			const result: CueRunResult = {
-				runId: 'run-4b',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Heartbeat Timer',
-				event: createMockEvent({ type: 'time.heartbeat' }),
-				status: 'completed',
-				stdout: '   \n  ',
-				stderr: '',
-				exitCode: 0,
-				durationMs: 500,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:00.500Z',
-			};
-
-			expect(recordCueHistoryEntry(result, createMockSession())).toBeNull();
-		});
-
-		it('records a SILENT run that did not complete cleanly', () => {
-			// A failure that printed nothing is the entry most worth keeping.
-			for (const status of ['failed', 'timeout', 'stopped'] as const) {
-				const result: CueRunResult = {
-					runId: `run-4c-${status}`,
-					sessionId: 'session-1',
-					sessionName: 'Test Session',
-					subscriptionName: 'Heartbeat Timer',
-					event: createMockEvent({ type: 'time.heartbeat' }),
-					status,
-					stdout: '',
-					stderr: '',
-					exitCode: null,
-					durationMs: 500,
-					startedAt: '2026-03-01T00:00:00.000Z',
-					endedAt: '2026-03-01T00:00:00.500Z',
-				};
-
-				const entry = recordCueHistoryEntry(result, createMockSession());
-				expect(entry).not.toBeNull();
-				expect(entry?.success).toBe(false);
-			}
-		});
-
-		it('should populate cueSourceSession from agent.completed event payload', () => {
-			const result: CueRunResult = {
-				runId: 'run-5',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'On build done',
-				event: createMockEvent({
-					type: 'agent.completed',
-					payload: {
-						sourceSession: 'builder-agent',
-					},
-				}),
-				status: 'completed',
-				stdout: 'Done',
-				stderr: '',
-				exitCode: 0,
-				durationMs: 3000,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:03.000Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, createMockSession());
-
-			expect(entry?.cueSourceSession).toBe('builder-agent');
-			expect(entry?.cueEventType).toBe('agent.completed');
-		});
-
-		it('should set cueSourceSession to undefined when not present in payload', () => {
-			const result: CueRunResult = {
-				runId: 'run-6',
-				sessionId: 'session-1',
-				sessionName: 'Test Session',
-				subscriptionName: 'Timer check',
-				event: createMockEvent({
-					type: 'time.heartbeat',
-					payload: { interval_minutes: 5 },
-				}),
-				status: 'completed',
-				stdout: 'OK',
-				stderr: '',
-				exitCode: 0,
-				durationMs: 1000,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:01.000Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, createMockSession());
-
-			expect(entry?.cueSourceSession).toBeUndefined();
-		});
-
-		it('should use projectRoot for projectPath, falling back to cwd', () => {
-			const session = createMockSession({ projectRoot: '', cwd: '/fallback/cwd' });
-			const result: CueRunResult = {
-				runId: 'run-7',
-				sessionId: 'session-1',
-				sessionName: 'Test',
-				subscriptionName: 'Test',
-				event: createMockEvent(),
-				status: 'completed',
-				stdout: 'done',
-				stderr: '',
-				exitCode: 0,
-				durationMs: 100,
-				startedAt: '2026-03-01T00:00:00.000Z',
-				endedAt: '2026-03-01T00:00:00.100Z',
-			};
-
-			const entry = recordCueHistoryEntry(result, session);
-
-			// Empty string is falsy, so should fall back to cwd
-			expect(entry?.projectPath).toBe('/fallback/cwd');
 		});
 	});
 

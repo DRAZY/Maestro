@@ -592,9 +592,9 @@ export interface CueHistoryQuery {
  * Cue runs for one agent, shaped as {@link HistoryEntry} so the History read
  * path can merge them with the JSONL entries without a second row renderer.
  *
- * The filtering rule and the field mapping both mirror what
- * `recordCueHistoryEntry()` used to write into the JSONL file, so a row reads
- * identically now that it is served from SQLite:
+ * The filtering rule and the field mapping both mirror what the removed JSONL
+ * writer used to put in the agent's history file, so a row reads identically
+ * now that it is served from SQLite:
  *
  * - `summary` is the stored excerpt, falling back to the trigger-label summary
  *   for a run kept because it FAILED silently (the excerpt is NULL there by

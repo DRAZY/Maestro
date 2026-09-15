@@ -8,7 +8,7 @@
  * reach the History panel at all. A mock that records the query string would
  * assert that we typed it, not that it selects the right rows.
  *
- * The three cases that matter, straight from `cueRunIsWorthRecording()`:
+ * The three cases that matter, straight from `CUE_EVENT_WORTH_SHOWING_SQL`:
  *   - a chatty run appears (there is something to read)
  *   - a silent successful run does NOT (a heartbeat with nothing to say -
  *     thousands per week of those are what buried real entries)

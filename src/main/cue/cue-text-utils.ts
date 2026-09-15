@@ -88,11 +88,10 @@ export interface CuePersistedOutput {
 /**
  * Derive the persisted output fields from a finished run.
  *
- * Single source of truth for both writers: `recordCueHistoryEntry()` (JSONL
- * history) and the `cue_events` row finalization in `cue-run-manager.ts`. The
- * two MUST agree, because the DB row exists to replace the history entry - an
- * excerpt that differed between them would change what the user reads
- * depending on which store served the row.
+ * Called from the `cue_events` row finalization in `cue-run-manager.ts`, which
+ * is now the only writer: the JSONL history entry it used to share this
+ * derivation with is gone, and History serves Cue runs straight from the DB
+ * row (see `getCueHistoryEntries`).
  *
  * stdout leads and stderr is the fallback for the excerpt, so a run kept for
  * its error output isn't reduced to a bare trigger label. `fullOutput` is

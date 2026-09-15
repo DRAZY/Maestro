@@ -21,12 +21,7 @@ import {
 } from './global-hotkey-manager';
 import { CueEngine } from './cue/cue-engine';
 import { configureCueTelemetry } from './cue/cue-telemetry';
-import {
-	executeCuePrompt,
-	recordCueHistoryEntry,
-	stopCueRun,
-	getCueProcessList,
-} from './cue/cue-executor';
+import { executeCuePrompt, stopCueRun, getCueProcessList } from './cue/cue-executor';
 import { executeCueShell, stopCueShellRun } from './cue/cue-shell-executor';
 import { executeCueCli, stopCueCliRun } from './cue/cue-cli-executor';
 import { executeCueNotify } from './cue/cue-notify-executor';
@@ -1025,12 +1020,10 @@ app
 						mainWindow,
 						onLog: notifyLog,
 					});
-					// null = the run produced nothing worth a History row (see
-					// cueRunIsWorthRecording); skip the write rather than log a blank.
-					const notifyHistory = recordCueHistoryEntry(notifyResult, sessionInfo);
-					if (notifyHistory) {
-						void historyManager.addEntry(storedSession.id, projectRoot, notifyHistory);
-					}
+					// No History write here: Cue runs are served to History from
+					// `cue_events` (see `getCueHistoryEntries`), so the agent's JSONL
+					// file keeps only USER/AUTO entries and CUE rows can no longer
+					// evict them.
 					return notifyResult;
 				}
 
@@ -1099,13 +1092,8 @@ app
 									// point at the wrong daemon and `maestro-cli.js` may not
 									// exist on the remote host.
 								});
-					const cmdHistory = recordCueHistoryEntry(cmdResult, sessionInfo);
-					// Fire-and-forget: this is on the Cue execution path; the
-					// caller doesn't need to wait for the disk write to settle.
-					// null = nothing worth recording (see cueRunIsWorthRecording).
-					if (cmdHistory) {
-						void historyManager.addEntry(storedSession.id, projectRoot, cmdHistory);
-					}
+					// History reads Cue runs from `cue_events`, not the JSONL file -
+					// see the note on the notify path above.
 					return cmdResult;
 				}
 
@@ -1183,18 +1171,8 @@ app
 						: undefined
 				);
 
-				const historyEntry = recordCueHistoryEntry(result, {
-					id: storedSession.id,
-					name: storedSession.name,
-					toolType: storedSession.toolType,
-					cwd: projectRoot,
-					projectRoot,
-					autoRunFolderPath: storedSession.autoRunFolderPath,
-				});
-				// null = nothing worth recording (see cueRunIsWorthRecording).
-				if (historyEntry) {
-					void historyManager.addEntry(storedSession.id, projectRoot, historyEntry);
-				}
+				// History reads Cue runs from `cue_events`, not the JSONL file -
+				// see the note on the notify path above.
 				return result;
 			},
 			onStopCueRun: (runId) => stopCueRun(runId) || stopCueShellRun(runId) || stopCueCliRun(runId),
@@ -1240,8 +1218,8 @@ app
 		// Initialize history manager (handles migration from legacy format if needed)
 		logger.info('Initializing history manager', 'Startup');
 		const historyManager = getHistoryManager();
-		// Before initialize(): every writer - including the fire-and-forget Cue
-		// paths below, which pass no explicit cap - must trim to the user's
+		// Before initialize(): every writer that passes no explicit cap - and the
+		// legacy-format migration, which never does - must trim to the user's
 		// maxLogBuffer. A writer using the lower built-in fallback silently
 		// truncates history the user raised the cap to keep.
 		historyManager.setMaxEntriesResolver(() => store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION));

@@ -6,20 +6,15 @@
  * - CueTemplateContextBuilder: builds templateContext.cue from event payload
  * - CueSpawnBuilder: constructs a SpawnSpec from session/agent/SSH config
  * - CueProcessLifecycle: spawns the process, captures output, enforces timeout
- *
- * Also contains recordCueHistoryEntry (pure data transformation).
  */
 
-import * as crypto from 'crypto';
 import * as path from 'path';
 import { getWakaTimeManager } from '../wakatime-instance';
 import type { CueEvent, CueRunResult, CueSubscription } from './cue-types';
-import type { HistoryEntry, SessionInfo, ToolType } from '../../shared/types';
+import type { SessionInfo, ToolType } from '../../shared/types';
 import { substituteTemplateVariables, type TemplateContext } from '../../shared/templateVariables';
 import { buildCueTemplateContext } from './cue-template-context-builder';
 import { buildSpawnSpec } from './cue-spawn-builder';
-import { buildCuePersistedOutput } from './cue-text-utils';
-import { buildCueRunSummary } from '../../shared/cue/cue-summary';
 import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
 import {
 	runProcess,
@@ -332,60 +327,4 @@ export function getCueProcessList(): import('./cue-process-lifecycle').CueProces
  */
 export function getCueRunLiveOutput(runId: string): { stdout: string; stderr: string } | null {
 	return getActiveProcessOutput(runId);
-}
-
-/**
- * Whether a finished Cue run is worth a History row.
- *
- * A high-frequency heartbeat that succeeds and prints nothing has nothing to
- * show: the entry carries no `fullResponse`, its summary degrades to the bare
- * trigger label ("Pedsidian-Command-Bus" - every 3 min), and opening it says
- * "This run produced no captured output". Thousands of those per week bury the
- * runs that DID say something and push real entries past the retention cap.
- *
- * A run is recorded when either is true:
- * - It produced output on stdout or stderr - there is something to read.
- * - It did not complete cleanly (failed/timeout/stopped) - a silent failure is
- *   exactly the entry worth keeping, precisely because it printed nothing.
- */
-export function cueRunIsWorthRecording(result: CueRunResult): boolean {
-	if (result.status !== 'completed') return true;
-	return Boolean(result.stdout?.trim()) || Boolean(result.stderr?.trim());
-}
-
-/**
- * Construct a HistoryEntry for a completed Cue run, or null when the run is
- * not worth recording (see `cueRunIsWorthRecording`). Callers MUST skip the
- * history write on null.
- *
- * Follows the same pattern as Auto Run's history recording with type: 'AUTO',
- * but uses type: 'CUE' and populates Cue-specific fields.
- */
-export function recordCueHistoryEntry(
-	result: CueRunResult,
-	session: SessionInfo
-): HistoryEntry | null {
-	if (!cueRunIsWorthRecording(result)) return null;
-
-	// Shared with the `cue_events` row finalizer so the DB row and this history
-	// entry carry byte-identical output - see `buildCuePersistedOutput()`.
-	const { excerpt, fullOutput } = buildCuePersistedOutput(result);
-
-	return {
-		id: crypto.randomUUID(),
-		type: 'CUE',
-		timestamp: Date.now(),
-		summary: excerpt ?? buildCueRunSummary(result),
-		fullResponse: fullOutput ?? undefined,
-		projectPath: session.projectRoot || session.cwd,
-		sessionId: session.id,
-		sessionName: session.name,
-		success: result.status === 'completed',
-		elapsedTimeMs: result.durationMs,
-		cueTriggerName: result.subscriptionName,
-		cueEventType: result.event.type,
-		cueSourceSession: result.event.payload.sourceSession
-			? String(result.event.payload.sourceSession)
-			: undefined,
-	};
 }

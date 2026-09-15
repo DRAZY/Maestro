@@ -266,10 +266,10 @@ function readCueEntries(
 const CUE_DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
 
 /**
- * A Cue run's identity as far as two writers of the same run agree on it. The
- * JSONL entry and the DB row carry byte-identical summaries - both come from
- * `buildCuePersistedOutput()` - but different ids and different timestamps, so
- * id dedupe cannot see the overlap.
+ * A Cue run's identity as far as the two writers of the same run agreed on it.
+ * The JSONL entry and the DB row carry byte-identical summaries - both derived
+ * from `buildCuePersistedOutput()` - but different ids and different
+ * timestamps, so id dedupe cannot see the overlap.
  */
 function cueDuplicateKey(entry: HistoryEntry): string {
 	return [
@@ -283,10 +283,10 @@ function cueDuplicateKey(entry: HistoryEntry): string {
 /**
  * Drop DB-sourced Cue rows that the JSONL file already carries.
  *
- * Needed for the window where both writers are live, and afterwards for the
- * runs already written to JSONL before the Cue writes were removed: those
- * entries stay on disk (they are the only record once a run ages past the Cue
- * retention window) and would otherwise render twice.
+ * The JSONL Cue writes are gone, but every run recorded before they were
+ * removed is still on disk, and stays there: past the Cue retention window
+ * those entries are the only record of the run. Without this they would render
+ * twice, once from each store.
  *
  * Each JSONL entry suppresses at most ONE database row, matched to the nearest
  * completion time. That matters for a trigger that says the same thing every

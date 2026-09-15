@@ -634,10 +634,17 @@ function rowToCueEventRecord(row: CueEventRow): CueEventRecord {
 }
 
 /**
- * The SQL form of `cueRunIsWorthRecording()` (see `cue-executor.ts`): a run
- * earns a History row when it produced output, or when it did not finish
- * cleanly. A silent success is a heartbeat with nothing to say - thousands of
- * those per week are exactly what buried real entries in the JSONL files.
+ * Whether a finished Cue run is worth a History row. A run earns one when
+ * either is true:
+ *
+ * - It produced output - there is something to read.
+ * - It did not complete cleanly (failed/timeout/stopped) - a silent failure is
+ *   exactly the row worth keeping, precisely because it printed nothing.
+ *
+ * A silent success is a heartbeat with nothing to say: no `fullResponse`, a
+ * summary that degrades to the bare trigger label, and a body that reads "This
+ * run produced no captured output". Thousands of those per week are exactly
+ * what buried real entries in the JSONL files.
  *
  * Exported so every reader of this table (History merge, activity-graph
  * buckets) filters on one predicate instead of three drifting copies.
