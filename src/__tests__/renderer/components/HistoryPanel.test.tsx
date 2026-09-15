@@ -177,17 +177,24 @@ describe('HistoryPanel', () => {
 			async (options?: {
 				pagination?: { offset?: number; limit?: number };
 				lookbackHours?: number | null;
+				types?: string[];
 			}) => {
 				const all = await mockHistoryGetAll();
 				const arr = Array.isArray(all) ? all : [];
-				// Mirror the server: apply lookback filter before paging.
+				// Mirror the server: apply lookback + type filters before paging.
+				// The type filter matters beyond bookkeeping now that CUE rows are
+				// served from `cue_events` (CUE-HISTORY-02): the handler skips that
+				// query entirely when 'CUE' is absent from `types`, so a panel that
+				// stopped sending the array would get Cue rows it asked to hide.
 				const lookback = options?.lookbackHours ?? null;
 				const cutoff =
 					lookback !== null && lookback > 0 ? Date.now() - lookback * 60 * 60 * 1000 : 0;
-				const filtered =
-					cutoff > 0
-						? arr.filter((e: { timestamp?: number }) => (e.timestamp ?? 0) >= cutoff)
-						: arr;
+				const typeSet = options?.types ? new Set(options.types) : null;
+				const filtered = arr.filter(
+					(e: { timestamp?: number; type?: string }) =>
+						(cutoff === 0 || (e.timestamp ?? 0) >= cutoff) &&
+						(!typeSet || typeSet.has(e.type ?? ''))
+				);
 				const offset = options?.pagination?.offset ?? 0;
 				const limit = options?.pagination?.limit ?? 100;
 				const slice = filtered.slice(offset, offset + limit);
@@ -612,6 +619,94 @@ describe('HistoryPanel', () => {
 
 			await waitFor(() => {
 				expect(screen.getByText('Cue triggered task')).toBeInTheDocument();
+			});
+		});
+
+		// CUE rows are no longer in the agent's JSONL file - the main process
+		// reads them from `cue_events` and SKIPS that query entirely when 'CUE'
+		// is absent from the request's `types` (CUE-HISTORY-02). So the pill is
+		// only half a client-side filter now; these cover the server half.
+		it('sends the CUE type to the main process so Cue rows are queried at all', async () => {
+			useSettingsStore.setState({
+				encoreFeatures: {
+					directorNotes: false,
+					usageStats: false,
+					symphony: false,
+					maestroCue: true,
+				},
+			});
+			mockHistoryGetAll.mockResolvedValue([]);
+			const getAllPaginated = (
+				window as unknown as {
+					maestro: { history: { getAllPaginated: ReturnType<typeof vi.fn> } };
+				}
+			).maestro.history.getAllPaginated;
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(getAllPaginated).toHaveBeenCalled();
+			});
+			const typesOnLoad = getAllPaginated.mock.calls[getAllPaginated.mock.calls.length - 1][0]
+				.types as string[];
+			expect([...typesOnLoad].sort()).toEqual(['AUTO', 'CUE', 'USER']);
+
+			// Toggling the pill off must drop CUE from the request, not merely
+			// hide already-fetched rows.
+			fireEvent.click(screen.getByRole('button', { name: /CUE/i }));
+
+			await waitFor(() => {
+				const types = getAllPaginated.mock.calls[getAllPaginated.mock.calls.length - 1][0]
+					.types as string[];
+				expect(types).not.toContain('CUE');
+				expect([...types].sort()).toEqual(['AUTO', 'USER']);
+			});
+		});
+
+		it('keeps the empty state honest for a Cue-only agent when CUE is toggled off', async () => {
+			// An agent whose activity is entirely Cue runs has no JSONL entries
+			// at all, so the server returns zero rows once CUE leaves `types`.
+			// The empty state must blame the filter, not claim the agent has
+			// never run anything.
+			useSettingsStore.setState({
+				encoreFeatures: {
+					directorNotes: false,
+					usageStats: false,
+					symphony: false,
+					maestroCue: true,
+				},
+			});
+			mockHistoryGetAll.mockResolvedValue([
+				createMockEntry({
+					id: 'cue-only-1',
+					type: 'CUE',
+					summary: 'Nightly sweep finished',
+					cueTriggerName: 'nightly',
+					cueEventType: 'time.interval',
+				}),
+			]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Nightly sweep finished')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /CUE/i }));
+
+			await waitFor(() => {
+				expect(
+					screen.getByText('No entries match the selected filters in the loaded window.')
+				).toBeInTheDocument();
+			});
+			expect(screen.queryByText(/No history yet/)).not.toBeInTheDocument();
+
+			// And back on: the rows return from the server, not from a stale
+			// client-side cache.
+			fireEvent.click(screen.getByRole('button', { name: /CUE/i }));
+
+			await waitFor(() => {
+				expect(screen.getByText('Nightly sweep finished')).toBeInTheDocument();
 			});
 		});
 

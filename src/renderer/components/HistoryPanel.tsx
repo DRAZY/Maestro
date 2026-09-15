@@ -404,6 +404,16 @@ export const HistoryPanel = React.memo(
 			});
 		}, [historyEntries, activeFilters, searchFilter, selectedHost]);
 
+		// Is the user hiding at least one entry type right now? The type filter
+		// runs SERVER-side (see `loadPage`), so `totalCount` is already net of
+		// it - which means "totalCount === 0" alone cannot tell "this agent has
+		// no history" apart from "the pills hid all of it". Without this guard,
+		// deselecting the only type an agent has - the CUE pill on an agent
+		// whose activity is all Cue runs, now that those rows come from
+		// `cue_events` and are withheld server-side when CUE is off - answers
+		// "No history yet", which is simply untrue.
+		const hasNarrowingTypeFilter = visibleTypes.some((type) => !activeFilters.has(type));
+
 		// Tally hosts. Prefers the server-side aggregate from `getGraphData`
 		// (already filtered by the active lookback window and covers the
 		// full source, not just the loaded pagination window) and falls
@@ -886,7 +896,7 @@ export const HistoryPanel = React.memo(
 						<div className="text-center py-8 text-xs opacity-50">Loading history...</div>
 					) : allFilteredEntries.length === 0 ? (
 						<div className="text-center py-8 text-xs opacity-50">
-							{totalCount === 0 ? (
+							{totalCount === 0 && !hasNarrowingTypeFilter ? (
 								graphLookbackHours !== null ? (
 									<>
 										No entries in the last{' '}
