@@ -1687,6 +1687,8 @@ maestro-cli director-notes synopsis --json
 
 `synopsis` requires the desktop app to be running; `history` reads from disk and works offline. If `encoreFeatures.directorNotes` is disabled, enable it first with `maestro-cli settings set encoreFeatures.directorNotes true`.
 
+The provider follows the app's Director's Notes setting. By default that is "use the first available provider", so the desktop picks an installed agent when the run starts and `--json` reports which one actually ran. Pin it with `maestro-cli settings set directorNotesSettings.autoSelectProvider false`.
+
 ## Publishing Session Transcripts to Gists
 
 Publish an agent's session transcript to a GitHub gist so you can share it with collaborators or attach it to a bug report. Routes through the running Maestro desktop app (which holds the live transcript) and uses the user's authenticated `gh` CLI under the hood.

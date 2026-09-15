@@ -285,6 +285,7 @@ export const DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY: FilePreviewToolbarVisibili
 
 const DEFAULT_DIRECTOR_NOTES_SETTINGS: DirectorNotesSettings = {
 	provider: 'claude-code',
+	autoSelectProvider: true,
 	defaultLookbackDays: 7,
 };
 

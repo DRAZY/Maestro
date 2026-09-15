@@ -3155,14 +3155,14 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 				const agentDetector = new AgentDetector();
 				const agentConfigsStore = getAgentConfigsStore();
 
-				const agent = await agentDetector.getAgent(provider as any);
-				if (!agent || !agent.available) {
-					return {
-						success: false,
-						synopsis: '',
-						error: `Agent "${provider}" is not available.`,
-					};
+				// Same resolution the desktop handler uses, so `'auto'` picks the first
+				// installed supported provider here too (the CLI sends it by default).
+				const { resolveSynopsisProvider } = await import('../utils/director-notes-provider');
+				const resolvedProvider = await resolveSynopsisProvider(provider as any, agentDetector);
+				if ('error' in resolvedProvider) {
+					return { success: false, synopsis: '', error: resolvedProvider.error };
 				}
+				const agentType = resolvedProvider.provider;
 
 				const historyManager = getHistoryManager();
 
@@ -3212,7 +3212,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 
 				try {
 					const allConfigs = agentConfigsStore.get('configs', {});
-					const dnAgentConfigValues = allConfigs[provider] || {};
+					const dnAgentConfigValues = allConfigs[agentType] || {};
 
 					// Intentionally local, same as the desktop Director's Notes handler:
 					// the prompt manifests history files on THIS machine, so grooming
@@ -3220,7 +3220,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					const result = await groomContext(
 						{
 							projectRoot: process.cwd(),
-							agentType: provider as any,
+							agentType,
 							prompt,
 							readOnlyMode: true,
 							agentConfigValues: dnAgentConfigValues,
