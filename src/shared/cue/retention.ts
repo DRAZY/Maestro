@@ -69,3 +69,51 @@ export function resolveCueHistoryRetentionDays(value: unknown): number {
 export function resolveCueHistoryRetentionMs(value: unknown): number {
 	return resolveCueHistoryRetentionDays(value) * MS_PER_DAY;
 }
+
+/**
+ * Day counts offered by the Activity Log's retention control.
+ *
+ * A short ladder rather than a free-text number box: the choice is "how far
+ * back do I want to be able to look", not a value anyone tunes to the day, and
+ * a typo in a free-text box is a destructive prune. The default must appear in
+ * this list so the control can render it without a custom entry.
+ */
+export const CUE_HISTORY_RETENTION_DAY_OPTIONS: readonly number[] = [7, 14, 30, 60, 90, 365];
+
+/** A single choice in the retention control: the day count and its label. */
+export interface CueHistoryRetentionOption {
+	days: number;
+	label: string;
+}
+
+/**
+ * Label a retention window for display ("30 days", "1 year").
+ *
+ * @param days - A whole day count >= 1
+ */
+export function formatCueHistoryRetention(days: number): string {
+	if (days === 365) return '1 year';
+	if (days === 1) return '1 day';
+	return `${days} days`;
+}
+
+/**
+ * Build the retention control's option list, including the current value.
+ *
+ * A day count can reach the settings file from the CLI or by hand, so the
+ * stored value is not guaranteed to be one of the offered rungs. A native
+ * `<select>` whose `value` matches no `<option>` renders BLANK, which would
+ * show the user no retention window at all while the engine happily prunes by
+ * one. So a custom value is folded into the ladder in sorted position instead.
+ *
+ * @param currentDays - The resolved current setting (run it through
+ *   {@link resolveCueHistoryRetentionDays} first)
+ * @returns Ascending options, always containing `currentDays`
+ */
+export function cueHistoryRetentionOptions(currentDays: number): CueHistoryRetentionOption[] {
+	const days = new Set<number>(CUE_HISTORY_RETENTION_DAY_OPTIONS);
+	days.add(currentDays);
+	return [...days]
+		.sort((a, b) => a - b)
+		.map((d) => ({ days: d, label: formatCueHistoryRetention(d) }));
+}

@@ -9,8 +9,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+	CUE_HISTORY_RETENTION_DAY_OPTIONS,
 	DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 	DEFAULT_CUE_HISTORY_RETENTION_MS,
+	cueHistoryRetentionOptions,
+	formatCueHistoryRetention,
 	resolveCueHistoryRetentionDays,
 	resolveCueHistoryRetentionMs,
 } from '../../../shared/cue/retention';
@@ -68,6 +71,49 @@ describe('shared/cue/retention', () => {
 		it('never returns zero or NaN for garbage', () => {
 			for (const value of [undefined, null, 0, -5, NaN, 'abc']) {
 				expect(resolveCueHistoryRetentionMs(value)).toBe(DEFAULT_CUE_HISTORY_RETENTION_MS);
+			}
+		});
+	});
+
+	describe('formatCueHistoryRetention', () => {
+		it.each([
+			[1, '1 day'],
+			[7, '7 days'],
+			[14, '14 days'],
+			[365, '1 year'],
+		])('labels %i as %s', (days, label) => {
+			expect(formatCueHistoryRetention(days)).toBe(label);
+		});
+	});
+
+	describe('cueHistoryRetentionOptions', () => {
+		// The control renders the default on first open, so a default missing
+		// from the ladder would render a blank select for every new install.
+		it('offers the default as one of the rungs', () => {
+			expect(CUE_HISTORY_RETENTION_DAY_OPTIONS).toContain(DEFAULT_CUE_HISTORY_RETENTION_DAYS);
+		});
+
+		it('returns the standard ladder for a standard value', () => {
+			expect(
+				cueHistoryRetentionOptions(DEFAULT_CUE_HISTORY_RETENTION_DAYS).map((o) => o.days)
+			).toEqual([...CUE_HISTORY_RETENTION_DAY_OPTIONS]);
+		});
+
+		// A value set by hand or by the CLI must still be selectable, or the
+		// native select renders blank while the engine prunes by it anyway.
+		it('folds a custom value into the ladder in sorted position', () => {
+			const days = cueHistoryRetentionOptions(21).map((o) => o.days);
+			expect(days).toEqual([7, 14, 21, 30, 60, 90, 365]);
+		});
+
+		it('does not duplicate a custom value that is already a rung', () => {
+			const days = cueHistoryRetentionOptions(30).map((o) => o.days);
+			expect(days).toEqual([...CUE_HISTORY_RETENTION_DAY_OPTIONS]);
+		});
+
+		it('labels every option', () => {
+			for (const opt of cueHistoryRetentionOptions(21)) {
+				expect(opt.label).toBe(formatCueHistoryRetention(opt.days));
 			}
 		});
 	});

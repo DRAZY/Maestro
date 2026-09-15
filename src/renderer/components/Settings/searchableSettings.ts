@@ -45,6 +45,15 @@ export interface SearchableSetting {
 	description?: string;
 	/** Extra keywords for search matching (not displayed) */
 	keywords?: string[];
+	/**
+	 * Element to scroll to instead of `id`, for a setting whose control lives
+	 * OUTSIDE the Settings modal (the Cue retention dial sits in the Cue
+	 * modal's Activity Log header). Without this the jump would hunt for an id
+	 * the Settings content never renders and quietly give up, leaving the user
+	 * on a tab with nothing highlighted. Point it at the nearest section that
+	 * does render so the result still lands somewhere meaningful.
+	 */
+	jumpToId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1216,7 +1225,7 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 		tabLabel: 'Encore Features',
 		label: 'Maestro Cue',
 		description:
-			'Event-driven automation (Beta) — trigger agent prompts on timers, file changes, agent completions, GitHub PRs/issues, and pending tasks',
+			'Event-driven automation (Beta) - trigger agent prompts on timers, file changes, agent completions, GitHub PRs/issues, and pending tasks',
 		keywords: [
 			'cue',
 			'automation',
@@ -1233,6 +1242,31 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'beta',
 			'cron',
 			'schedule',
+		],
+	},
+	{
+		id: 'cue-history-retention',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		jumpToId: 'encore-cue',
+		label: 'Cue history retention',
+		description:
+			"How many days of Maestro Cue run history to keep. The control is in the Cue modal's Activity Log header; runs older than the window are pruned when the Cue engine starts.",
+		keywords: [
+			'cue',
+			'retention',
+			'history',
+			'activity log',
+			'prune',
+			'purge',
+			'cleanup',
+			'days',
+			'keep',
+			'database',
+			'cue.db',
+			'cue_events',
+			'expire',
+			'older than',
 		],
 	},
 	{
