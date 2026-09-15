@@ -55,6 +55,15 @@ export interface CueEventRecord {
 	 * still running) or for status flips that aren't run completions.
 	 */
 	exitCode?: number | null;
+	/**
+	 * Short, sentence-aligned body derived from the run's output - what a
+	 * History row renders as its summary. NULL when the run printed nothing,
+	 * which is what makes it the noise filter (see
+	 * {@link CUE_EVENT_WORTH_SHOWING_SQL}).
+	 */
+	outputExcerpt?: string | null;
+	/** Head-truncated stdout behind the excerpt. NULL for a silent run. */
+	fullOutput?: string | null;
 }
 
 // ============================================================================
@@ -580,40 +589,30 @@ export function countCueEvents(): number {
 	return row?.c ?? 0;
 }
 
-/**
- * Retrieve recent Cue events created after a given timestamp.
- *
- * Returns `[]` if the DB hasn't been initialized yet. Mirrors the tolerance of
- * `countCueEvents`: read paths can be hit from IPC (stats UI, activity panel)
- * before/after the engine's start/stop lifecycle has touched the DB, e.g. when
- * boot-time `initCueDb()` failed but the user's encore flags are still on. The
- * UI renders empty results instead of crashing.
- */
-export function getRecentCueEvents(since: number, limit?: number): CueEventRecord[] {
-	if (!db) return [];
-	const sql = limit
-		? `SELECT * FROM cue_events WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?`
-		: `SELECT * FROM cue_events WHERE created_at >= ? ORDER BY created_at DESC`;
+/** Raw `SELECT * FROM cue_events` row shape, before camelCase mapping. */
+interface CueEventRow {
+	id: string;
+	type: string;
+	trigger_name: string;
+	session_id: string;
+	subscription_name: string;
+	status: string;
+	created_at: number;
+	completed_at: number | null;
+	payload: string | null;
+	pipeline_id: string | null;
+	chain_root_id: string | null;
+	parent_event_id: string | null;
+	provider_session_id: string | null;
+	error_message: string | null;
+	exit_code: number | null;
+	output_excerpt: string | null;
+	full_output: string | null;
+}
 
-	const rows = (limit ? db.prepare(sql).all(since, limit) : db.prepare(sql).all(since)) as Array<{
-		id: string;
-		type: string;
-		trigger_name: string;
-		session_id: string;
-		subscription_name: string;
-		status: string;
-		created_at: number;
-		completed_at: number | null;
-		payload: string | null;
-		pipeline_id: string | null;
-		chain_root_id: string | null;
-		parent_event_id: string | null;
-		provider_session_id: string | null;
-		error_message: string | null;
-		exit_code: number | null;
-	}>;
-
-	return rows.map((row) => ({
+/** Single mapping from the on-disk row to {@link CueEventRecord}. */
+function rowToCueEventRecord(row: CueEventRow): CueEventRecord {
+	return {
 		id: row.id,
 		type: row.type,
 		triggerName: row.trigger_name,
@@ -629,7 +628,83 @@ export function getRecentCueEvents(since: number, limit?: number): CueEventRecor
 		providerSessionId: row.provider_session_id,
 		errorMessage: row.error_message,
 		exitCode: row.exit_code,
-	}));
+		outputExcerpt: row.output_excerpt,
+		fullOutput: row.full_output,
+	};
+}
+
+/**
+ * The SQL form of `cueRunIsWorthRecording()` (see `cue-executor.ts`): a run
+ * earns a History row when it produced output, or when it did not finish
+ * cleanly. A silent success is a heartbeat with nothing to say - thousands of
+ * those per week are exactly what buried real entries in the JSONL files.
+ *
+ * Exported so every reader of this table (History merge, activity-graph
+ * buckets) filters on one predicate instead of three drifting copies.
+ */
+export const CUE_EVENT_WORTH_SHOWING_SQL = `(output_excerpt IS NOT NULL OR status != 'completed')`;
+
+/**
+ * Cue runs for one agent inside a time window, filtered to the runs worth
+ * surfacing in History (see {@link CUE_EVENT_WORTH_SHOWING_SQL}).
+ *
+ * `since` is inclusive, `until` exclusive. Newest first, matching the order
+ * the history read path merges on.
+ *
+ * Returns `[]` when the DB isn't initialized - same tolerance as
+ * `getRecentCueEvents`, because History is readable long before (and after)
+ * the Cue engine's lifecycle has touched the database.
+ */
+export function getCueEventsForHistory(options: {
+	sessionId: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}): CueEventRecord[] {
+	if (!db) return [];
+
+	const clauses = [`session_id = ?`];
+	const params: unknown[] = [options.sessionId];
+	if (options.since !== undefined) {
+		clauses.push(`created_at >= ?`);
+		params.push(options.since);
+	}
+	if (options.until !== undefined) {
+		clauses.push(`created_at < ?`);
+		params.push(options.until);
+	}
+	clauses.push(CUE_EVENT_WORTH_SHOWING_SQL);
+
+	let sql = `SELECT * FROM cue_events WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC`;
+	if (options.limit !== undefined) {
+		sql += ` LIMIT ?`;
+		params.push(options.limit);
+	}
+
+	const rows = db.prepare(sql).all(...params) as CueEventRow[];
+	return rows.map(rowToCueEventRecord);
+}
+
+/**
+ * Retrieve recent Cue events created after a given timestamp.
+ *
+ * Returns `[]` if the DB hasn't been initialized yet. Mirrors the tolerance of
+ * `countCueEvents`: read paths can be hit from IPC (stats UI, activity panel)
+ * before/after the engine's start/stop lifecycle has touched the DB, e.g. when
+ * boot-time `initCueDb()` failed but the user's encore flags are still on. The
+ * UI renders empty results instead of crashing.
+ */
+export function getRecentCueEvents(since: number, limit?: number): CueEventRecord[] {
+	if (!db) return [];
+	const sql = limit
+		? `SELECT * FROM cue_events WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?`
+		: `SELECT * FROM cue_events WHERE created_at >= ? ORDER BY created_at DESC`;
+
+	const rows = (
+		limit ? db.prepare(sql).all(since, limit) : db.prepare(sql).all(since)
+	) as CueEventRow[];
+
+	return rows.map(rowToCueEventRecord);
 }
 
 /**

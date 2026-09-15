@@ -12,13 +12,20 @@
  * event maps to exactly one provider session - no double-counting. Events with
  * no recorded provider session id (command/shell runs, or rows written before
  * provider-id capture landed) contribute zeros.
+ *
+ * Also the read side of the Cue/History split: `getCueHistoryEntries()` serves
+ * Cue runs to the History panel straight from this table, so a chatty fleet no
+ * longer evicts the user's own turns out of the per-agent JSONL file.
  */
 
-import { getRecentCueEvents } from '../cue-db';
+import { getCueEventsForHistory, getRecentCueEvents } from '../cue-db';
 import type { CueEventRecord } from '../cue-db';
 import { getTimeRangeStart } from '../../stats/utils';
 import { computePercentiles } from '../../../shared/percentiles';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
+import { buildCueRunSummary } from '../../../shared/cue/cue-summary';
+import type { CueEventType } from '../../../shared/cue/contracts';
+import type { HistoryEntry } from '../../../shared/types';
 import {
 	getAgentTypesForSessions,
 	getSessionTokenSummaries,
@@ -559,4 +566,99 @@ export async function getCueStatsAggregation(
 		bucketSizeMs,
 		coverageWarnings,
 	};
+}
+
+/**
+ * Agent metadata that lives on the Session, not on the `cue_events` row. The
+ * DB knows which agent ran a Cue job but not where that agent points or what
+ * it is called today, so the caller supplies both.
+ */
+export interface CueHistoryQuery {
+	/** Maestro agent id (`cue_events.session_id`). */
+	sessionId: string;
+	/** Inclusive lower bound on `created_at`, in ms. Unbounded when omitted. */
+	since?: number;
+	/** Exclusive upper bound on `created_at`, in ms. Unbounded when omitted. */
+	until?: number;
+	/** Row cap, newest first. */
+	limit?: number;
+	/** Agent display name, for the row's trigger/agent label. */
+	sessionName?: string;
+	/** Agent project root, used as the entry's `projectPath`. */
+	projectPath?: string;
+}
+
+/**
+ * Cue runs for one agent, shaped as {@link HistoryEntry} so the History read
+ * path can merge them with the JSONL entries without a second row renderer.
+ *
+ * The filtering rule and the field mapping both mirror what
+ * `recordCueHistoryEntry()` used to write into the JSONL file, so a row reads
+ * identically now that it is served from SQLite:
+ *
+ * - `summary` is the stored excerpt, falling back to the trigger-label summary
+ *   for a run kept because it FAILED silently (the excerpt is NULL there by
+ *   definition).
+ * - `cueTriggerName` is the subscription name, matching the JSONL writer.
+ *   `trigger_name` holds the raw watcher/poller label, which for file and
+ *   GitHub triggers is not what the panel labelled the row with.
+ * - A row still marked `running` is painted as a failure, the same rule the
+ *   Cue activity log applies when it rehydrates (`recordToRunResult()` in
+ *   cue-engine.ts): the overwhelming majority are runs orphaned by a crash,
+ *   and a third behavior here would only make the two views disagree.
+ */
+export function getCueHistoryEntries(query: CueHistoryQuery): HistoryEntry[] {
+	const events = getCueEventsForHistory({
+		sessionId: query.sessionId,
+		since: query.since,
+		until: query.until,
+		limit: query.limit,
+	});
+	return events.map((event) => cueEventToHistoryEntry(event, query));
+}
+
+function cueEventToHistoryEntry(event: CueEventRecord, query: CueHistoryQuery): HistoryEntry {
+	const payload = parseEventPayload(event.payload);
+	const excerpt = event.outputExcerpt?.trim() ? event.outputExcerpt : null;
+	const sourceSession = payload.sourceSession;
+
+	return {
+		id: event.id,
+		type: 'CUE',
+		timestamp: event.createdAt,
+		summary:
+			excerpt ??
+			buildCueRunSummary({
+				subscriptionName: event.subscriptionName,
+				sessionName: query.sessionName ?? event.sessionId,
+				event: {
+					id: event.id,
+					type: event.type as CueEventType,
+					timestamp: new Date(event.createdAt).toISOString(),
+					triggerName: event.triggerName,
+					payload,
+				},
+			}),
+		fullResponse: event.fullOutput ?? undefined,
+		projectPath: query.projectPath ?? '',
+		sessionId: event.sessionId,
+		sessionName: query.sessionName,
+		success: event.status === 'completed',
+		elapsedTimeMs:
+			event.completedAt != null ? Math.max(0, event.completedAt - event.createdAt) : undefined,
+		cueTriggerName: event.subscriptionName,
+		cueEventType: event.type,
+		cueSourceSession: sourceSession != null ? String(sourceSession) : undefined,
+	};
+}
+
+/** Tolerant payload parse - a corrupt row must not break the History list. */
+function parseEventPayload(payload: string | null | undefined): Record<string, unknown> {
+	if (!payload) return {};
+	try {
+		const parsed = JSON.parse(payload);
+		return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+	} catch {
+		return {};
+	}
 }

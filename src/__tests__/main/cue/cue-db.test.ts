@@ -423,6 +423,8 @@ describe('cue-db event journal', () => {
 				created_at: 1000000,
 				completed_at: 1000500,
 				payload: '{"file":"test.ts"}',
+				output_excerpt: 'Reformatted test.ts.',
+				full_output: 'Reformatted test.ts.\nNothing else to do.',
 			},
 		];
 
@@ -438,6 +440,8 @@ describe('cue-db event journal', () => {
 			createdAt: 1000000,
 			completedAt: 1000500,
 			payload: '{"file":"test.ts"}',
+			outputExcerpt: 'Reformatted test.ts.',
+			fullOutput: 'Reformatted test.ts.\nNothing else to do.',
 		});
 	});
 });
