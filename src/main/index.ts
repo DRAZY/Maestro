@@ -1023,8 +1023,12 @@ app
 						mainWindow,
 						onLog: notifyLog,
 					});
+					// null = the run produced nothing worth a History row (see
+					// cueRunIsWorthRecording); skip the write rather than log a blank.
 					const notifyHistory = recordCueHistoryEntry(notifyResult, sessionInfo);
-					void historyManager.addEntry(storedSession.id, projectRoot, notifyHistory);
+					if (notifyHistory) {
+						void historyManager.addEntry(storedSession.id, projectRoot, notifyHistory);
+					}
 					return notifyResult;
 				}
 
@@ -1096,7 +1100,10 @@ app
 					const cmdHistory = recordCueHistoryEntry(cmdResult, sessionInfo);
 					// Fire-and-forget: this is on the Cue execution path; the
 					// caller doesn't need to wait for the disk write to settle.
-					void historyManager.addEntry(storedSession.id, projectRoot, cmdHistory);
+					// null = nothing worth recording (see cueRunIsWorthRecording).
+					if (cmdHistory) {
+						void historyManager.addEntry(storedSession.id, projectRoot, cmdHistory);
+					}
 					return cmdResult;
 				}
 
@@ -1182,7 +1189,10 @@ app
 					projectRoot,
 					autoRunFolderPath: storedSession.autoRunFolderPath,
 				});
-				void historyManager.addEntry(storedSession.id, projectRoot, historyEntry);
+				// null = nothing worth recording (see cueRunIsWorthRecording).
+				if (historyEntry) {
+					void historyManager.addEntry(storedSession.id, projectRoot, historyEntry);
+				}
 				return result;
 			},
 			onStopCueRun: (runId) => stopCueRun(runId) || stopCueShellRun(runId) || stopCueCliRun(runId),

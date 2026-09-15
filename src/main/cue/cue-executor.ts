@@ -337,18 +337,46 @@ export function getCueRunLiveOutput(runId: string): { stdout: string; stderr: st
 }
 
 /**
- * Construct a HistoryEntry for a completed Cue run.
+ * Whether a finished Cue run is worth a History row.
+ *
+ * A high-frequency heartbeat that succeeds and prints nothing has nothing to
+ * show: the entry carries no `fullResponse`, its summary degrades to the bare
+ * trigger label ("Pedsidian-Command-Bus" - every 3 min), and opening it says
+ * "This run produced no captured output". Thousands of those per week bury the
+ * runs that DID say something and push real entries past the retention cap.
+ *
+ * A run is recorded when either is true:
+ * - It produced output on stdout or stderr - there is something to read.
+ * - It did not complete cleanly (failed/timeout/stopped) - a silent failure is
+ *   exactly the entry worth keeping, precisely because it printed nothing.
+ */
+export function cueRunIsWorthRecording(result: CueRunResult): boolean {
+	if (result.status !== 'completed') return true;
+	return Boolean(result.stdout?.trim()) || Boolean(result.stderr?.trim());
+}
+
+/**
+ * Construct a HistoryEntry for a completed Cue run, or null when the run is
+ * not worth recording (see `cueRunIsWorthRecording`). Callers MUST skip the
+ * history write on null.
  *
  * Follows the same pattern as Auto Run's history recording with type: 'AUTO',
  * but uses type: 'CUE' and populates Cue-specific fields.
  */
-export function recordCueHistoryEntry(result: CueRunResult, session: SessionInfo): HistoryEntry {
+export function recordCueHistoryEntry(
+	result: CueRunResult,
+	session: SessionInfo
+): HistoryEntry | null {
+	if (!cueRunIsWorthRecording(result)) return null;
+
 	const fullResponse =
 		result.stdout.length > MAX_HISTORY_RESPONSE_LENGTH
 			? sliceHeadByChars(result.stdout, MAX_HISTORY_RESPONSE_LENGTH)
 			: result.stdout;
 
-	const excerpt = extractCueOutputExcerpt(result.stdout);
+	// Prefer stdout for the row body; fall back to stderr so a run kept for its
+	// error output isn't reduced to the bare trigger label, then to the label.
+	const excerpt = extractCueOutputExcerpt(result.stdout) ?? extractCueOutputExcerpt(result.stderr);
 
 	return {
 		id: crypto.randomUUID(),
