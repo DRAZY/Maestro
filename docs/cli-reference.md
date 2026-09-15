@@ -1102,6 +1102,50 @@ surfacing later as an agent that will not start. Works with the desktop closed.
 | `--timeout <seconds>`   | Give up after this many seconds                      | `60`    |
 | `--json`                | Output as JSON (for scripting)                       | -       |
 
+## `maestro-cli display`
+
+View and manage typography (fonts, sizes, zoom)
+
+## `maestro-cli display font [surface] [value]`
+
+Get or set a surface font. Surfaces: interface, terminal, chat, filePreview, documentGraph, fileEditor. Pass "inherit" (or "inherit:terminal") to follow a root surface. Omit the surface to list all.
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli display size <surface> [value]`
+
+Get or set a surface font size in px. Pass "inherit" to follow the interface size.
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli display zoom [level]`
+
+Get or set the global zoom applied to every surface (e.g. 125% or 1.25)
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli display preset [name]`
+
+Get the active typography preset, or reset every font and size to one (default | hacker)
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli display fonts`
+
+List the fonts bundled with Maestro (guaranteed available on any machine)
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
 ## `maestro-cli settings`
 
 View and manage Maestro configuration
