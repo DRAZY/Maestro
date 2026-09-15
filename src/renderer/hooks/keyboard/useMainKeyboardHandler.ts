@@ -353,15 +353,19 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.activeRightTab === 'files' &&
 					ctx.fileTreeFilterOpen;
 				// Allow the zoom shortcuts (Cmd+=/+, Cmd+-, Cmd+Shift+0) even when
-				// modals/overlays are open. `=`/`+`/`-` take no Shift (matching the
-				// in/out handler below) and `0` takes Shift ONLY - the actual reset
-				// is Cmd+Shift+0 (see the comment above that handler); a bare Cmd+0
-				// is "Go to Last Tab" and must NOT fall through here, or it switches
-				// tabs behind an open modal instead of being blocked by the guard.
+				// modals/overlays are open. `=`/`-` take no Shift (matching the
+				// in/out handler below); `+` is included regardless of Shift because
+				// US layouts only produce it WITH Shift held (Cmd+Shift+= reads as
+				// Cmd++), so requiring !e.shiftKey there would make it unreachable.
+				// `0` takes Shift ONLY - the actual reset is Cmd+Shift+0 (see the
+				// comment above that handler); a bare Cmd+0 is "Go to Last Tab" and
+				// must NOT fall through here, or it switches tabs behind an open
+				// modal instead of being blocked by the guard.
 				const isFontSizeShortcut =
 					(e.metaKey || e.ctrlKey) &&
 					!e.altKey &&
-					((!e.shiftKey && (e.key === '=' || e.key === '+' || e.key === '-')) ||
+					(((e.key === '=' || e.key === '-') && !e.shiftKey) ||
+						e.key === '+' ||
 						(e.shiftKey && e.key === '0'));
 				// Allow the openPromptComposer shortcut to fall through while the Prompt
 				// Composer is the open modal, so pressing it again cycles windowed ->
@@ -993,8 +997,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 			// multiplier preserves the ratios exactly and is perfectly
 			// reversible, which is what makes the reset below able to restore
 			// custom sizes rather than flatten them.
-			if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
-				if (e.key === '=' || e.key === '+') {
+			if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+				// `+` is included regardless of Shift: US layouts only produce it
+				// WITH Shift held, so Cmd+Shift+= (read as Cmd++) must still zoom in.
+				if (e.key === '+' || (!e.shiftKey && e.key === '=')) {
 					e.preventDefault();
 					const { fontZoom, setFontZoom } = useSettingsStore.getState();
 					const next = clampFontZoom(fontZoom + FONT_ZOOM_STEP);
@@ -1002,7 +1008,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					trackShortcut('fontSizeIncrease');
 					return;
 				}
-				if (e.key === '-') {
+				if (!e.shiftKey && e.key === '-') {
 					e.preventDefault();
 					const { fontZoom, setFontZoom } = useSettingsStore.getState();
 					const next = clampFontZoom(fontZoom - FONT_ZOOM_STEP);
