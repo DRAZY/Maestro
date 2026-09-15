@@ -10,6 +10,20 @@ const RESIZE_PERSIST_DEBOUNCE_MS = 300;
 
 export type ModalResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 
+/**
+ * Which point of the surface stays put while it resizes.
+ *
+ * `center` is a modal: it is centered in the viewport, so growing it pushes
+ * both edges outward and a dragged corner only keeps up with the cursor if the
+ * box grows by twice the cursor delta.
+ *
+ * `top-left` is a surface pinned by its top-left corner - a dropdown under its
+ * trigger, a popover. There the dragged corner moves 1:1 with the cursor. Such
+ * a surface should expose only the `s`, `e` and `se` handles: dragging `n` or
+ * `w` would have to move the anchor, which this hook does not do.
+ */
+export type ModalResizeAnchor = 'center' | 'top-left';
+
 export interface UseResizableModalOptions {
 	resizeKey: ModalResizeKey;
 	defaultSize: ModalSize;
@@ -18,6 +32,8 @@ export interface UseResizableModalOptions {
 	enabled?: boolean;
 	viewportPadding?: number;
 	externalRef?: RefObject<HTMLDivElement>;
+	/** Defaults to `center` (a modal). See `ModalResizeAnchor`. */
+	anchor?: ModalResizeAnchor;
 }
 
 export interface UseResizableModalReturn {
@@ -37,19 +53,25 @@ function nextSizeForDirection({
 	startSize,
 	deltaX,
 	deltaY,
+	anchor,
 }: {
 	direction: ModalResizeDirection;
 	startSize: ModalSize;
 	deltaX: number;
 	deltaY: number;
+	anchor: ModalResizeAnchor;
 }): ModalSize {
+	// A centered surface moves both of its edges, so it has to grow by twice the
+	// cursor delta to keep the dragged corner under the pointer. A top-left
+	// anchored one only moves the dragged edge, so it tracks the cursor 1:1.
+	const scale = anchor === 'center' ? 2 : 1;
 	let width = startSize.width;
 	let height = startSize.height;
 
-	if (direction.includes('e')) width += deltaX * 2;
-	if (direction.includes('w')) width -= deltaX * 2;
-	if (direction.includes('s')) height += deltaY * 2;
-	if (direction.includes('n')) height -= deltaY * 2;
+	if (direction.includes('e')) width += deltaX * scale;
+	if (direction.includes('w')) width -= deltaX * scale;
+	if (direction.includes('s')) height += deltaY * scale;
+	if (direction.includes('n')) height -= deltaY * scale;
 
 	return { width, height };
 }
@@ -62,6 +84,7 @@ export function useResizableModal({
 	enabled = true,
 	viewportPadding,
 	externalRef,
+	anchor = 'center',
 }: UseResizableModalOptions): UseResizableModalReturn {
 	const internalRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
 	const modalRef = externalRef ?? internalRef;
@@ -191,6 +214,7 @@ export function useResizableModal({
 						startSize,
 						deltaX: moveEvent.clientX - startX,
 						deltaY: moveEvent.clientY - startY,
+						anchor,
 					})
 				);
 				applySize(currentSize);
@@ -233,7 +257,7 @@ export function useResizableModal({
 			document.addEventListener('mouseup', handleMouseUp);
 			window.addEventListener('blur', handleWindowBlur);
 		},
-		[applySize, cancelPersistResizedSize, clamp, enabled, resizeKey, setModalSize, size]
+		[anchor, applySize, cancelPersistResizedSize, clamp, enabled, resizeKey, setModalSize, size]
 	);
 
 	// Clearing the saved size re-runs the resolve effect above, which recomputes
