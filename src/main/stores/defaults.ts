@@ -75,9 +75,6 @@ export function resolveConfiguredShell(store: ShellSettingsReader): string {
 
 export const SETTINGS_DEFAULTS: MaestroSettings = {
 	activeThemeId: 'dracula',
-	llmProvider: 'openrouter',
-	modelSlug: 'anthropic/claude-3.5-sonnet',
-	apiKey: '',
 	shortcuts: {},
 	fontSize: 14,
 	fontFamily: MAESTRO_FONT_STACK,

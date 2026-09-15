@@ -200,6 +200,40 @@ Because the layers are edited in different places, no single screen shows the re
 
 This is the quickest way to catch the case where an agent behaves oddly because an `ANTHROPIC_BASE_URL` or API key from a layer you forgot about is overriding the one you just set. Values that look like credentials are masked until you click the eye on that row.
 
+### Using a Different Token Backend
+
+Maestro spawns each provider's own CLI, so it does not have a "model gateway" setting of its own. What an agent bills to, and which endpoint it talks to, is whatever its CLI reads from the environment. That makes per-agent variables the way to point one agent at a proxy, a gateway, or a company account while every other agent keeps its normal login.
+
+Set these in **Edit Agent → Environment Variables (optional)** (`Alt+Cmd+,` / `Alt+Ctrl+,`) so they apply to that agent alone, or in **Settings → Environment** to apply them everywhere.
+
+| Provider          | Variables that redirect it                                                                                                            | Notes                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Claude Code**   | `ANTHROPIC_BASE_URL` plus `ANTHROPIC_AUTH_TOKEN` (gateway token) or `ANTHROPIC_API_KEY`. `CLAUDE_CONFIG_DIR` picks a different login. | The endpoint must speak the Anthropic Messages API. See the warning below.       |
+| **Codex**         | `OPENAI_API_KEY`, and `CODEX_HOME` to point at a config directory with its own `base_url`                                             | Codex reads a custom model provider from its own config file.                    |
+| **OpenCode**      | `OPENCODE_CONFIG_DIR`, plus the provider key var for whichever backend you configure (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, and so on) | OpenCode recognizes roughly a hundred `*_API_KEY` vars and stores them together. |
+| **Copilot CLI**   | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` (the CLI's own precedence order)                                                   | Selects which GitHub account is used. The backend itself is not redirectable.    |
+| **Factory Droid** | Configured in Droid's own settings                                                                                                    | Maestro passes the environment through but does not define the vars.             |
+
+Claude Code also honors `CLAUDE_CODE_USE_BEDROCK=1` and `CLAUDE_CODE_USE_VERTEX=1`, which route it to AWS Bedrock or Google Vertex AI. Those take credentials from the cloud SDK chain rather than from an Anthropic key, and they override the variables above.
+
+To set one from the CLI instead:
+
+```bash
+maestro-cli update-agent <agent-id> --env ANTHROPIC_BASE_URL=https://gateway.internal/v1
+maestro-cli update-agent <agent-id> --env ANTHROPIC_AUTH_TOKEN=sk-gateway-...
+```
+
+#### What Will Not Work
+
+<Warning>
+An OpenAI-compatible gateway cannot back Claude Code directly. OpenRouter, Requesty, Together, and similar routers expose an OpenAI-shaped `/chat/completions` endpoint, while Claude Code speaks the Anthropic Messages API. Pointing `ANTHROPIC_BASE_URL` straight at one of them produces request failures, not a working agent. Put a translating proxy (LiteLLM, `claude-code-router`, or the router's own Anthropic-compatible route if it publishes one) in between, and point `ANTHROPIC_BASE_URL` at that. Codex and OpenCode have no such problem, because they are OpenAI-shaped already.
+</Warning>
+
+Two more things that surprise people:
+
+- **A per-agent variable replaces the provider-level set, it does not merge with it.** An agent that sets only `ANTHROPIC_BASE_URL` stops receiving a provider-level `CLAUDE_CONFIG_DIR`. Set both on the agent if it needs both.
+- **Re-authenticating cannot fix a gateway.** When an agent runs against a base URL or an API key, a failure belongs to that operator or that key, so running the provider's login command produces a successful-looking flow that changes nothing. Maestro detects this and tells you which credential is actually in play instead of offering a login that would not help.
+
 ## Checking for Updates
 
 Maestro checks for updates automatically on startup (configurable in Settings → General → **Check for updates on startup**).

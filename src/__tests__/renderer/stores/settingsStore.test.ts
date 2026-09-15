@@ -84,9 +84,6 @@ function resetStore() {
 		settingsLoaded: false,
 		conductorProfile: '',
 		globalShowHotkey: [],
-		llmProvider: 'openrouter',
-		modelSlug: 'anthropic/claude-3.5-sonnet',
-		apiKey: '',
 		defaultShell: 'zsh',
 		customShellPath: '',
 		shellArgs: '',
@@ -196,9 +193,6 @@ describe('settingsStore', () => {
 
 			expect(state.settingsLoaded).toBe(false);
 			expect(state.conductorProfile).toBe('');
-			expect(state.llmProvider).toBe('openrouter');
-			expect(state.modelSlug).toBe('anthropic/claude-3.5-sonnet');
-			expect(state.apiKey).toBe('');
 			expect(state.defaultShell).toBe('zsh');
 			expect(state.customShellPath).toBe('');
 			expect(state.shellArgs).toBe('');
@@ -281,26 +275,6 @@ describe('settingsStore', () => {
 	// ========================================================================
 
 	describe('simple setters', () => {
-		describe('AI/LLM', () => {
-			it('setLlmProvider updates state and persists', () => {
-				useSettingsStore.getState().setLlmProvider('anthropic' as any);
-				expect(useSettingsStore.getState().llmProvider).toBe('anthropic');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('llmProvider', 'anthropic');
-			});
-
-			it('setModelSlug updates state and persists', () => {
-				useSettingsStore.getState().setModelSlug('gpt-4');
-				expect(useSettingsStore.getState().modelSlug).toBe('gpt-4');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('modelSlug', 'gpt-4');
-			});
-
-			it('setApiKey updates state and persists', () => {
-				useSettingsStore.getState().setApiKey('sk-test-key');
-				expect(useSettingsStore.getState().apiKey).toBe('sk-test-key');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('apiKey', 'sk-test-key');
-			});
-		});
-
 		describe('Shell', () => {
 			it('setDefaultShell updates state and persists', () => {
 				useSettingsStore.getState().setDefaultShell('bash');

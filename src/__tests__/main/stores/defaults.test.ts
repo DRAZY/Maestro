@@ -125,18 +125,6 @@ describe('stores/defaults', () => {
 			expect(SETTINGS_DEFAULTS.activeThemeId).toBe('dracula');
 		});
 
-		it('should have correct default llmProvider', () => {
-			expect(SETTINGS_DEFAULTS.llmProvider).toBe('openrouter');
-		});
-
-		it('should have correct default modelSlug', () => {
-			expect(SETTINGS_DEFAULTS.modelSlug).toBe('anthropic/claude-3.5-sonnet');
-		});
-
-		it('should have empty apiKey by default', () => {
-			expect(SETTINGS_DEFAULTS.apiKey).toBe('');
-		});
-
 		it('should have empty shortcuts by default', () => {
 			expect(SETTINGS_DEFAULTS.shortcuts).toEqual({});
 		});

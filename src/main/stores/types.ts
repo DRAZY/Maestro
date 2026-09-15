@@ -46,9 +46,6 @@ export interface BootstrapSettings {
 
 export interface MaestroSettings {
 	activeThemeId: string;
-	llmProvider: string;
-	modelSlug: string;
-	apiKey: string;
 	shortcuts: Record<string, any>;
 	fontSize: number;
 	fontFamily: string;
