@@ -44,6 +44,7 @@ import {
 import { registerMarketplaceHandlers, MarketplaceHandlerDependencies } from './marketplace';
 import { registerStatsHandlers, StatsHandlerDependencies } from './stats';
 import { registerCueStatsHandlers, CueStatsHandlerDependencies } from './cue-stats';
+import { getCueHistoryEntries } from '../../cue/stats/cue-stats-query';
 import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from './documentGraph';
 import { registerSshRemoteHandlers, SshRemoteHandlerDependencies } from './ssh-remote';
 import { registerFilesystemHandlers } from './filesystem';
@@ -194,16 +195,17 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	});
 	registerAutorunHandlers(deps);
 	registerPlaybooksHandlers(deps);
+	const readSessionRecords = (): Array<Record<string, unknown>> =>
+		(deps.sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(
+			(s) => typeof s === 'object' && s !== null
+		);
 	registerHistoryHandlers({
 		safeSend: createSafeSend(deps.getMainWindow),
 		getMaxEntries: () => deps.settingsStore.get('maxLogBuffer', 5000) as number,
 		getSshRemoteById,
-		getSessionById: (id: string) => {
-			const sessions = (
-				deps.sessionsStore.get('sessions', []) as Array<Record<string, unknown>>
-			).filter((s) => typeof s === 'object' && s !== null);
-			return sessions.find((s) => s.id === id);
-		},
+		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
+		getAllSessions: readSessionRecords,
+		getCueHistoryEntries,
 	});
 	registerAgentsHandlers({
 		getAgentDetector: deps.getAgentDetector,

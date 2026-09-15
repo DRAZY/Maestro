@@ -33,6 +33,7 @@ import { executeCueNotify } from './cue/cue-notify-executor';
 import { reportCueAuthFailure } from './cue/cue-auth-detector';
 import { setSusFactorNotifier } from './cue/cue-susfactor';
 import { emitCueNotifyToast } from './cue/cue-notify-bridge';
+import { getCueHistoryEntries } from './cue/stats/cue-stats-query';
 import { getAgentDisplayName } from '../shared/agentMetadata';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
@@ -1504,17 +1505,18 @@ function setupIpcHandlers() {
 
 	// History operations - extracted to src/main/ipc/handlers/history.ts
 	// Uses HistoryManager singleton for per-session storage
+	const readSessionRecords = (): Array<Record<string, unknown>> =>
+		(sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(
+			(s) => typeof s === 'object' && s !== null
+		);
 	registerHistoryHandlers({
 		safeSend,
 		getMaxEntries: () =>
 			resolveHistoryEntryLimit(store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION)),
 		getSshRemoteById,
-		getSessionById: (id: string) => {
-			const sessions = (sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(
-				(s) => typeof s === 'object' && s !== null
-			);
-			return sessions.find((s) => s.id === id);
-		},
+		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
+		getAllSessions: readSessionRecords,
+		getCueHistoryEntries,
 	});
 
 	// Director's Notes - unified history + synopsis generation

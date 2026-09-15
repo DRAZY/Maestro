@@ -39,6 +39,7 @@ import {
 	type CachedGraphBucket,
 } from '../../utils/history-bucket-cache';
 import { buildBucketAggregate, LOCAL_HOST_AGG_KEY } from '../../utils/history-bucket-builder';
+import type { CueHistoryQuery } from '../../cue/stats/cue-stats-query';
 
 const LOG_CONTEXT = '[History]';
 
@@ -148,6 +149,204 @@ export interface HistoryHandlerDependencies {
 	 * (typically via SSH) can see it.
 	 */
 	getSessionById?: (id: string) => Record<string, unknown> | undefined;
+	/**
+	 * Every session record, used only to resolve which agents a project-wide or
+	 * global read covers. `cue_events` rows know their agent but not its
+	 * directory, so the sessions store is the only place that mapping exists.
+	 */
+	getAllSessions?: () => Array<Record<string, unknown>>;
+	/**
+	 * Cue runs for one agent, already shaped as {@link HistoryEntry} - see
+	 * `getCueHistoryEntries()` in `src/main/cue/stats/cue-stats-query.ts`.
+	 *
+	 * Injected rather than imported so this module keeps no static edge to the
+	 * Cue SQLite layer (`better-sqlite3` is a native binding built for
+	 * Electron's ABI, and History is exercised well outside that runtime).
+	 * Omitted means History serves JSONL entries only.
+	 */
+	getCueHistoryEntries?: (query: CueHistoryQuery) => HistoryEntry[];
+}
+
+/** The agent metadata a Cue history query needs, resolved from the store. */
+interface CueScopeAgent {
+	id: string;
+	name?: string;
+	projectPath?: string;
+}
+
+/** Read a string field off a loosely-typed session record. */
+function sessionField(
+	record: Record<string, unknown> | undefined,
+	key: string
+): string | undefined {
+	const value = record?.[key];
+	return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Which agents' Cue runs belong in a given read.
+ *
+ * The single-session scope is the one the History panel uses; the project and
+ * global scopes walk the sessions store because an agent's directory lives
+ * there, not on the `cue_events` row.
+ */
+function cueScopeAgents(
+	deps: HistoryHandlerDependencies,
+	sessionId?: string,
+	projectPath?: string
+): CueScopeAgent[] {
+	if (!deps.getCueHistoryEntries) return [];
+
+	if (sessionId) {
+		const record = deps.getSessionById?.(sessionId);
+		return [
+			{
+				id: sessionId,
+				name: sessionField(record, 'name'),
+				projectPath:
+					sessionField(record, 'projectRoot') ?? sessionField(record, 'cwd') ?? projectPath,
+			},
+		];
+	}
+
+	const agents: CueScopeAgent[] = [];
+	for (const record of deps.getAllSessions?.() ?? []) {
+		const id = sessionField(record, 'id');
+		if (!id) continue;
+		const dir = sessionField(record, 'projectRoot') ?? sessionField(record, 'cwd');
+		if (projectPath && dir !== projectPath) continue;
+		agents.push({ id, name: sessionField(record, 'name'), projectPath: dir });
+	}
+	return agents;
+}
+
+/**
+ * Cue runs for the agents in scope, as history rows.
+ *
+ * A DB failure here degrades to "no Cue rows" rather than failing the whole
+ * read: the JSONL half of a user's history must stay readable even when the
+ * Cue database is missing, locked, or was never initialized.
+ */
+function readCueEntries(
+	deps: HistoryHandlerDependencies,
+	agents: CueScopeAgent[],
+	options: { since?: number } = {}
+): HistoryEntry[] {
+	const query = deps.getCueHistoryEntries;
+	if (!query || agents.length === 0) return [];
+
+	const limit = deps.getMaxEntries?.();
+	const entries: HistoryEntry[] = [];
+	for (const agent of agents) {
+		try {
+			entries.push(
+				...query({
+					sessionId: agent.id,
+					sessionName: agent.name,
+					projectPath: agent.projectPath,
+					since: options.since,
+					limit,
+				})
+			);
+		} catch (error) {
+			void captureException(error);
+			logger.warn(`Failed to read Cue history for session ${agent.id}: ${error}`, LOG_CONTEXT);
+		}
+	}
+	return entries;
+}
+
+/**
+ * Widest plausible gap between when a Cue run was dispatched (the DB row's
+ * `created_at`) plus its measured duration, and when the JSONL writer stamped
+ * the completed run. Duration is sleep-aware while the two clocks are not, so
+ * the tolerance is generous; it only has to be tighter than the interval
+ * between two runs of the same trigger producing identical output.
+ */
+const CUE_DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * A Cue run's identity as far as two writers of the same run agree on it. The
+ * JSONL entry and the DB row carry byte-identical summaries - both come from
+ * `buildCuePersistedOutput()` - but different ids and different timestamps, so
+ * id dedupe cannot see the overlap.
+ */
+function cueDuplicateKey(entry: HistoryEntry): string {
+	return [
+		entry.sessionId,
+		entry.cueTriggerName ?? '',
+		entry.cueEventType ?? '',
+		entry.summary,
+	].join(' ');
+}
+
+/**
+ * Drop DB-sourced Cue rows that the JSONL file already carries.
+ *
+ * Needed for the window where both writers are live, and afterwards for the
+ * runs already written to JSONL before the Cue writes were removed: those
+ * entries stay on disk (they are the only record once a run ages past the Cue
+ * retention window) and would otherwise render twice.
+ *
+ * Each JSONL entry suppresses at most ONE database row, matched to the nearest
+ * completion time. That matters for a trigger that says the same thing every
+ * few minutes - N identical JSONL entries must hide N rows, not collapse the
+ * whole series into one.
+ */
+function dropCueRowsAlreadyInJsonl(
+	jsonlEntries: HistoryEntry[],
+	cueRows: HistoryEntry[]
+): HistoryEntry[] {
+	if (cueRows.length === 0) return cueRows;
+
+	const jsonlTimestamps = new Map<string, number[]>();
+	for (const entry of jsonlEntries) {
+		if (entry.type !== 'CUE') continue;
+		const key = cueDuplicateKey(entry);
+		const bucket = jsonlTimestamps.get(key);
+		if (bucket) bucket.push(entry.timestamp);
+		else jsonlTimestamps.set(key, [entry.timestamp]);
+	}
+	if (jsonlTimestamps.size === 0) return cueRows;
+
+	return cueRows.filter((row) => {
+		const bucket = jsonlTimestamps.get(cueDuplicateKey(row));
+		if (!bucket || bucket.length === 0) return true;
+
+		// The DB row is stamped at dispatch; the JSONL entry was stamped when
+		// the run finished, so compare against the row's completion time.
+		const finishedAt = row.timestamp + (row.elapsedTimeMs ?? 0);
+		let matchIndex = -1;
+		let smallestDelta = CUE_DUPLICATE_WINDOW_MS;
+		for (let i = 0; i < bucket.length; i++) {
+			const delta = Math.abs(bucket[i] - finishedAt);
+			if (delta <= smallestDelta) {
+				smallestDelta = delta;
+				matchIndex = i;
+			}
+		}
+		if (matchIndex === -1) return true;
+		bucket.splice(matchIndex, 1);
+		return false;
+	});
+}
+
+/**
+ * Append `incoming` to `base`, skipping ids already present, and sort
+ * newest-first. The same merge the shared-history overlay uses, shared so the
+ * Cue rows join the list exactly the way foreign-host entries do.
+ */
+function mergeEntriesById(base: HistoryEntry[], incoming: HistoryEntry[]): HistoryEntry[] {
+	if (incoming.length === 0) return base;
+
+	const seenIds = new Set(base.map((entry) => entry.id));
+	const merged = [...base];
+	for (const entry of incoming) {
+		if (seenIds.has(entry.id)) continue;
+		seenIds.add(entry.id);
+		merged.push(entry);
+	}
+	return sortEntriesByTimestamp(merged);
 }
 
 // Helper to create handler options with consistent context
@@ -215,21 +414,17 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 					logger.warn(`Failed to read shared history: ${error}`, LOG_CONTEXT);
 				}
 
-				if (sharedEntries.length === 0) {
-					return localEntries;
-				}
-
 				// Merge and deduplicate by entry ID, then sort
-				const seenIds = new Set(localEntries.map((e) => e.id));
-				const merged = [...localEntries];
-				for (const entry of sharedEntries) {
-					if (!seenIds.has(entry.id)) {
-						seenIds.add(entry.id);
-						merged.push(entry);
-					}
-				}
+				const jsonlEntries = mergeEntriesById(localEntries, sharedEntries);
 
-				return sortEntriesByTimestamp(merged);
+				// Cue runs live in `cue_events`, not in the JSONL file, so they
+				// are merged in here rather than read off disk.
+				const cueEntries = dropCueRowsAlreadyInJsonl(
+					jsonlEntries,
+					readCueEntries(deps, cueScopeAgents(deps, sessionId, projectPath))
+				);
+
+				return mergeEntriesById(jsonlEntries, cueEntries);
 			}
 		)
 	);
@@ -287,6 +482,28 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 					return out;
 				};
 
+				// Cue runs come from `cue_events`, so they are merged in before
+				// the filters and pagination run - a page must hold the newest N
+				// entries of BOTH sources, not the newest N of the JSONL file
+				// with Cue rows sprinkled on afterwards.
+				//
+				// The query is skipped when the request has already filtered Cue
+				// rows out: the CUE pill being off, or a host filter naming a
+				// foreign host (Cue rows carry no hostname, so they only ever
+				// belong to the local bucket).
+				const wantsCue =
+					(!typeSet || typeSet.has('CUE')) && (!hostKey || hostKey === LOCAL_HOST_AGG_KEY);
+				const mergeCueEntries = (jsonlEntries: HistoryEntry[]): HistoryEntry[] => {
+					if (!wantsCue) return jsonlEntries;
+					const cueEntries = dropCueRowsAlreadyInJsonl(
+						jsonlEntries,
+						readCueEntries(deps, cueScopeAgents(deps, sessionId, projectPath), {
+							since: cutoffTime > 0 ? cutoffTime : undefined,
+						})
+					);
+					return mergeEntriesById(jsonlEntries, cueEntries);
+				};
+
 				// Single-session path: optionally merge shared (SSH or local
 				// project-mirrored) entries before applying lookback + pagination.
 				if (sessionId) {
@@ -315,19 +532,10 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 							logger.warn(`Failed to read shared history (paginated): ${error}`, LOG_CONTEXT);
 						}
 
-						if (sharedEntries.length > 0) {
-							const seen = new Set(local.map((e) => e.id));
-							for (const e of sharedEntries) {
-								if (!seen.has(e.id)) {
-									local.push(e);
-									seen.add(e.id);
-								}
-							}
-							local = sortEntriesByTimestamp(local);
-						}
+						local = mergeEntriesById(local, sharedEntries);
 					}
 
-					return paginateEntries(applyFilters(local), pagination);
+					return paginateEntries(applyFilters(mergeCueEntries(local)), pagination);
 				}
 
 				if (projectPath) {
@@ -335,11 +543,11 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 						projectPath,
 						undefined
 					);
-					return paginateEntries(applyFilters(result.entries), pagination);
+					return paginateEntries(applyFilters(mergeCueEntries(result.entries)), pagination);
 				}
 
 				const result = await historyManager.getAllEntriesPaginated(undefined);
-				return paginateEntries(applyFilters(result.entries), pagination);
+				return paginateEntries(applyFilters(mergeCueEntries(result.entries)), pagination);
 			}
 		)
 	);
@@ -472,6 +680,18 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 						? Date.now() - lookbackHours * 60 * 60 * 1000
 						: 0;
 				let entries = await historyManager.getEntries(sessionId);
+				// Cue rows are part of the rendered list but not of the JSONL
+				// file, so they have to be merged here too or every offset past
+				// the first Cue run lands on the wrong entry.
+				entries = mergeEntriesById(
+					entries,
+					dropCueRowsAlreadyInJsonl(
+						entries,
+						readCueEntries(deps, cueScopeAgents(deps, sessionId), {
+							since: cutoffTime > 0 ? cutoffTime : undefined,
+						})
+					)
+				);
 				if (cutoffTime > 0) entries = entries.filter((e) => e.timestamp >= cutoffTime);
 				// Mirror the paginated list's type filter so the resolved offset
 				// lines up with the rendered (type-filtered) indices.

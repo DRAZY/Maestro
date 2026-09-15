@@ -453,6 +453,243 @@ describe('history IPC handlers', () => {
 		});
 	});
 
+	// Cue runs live in the `cue_events` table, not in the agent's JSONL file
+	// (CUE-HISTORY-02). The read path merges the two sources, so these tests
+	// drive the injected `getCueHistoryEntries` the way the real query behaves:
+	// newest-first rows for one agent, already shaped as HistoryEntry.
+	describe('Cue entries merged from the database', () => {
+		const cueRow = (overrides: Partial<HistoryEntry> = {}): HistoryEntry =>
+			createMockEntry({
+				id: 'cue-row',
+				type: 'CUE',
+				summary: 'Reviewed 3 PRs',
+				cueTriggerName: 'PR-Sweep',
+				cueEventType: 'time.heartbeat',
+				success: true,
+				elapsedTimeMs: 0,
+				...overrides,
+			});
+
+		/** Register a fresh handler set and return a getter for its channels. */
+		const registerWith = (overrides: Record<string, unknown>): ((channel: string) => Function) => {
+			registerHistoryHandlers({ safeSend: mockSafeSend, ...overrides } as any);
+			return (channel: string) => {
+				const calls = (ipcMain.handle as any).mock.calls.filter(
+					([ch]: [string, Function]) => ch === channel
+				);
+				return calls[calls.length - 1][1];
+			};
+		};
+
+		it('interleaves JSONL and Cue entries in timestamp order (getAll)', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-new', type: 'USER', timestamp: 4000 }),
+				createMockEntry({ id: 'user-old', type: 'USER', timestamp: 2000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [
+				cueRow({ id: 'cue-new', timestamp: 3000 }),
+				cueRow({ id: 'cue-old', timestamp: 1000 }),
+			]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAll');
+			const result = await handler({} as any, undefined, 'session-1');
+
+			expect(result.map((e: HistoryEntry) => e.id)).toEqual([
+				'user-new',
+				'cue-new',
+				'user-old',
+				'cue-old',
+			]);
+		});
+
+		it('interleaves JSONL and Cue entries in timestamp order (getAllPaginated)', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-new', type: 'USER', timestamp: 4000 }),
+				createMockEntry({ id: 'user-old', type: 'USER', timestamp: 2000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [
+				cueRow({ id: 'cue-new', timestamp: 3000 }),
+				cueRow({ id: 'cue-old', timestamp: 1000 }),
+			]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAllPaginated');
+			const result = await handler({} as any, {
+				sessionId: 'session-1',
+				pagination: { offset: 0, limit: 10 },
+			});
+
+			expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual([
+				'user-new',
+				'cue-new',
+				'user-old',
+				'cue-old',
+			]);
+			expect(result.total).toBe(4);
+		});
+
+		it('paginates across the merged list rather than the JSONL half', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-new', type: 'USER', timestamp: 4000 }),
+				createMockEntry({ id: 'user-old', type: 'USER', timestamp: 2000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [
+				cueRow({ id: 'cue-new', timestamp: 3000 }),
+				cueRow({ id: 'cue-old', timestamp: 1000 }),
+			]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAllPaginated');
+			const page = await handler({} as any, {
+				sessionId: 'session-1',
+				pagination: { offset: 0, limit: 2 },
+			});
+
+			expect(page.entries.map((e: HistoryEntry) => e.id)).toEqual(['user-new', 'cue-new']);
+			expect(page.hasMore).toBe(true);
+		});
+
+		it('passes the agent name, directory, lookback and entry cap to the query', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+			const getCueHistoryEntries = vi.fn(() => []);
+			const now = 1_000_000_000_000;
+			vi.useFakeTimers();
+			vi.setSystemTime(now);
+
+			const handler = registerWith({
+				getCueHistoryEntries,
+				getMaxEntries: () => 500,
+				getSessionById: () => ({ id: 'session-1', name: 'rc', projectRoot: '/repo/rc' }),
+			})('history:getAllPaginated');
+			await handler({} as any, { sessionId: 'session-1', lookbackHours: 24 });
+
+			expect(getCueHistoryEntries).toHaveBeenCalledWith({
+				sessionId: 'session-1',
+				sessionName: 'rc',
+				projectPath: '/repo/rc',
+				since: now - 24 * 60 * 60 * 1000,
+				limit: 500,
+			});
+			vi.useRealTimers();
+		});
+
+		it('skips the query when the CUE filter pill is off', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-1', type: 'USER', timestamp: 4000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [cueRow({ id: 'cue-1', timestamp: 3000 })]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAllPaginated');
+			const result = await handler({} as any, {
+				sessionId: 'session-1',
+				types: ['USER', 'AUTO'],
+			});
+
+			expect(getCueHistoryEntries).not.toHaveBeenCalled();
+			expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual(['user-1']);
+		});
+
+		it('skips the query when a foreign host is selected', async () => {
+			// Cue rows carry no hostname, so they can only ever belong to the
+			// synthetic local bucket - querying for another host is wasted work.
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+			const getCueHistoryEntries = vi.fn(() => []);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAllPaginated');
+			await handler({} as any, { sessionId: 'session-1', hostKey: 'dev-server' });
+			expect(getCueHistoryEntries).not.toHaveBeenCalled();
+
+			await handler({} as any, { sessionId: 'session-1', hostKey: '__local__' });
+			expect(getCueHistoryEntries).toHaveBeenCalledTimes(1);
+		});
+
+		it('hides a Cue row the JSONL file already carries', async () => {
+			// Both writers were live before the JSONL Cue writes were removed, and
+			// those entries stay on disk afterwards. The JSONL entry is stamped at
+			// completion; the DB row at dispatch.
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				cueRow({ id: 'jsonl-copy', timestamp: 3200, sessionId: 'session-1' }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [
+				cueRow({
+					id: 'db-copy',
+					timestamp: 3000,
+					elapsedTimeMs: 200,
+					sessionId: 'session-1',
+				}),
+			]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAll');
+			const result = await handler({} as any, undefined, 'session-1');
+
+			expect(result.map((e: HistoryEntry) => e.id)).toEqual(['jsonl-copy']);
+		});
+
+		it('keeps repeat runs that happen to print the same thing', async () => {
+			// A heartbeat saying "No changes." every few minutes must not collapse:
+			// one JSONL entry suppresses exactly one database row.
+			const hour = 60 * 60 * 1000;
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				cueRow({ id: 'jsonl-run-2', timestamp: 2 * hour, sessionId: 'session-1' }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [
+				cueRow({ id: 'db-run-2', timestamp: 2 * hour, sessionId: 'session-1' }),
+				cueRow({ id: 'db-run-1', timestamp: hour, sessionId: 'session-1' }),
+			]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAll');
+			const result = await handler({} as any, undefined, 'session-1');
+
+			expect(result.map((e: HistoryEntry) => e.id)).toEqual(['jsonl-run-2', 'db-run-1']);
+		});
+
+		it('still serves JSONL history when the Cue database throws', async () => {
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-1', type: 'USER', timestamp: 4000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => {
+				throw new Error('database is locked');
+			});
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getAll');
+			const result = await handler({} as any, undefined, 'session-1');
+
+			expect(result.map((e: HistoryEntry) => e.id)).toEqual(['user-1']);
+		});
+
+		it('covers every agent in the project for a project-wide read', async () => {
+			vi.mocked(mockHistoryManager.getEntriesByProjectPath).mockReturnValue([]);
+			vi.mocked(sharedHistoryModule.readRemoteEntriesLocal).mockReturnValue([]);
+			const getCueHistoryEntries = vi.fn(({ sessionId }: { sessionId: string }) => [
+				cueRow({ id: `cue-${sessionId}`, timestamp: 1000, sessionId }),
+			]);
+
+			const handler = registerWith({
+				getCueHistoryEntries,
+				getAllSessions: () => [
+					{ id: 'agent-a', name: 'A', projectRoot: '/repo' },
+					{ id: 'agent-b', name: 'B', cwd: '/repo' },
+					{ id: 'agent-elsewhere', name: 'C', projectRoot: '/other' },
+				],
+			})('history:getAll');
+			const result = await handler({} as any, '/repo');
+
+			expect(result.map((e: HistoryEntry) => e.id).sort()).toEqual(['cue-agent-a', 'cue-agent-b']);
+		});
+
+		it('counts Cue rows when resolving a graph-click offset', async () => {
+			// The offset indexes the rendered list, which now includes rows that
+			// are not in the JSONL file.
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'user-new', type: 'USER', timestamp: 4000 }),
+				createMockEntry({ id: 'user-old', type: 'USER', timestamp: 2000 }),
+			]);
+			const getCueHistoryEntries = vi.fn(() => [cueRow({ id: 'cue-mid', timestamp: 3000 })]);
+
+			const handler = registerWith({ getCueHistoryEntries })('history:getOffsetForTimestamp');
+			// Merged newest-first: [user-new, cue-mid, user-old]
+			expect(await handler({} as any, 'session-1', 2000, null)).toBe(2);
+		});
+	});
+
 	describe('history:getOffsetForTimestamp', () => {
 		it('mirrors the list type filter so the offset lines up with rendered indices', async () => {
 			// The activity-graph jump resolves an offset into the SAME type-filtered
