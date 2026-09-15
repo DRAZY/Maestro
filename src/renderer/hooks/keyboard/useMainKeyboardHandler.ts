@@ -5,6 +5,7 @@ import { DESTINATION_SHORTCUT_IDS, useModalStore } from '../../stores/modalStore
 import { requestEditLastQueuedMessage } from '../../services/editQueuedMessage';
 import { requestOpenStagedImagesOrganizer } from '../../services/stagedImagesOrganizer';
 import { toggleAllUnreadFilters } from '../../services/unreadFilters';
+import { getGitShortcutActions } from '../../services/gitShortcutActions';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useMediaPlaybackStore, selectMediaPlayerTargetId } from '../../stores/mediaPlaybackStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
@@ -809,6 +810,42 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				if (ctx.activeSession?.isGitRepo) {
 					ctx.setGitLogOpen(true);
 					trackShortcut('viewGitLog');
+				}
+			} else if (ctx.isShortcut(e, 'gitPull') && !ctx.activeGroupChatId) {
+				// The remaining branch-pill actions. All four fire the SAME action set
+				// the pill menu and Cmd+K fire (published by GitShortcutActionsBridge),
+				// so a chord can't drift from the menu row it mirrors. preventDefault
+				// only once the agent is a git repo: on a non-git agent there is
+				// nothing to run, and eating the key would be worse than passing it on.
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.pull();
+					trackShortcut('gitPull');
+				}
+			} else if (ctx.isShortcut(e, 'gitPush') && !ctx.activeGroupChatId) {
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.push();
+					trackShortcut('gitPush');
+				}
+			} else if (ctx.isShortcut(e, 'gitChangeBranch') && !ctx.activeGroupChatId) {
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.switchBranch();
+					trackShortcut('gitChangeBranch');
+				}
+			} else if (ctx.isShortcut(e, 'gitCreatePR') && !ctx.activeGroupChatId) {
+				// canCreatePR, not isGitRepo: a repo with no resolved branch has no
+				// source to open a PR from, which is the same reason the pill menu
+				// omits the row.
+				const git = getGitShortcutActions();
+				if (git?.canCreatePR) {
+					e.preventDefault();
+					git.createPR();
+					trackShortcut('gitCreatePR');
 				}
 			} else if (ctx.isShortcut(e, 'agentSessions')) {
 				e.preventDefault();

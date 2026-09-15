@@ -668,6 +668,10 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			shortcuts: {
 				viewGitDiff: shortcuts.viewGitDiff,
 				viewGitLog: shortcuts.viewGitLog,
+				gitPull: shortcuts.gitPull,
+				gitPush: shortcuts.gitPush,
+				gitChangeBranch: shortcuts.gitChangeBranch,
+				gitCreatePR: shortcuts.gitCreatePR,
 				refreshGitFileState: shortcuts.refreshGitFileState,
 			},
 			gitService,
