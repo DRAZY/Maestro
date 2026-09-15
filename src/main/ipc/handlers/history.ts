@@ -44,6 +44,16 @@ import type {
 	CueHistoryBucketQuery,
 	CueHistoryQuery,
 } from '../../cue/stats/cue-stats-query';
+import {
+	cueScopeAgentFromRecord,
+	cueScopeAgentsFromRecords,
+	dropCueRowsAlreadyInJsonl,
+	mergeEntriesById,
+	readCueEntries as readCueEntriesForAgents,
+	readCueGraphBuckets as readCueGraphBucketsForAgent,
+	readCueGraphFingerprint as readCueGraphFingerprintForAgent,
+	type CueScopeAgent,
+} from '../../utils/cue-history-merge';
 
 const LOG_CONTEXT = '[History]';
 
@@ -182,23 +192,7 @@ export interface HistoryHandlerDependencies {
 	 * file, which no longer moves when a Cue run lands, and the CUE bars
 	 * freeze at whatever was first computed.
 	 */
-	getCueHistoryFingerprint?: (sessionId: string) => string;
-}
-
-/** The agent metadata a Cue history query needs, resolved from the store. */
-interface CueScopeAgent {
-	id: string;
-	name?: string;
-	projectPath?: string;
-}
-
-/** Read a string field off a loosely-typed session record. */
-function sessionField(
-	record: Record<string, unknown> | undefined,
-	key: string
-): string | undefined {
-	const value = record?.[key];
-	return typeof value === 'string' && value.length > 0 ? value : undefined;
+	getCueHistoryFingerprint?: (sessionId?: string) => string;
 }
 
 /**
@@ -214,204 +208,39 @@ function cueScopeAgents(
 	projectPath?: string
 ): CueScopeAgent[] {
 	if (!deps.getCueHistoryEntries) return [];
-
 	if (sessionId) {
-		const record = deps.getSessionById?.(sessionId);
-		return [
-			{
-				id: sessionId,
-				name: sessionField(record, 'name'),
-				projectPath:
-					sessionField(record, 'projectRoot') ?? sessionField(record, 'cwd') ?? projectPath,
-			},
-		];
+		return [cueScopeAgentFromRecord(sessionId, deps.getSessionById?.(sessionId), projectPath)];
 	}
-
-	const agents: CueScopeAgent[] = [];
-	for (const record of deps.getAllSessions?.() ?? []) {
-		const id = sessionField(record, 'id');
-		if (!id) continue;
-		const dir = sessionField(record, 'projectRoot') ?? sessionField(record, 'cwd');
-		if (projectPath && dir !== projectPath) continue;
-		agents.push({ id, name: sessionField(record, 'name'), projectPath: dir });
-	}
-	return agents;
+	return cueScopeAgentsFromRecords(deps.getAllSessions?.() ?? [], projectPath);
 }
 
-/**
- * Cue runs for the agents in scope, as history rows.
- *
- * A DB failure here degrades to "no Cue rows" rather than failing the whole
- * read: the JSONL half of a user's history must stay readable even when the
- * Cue database is missing, locked, or was never initialized.
- */
+/** Cue rows for the agents in scope, capped by the user's history limit. */
 function readCueEntries(
 	deps: HistoryHandlerDependencies,
 	agents: CueScopeAgent[],
 	options: { since?: number } = {}
 ): HistoryEntry[] {
-	const query = deps.getCueHistoryEntries;
-	if (!query || agents.length === 0) return [];
-
-	const limit = deps.getMaxEntries?.();
-	const entries: HistoryEntry[] = [];
-	for (const agent of agents) {
-		try {
-			entries.push(
-				...query({
-					sessionId: agent.id,
-					sessionName: agent.name,
-					projectPath: agent.projectPath,
-					since: options.since,
-					limit,
-				})
-			);
-		} catch (error) {
-			void captureException(error);
-			logger.warn(`Failed to read Cue history for session ${agent.id}: ${error}`, LOG_CONTEXT);
-		}
-	}
-	return entries;
+	return readCueEntriesForAgents(deps.getCueHistoryEntries, agents, {
+		since: options.since,
+		limit: deps.getMaxEntries?.(),
+	});
 }
 
-/**
- * The Cue half of the activity-graph cache key.
- *
- * Deliberately a separate, cheap query from {@link readCueGraphBuckets} rather
- * than a hash of the buckets themselves: it is asked on every graph read,
- * including the ones the cache answers, so it must not cost a full scan.
- *
- * A failed read returns a value that cannot match any stored fingerprint, so a
- * stale aggregate is never served on the strength of a database we could not
- * actually ask.
- */
+/** The Cue half of one agent's activity-graph cache key. */
 function readCueGraphFingerprint(deps: HistoryHandlerDependencies, sessionId: string): string {
-	if (!deps.getCueHistoryFingerprint) return 'none';
-	try {
-		return deps.getCueHistoryFingerprint(sessionId);
-	} catch (error) {
-		void captureException(error);
-		logger.warn(
-			`Failed to fingerprint Cue history for session ${sessionId}: ${error}`,
-			LOG_CONTEXT
-		);
-		return `error-${Date.now()}`;
-	}
+	return readCueGraphFingerprintForAgent(deps.getCueHistoryFingerprint, sessionId);
 }
 
-/**
- * Per-minute Cue run counts for one agent's activity graph.
- *
- * Degrades to "no Cue bars" on a DB failure, for the same reason
- * {@link readCueEntries} degrades to no rows: a missing or locked Cue database
- * must not take the user's own history graph down with it.
- */
+/** Per-minute Cue run counts for one agent's activity graph. */
 function readCueGraphBuckets(
 	deps: HistoryHandlerDependencies,
 	sessionId: string,
 	options: { since?: number } = {}
 ): CueHistoryBucket[] {
-	if (!deps.getCueHistoryBuckets) return [];
-	try {
-		return deps.getCueHistoryBuckets({ sessionId, since: options.since });
-	} catch (error) {
-		void captureException(error);
-		logger.warn(`Failed to read Cue graph buckets for session ${sessionId}: ${error}`, LOG_CONTEXT);
-		return [];
-	}
-}
-
-/**
- * Widest plausible gap between when a Cue run was dispatched (the DB row's
- * `created_at`) plus its measured duration, and when the JSONL writer stamped
- * the completed run. Duration is sleep-aware while the two clocks are not, so
- * the tolerance is generous; it only has to be tighter than the interval
- * between two runs of the same trigger producing identical output.
- */
-const CUE_DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
-
-/**
- * A Cue run's identity as far as the two writers of the same run agreed on it.
- * The JSONL entry and the DB row carry byte-identical summaries - both derived
- * from `buildCuePersistedOutput()` - but different ids and different
- * timestamps, so id dedupe cannot see the overlap.
- */
-function cueDuplicateKey(entry: HistoryEntry): string {
-	return [
-		entry.sessionId,
-		entry.cueTriggerName ?? '',
-		entry.cueEventType ?? '',
-		entry.summary,
-	].join(' ');
-}
-
-/**
- * Drop DB-sourced Cue rows that the JSONL file already carries.
- *
- * The JSONL Cue writes are gone, but every run recorded before they were
- * removed is still on disk, and stays there: past the Cue retention window
- * those entries are the only record of the run. Without this they would render
- * twice, once from each store.
- *
- * Each JSONL entry suppresses at most ONE database row, matched to the nearest
- * completion time. That matters for a trigger that says the same thing every
- * few minutes - N identical JSONL entries must hide N rows, not collapse the
- * whole series into one.
- */
-function dropCueRowsAlreadyInJsonl(
-	jsonlEntries: HistoryEntry[],
-	cueRows: HistoryEntry[]
-): HistoryEntry[] {
-	if (cueRows.length === 0) return cueRows;
-
-	const jsonlTimestamps = new Map<string, number[]>();
-	for (const entry of jsonlEntries) {
-		if (entry.type !== 'CUE') continue;
-		const key = cueDuplicateKey(entry);
-		const bucket = jsonlTimestamps.get(key);
-		if (bucket) bucket.push(entry.timestamp);
-		else jsonlTimestamps.set(key, [entry.timestamp]);
-	}
-	if (jsonlTimestamps.size === 0) return cueRows;
-
-	return cueRows.filter((row) => {
-		const bucket = jsonlTimestamps.get(cueDuplicateKey(row));
-		if (!bucket || bucket.length === 0) return true;
-
-		// The DB row is stamped at dispatch; the JSONL entry was stamped when
-		// the run finished, so compare against the row's completion time.
-		const finishedAt = row.timestamp + (row.elapsedTimeMs ?? 0);
-		let matchIndex = -1;
-		let smallestDelta = CUE_DUPLICATE_WINDOW_MS;
-		for (let i = 0; i < bucket.length; i++) {
-			const delta = Math.abs(bucket[i] - finishedAt);
-			if (delta <= smallestDelta) {
-				smallestDelta = delta;
-				matchIndex = i;
-			}
-		}
-		if (matchIndex === -1) return true;
-		bucket.splice(matchIndex, 1);
-		return false;
+	return readCueGraphBucketsForAgent(deps.getCueHistoryBuckets, {
+		sessionId,
+		since: options.since,
 	});
-}
-
-/**
- * Append `incoming` to `base`, skipping ids already present, and sort
- * newest-first. The same merge the shared-history overlay uses, shared so the
- * Cue rows join the list exactly the way foreign-host entries do.
- */
-function mergeEntriesById(base: HistoryEntry[], incoming: HistoryEntry[]): HistoryEntry[] {
-	if (incoming.length === 0) return base;
-
-	const seenIds = new Set(base.map((entry) => entry.id));
-	const merged = [...base];
-	for (const entry of incoming) {
-		if (seenIds.has(entry.id)) continue;
-		seenIds.add(entry.id);
-		merged.push(entry);
-	}
-	return sortEntriesByTimestamp(merged);
 }
 
 // Helper to create handler options with consistent context

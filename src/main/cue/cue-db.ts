@@ -710,25 +710,33 @@ export interface CueEventBucketCount {
 }
 
 /**
- * Per-minute counts of the Cue runs worth showing, for one agent inside a time
- * window. Feeds the activity graph's CUE series.
+ * Per-minute counts of the Cue runs worth showing inside a time window. Feeds
+ * the activity graph's CUE series.
  *
  * This exists instead of counting {@link getCueEventsForHistory} rows because
  * the graph needs numbers, not text: a bar chart over a year of history would
  * otherwise drag every run's `full_output` through memory to increment a
  * counter.
  *
+ * `sessionId` scopes to one agent (the History panel's graph); omit it for the
+ * whole fleet, which is what Director's Notes draws - one GROUP BY beats one
+ * query per agent.
+ *
  * `since` is inclusive, `until` exclusive. Ordered oldest first.
  */
 export function getCueEventBucketCounts(options: {
-	sessionId: string;
+	sessionId?: string;
 	since?: number;
 	until?: number;
 }): CueEventBucketCount[] {
 	if (!db) return [];
 
-	const clauses = [`session_id = ?`];
-	const params: unknown[] = [options.sessionId];
+	const clauses: string[] = [];
+	const params: unknown[] = [];
+	if (options.sessionId !== undefined) {
+		clauses.push(`session_id = ?`);
+		params.push(options.sessionId);
+	}
 	if (options.since !== undefined) {
 		clauses.push(`created_at >= ?`);
 		params.push(options.since);
@@ -754,8 +762,9 @@ export function getCueEventBucketCounts(options: {
 }
 
 /**
- * Cheap change-detector for one agent's Cue history, used as the Cue half of
- * the activity-graph cache fingerprint.
+ * Cheap change-detector for Cue history, used as the Cue half of the
+ * activity-graph cache fingerprint. `sessionId` scopes to one agent; omit it
+ * for the fleet-wide graph Director's Notes draws.
  *
  * The graph cache keys off the history JSONL file's mtime + size, which no
  * longer moves when a Cue run lands - so without this the graph would keep
@@ -772,18 +781,20 @@ export interface CueEventHistoryStamp {
 	maxCompletedAt: number;
 }
 
-export function getCueEventHistoryStamp(sessionId: string): CueEventHistoryStamp {
+export function getCueEventHistoryStamp(sessionId?: string): CueEventHistoryStamp {
 	if (!db) return { count: 0, maxCreatedAt: 0, maxCompletedAt: 0 };
 
+	const scope = sessionId !== undefined ? `session_id = ? AND ` : '';
+	const params = sessionId !== undefined ? [sessionId] : [];
 	const row = db
 		.prepare(
 			`SELECT COUNT(*) AS run_count,
 				COALESCE(MAX(created_at), 0) AS max_created,
 				COALESCE(MAX(completed_at), 0) AS max_completed
 			FROM cue_events
-			WHERE session_id = ? AND ${CUE_EVENT_WORTH_SHOWING_SQL}`
+			WHERE ${scope}${CUE_EVENT_WORTH_SHOWING_SQL}`
 		)
-		.get(sessionId) as
+		.get(...params) as
 		| { run_count: number; max_created: number; max_completed: number }
 		| undefined;
 

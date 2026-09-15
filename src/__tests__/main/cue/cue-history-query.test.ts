@@ -320,6 +320,44 @@ describe.skipIf(!canLoadNodeSqlite())('getCueHistoryBuckets (real SQLite)', () =
 		).toEqual([{ timestamp: minuteStart(BASE_MS + 60_000), count: 1 }]);
 	});
 
+	// Director's Notes graphs every agent at once, so it omits `sessionId` and
+	// lets one GROUP BY answer for the fleet rather than one query per agent.
+	it('sums every agent into one series when no agent is named', () => {
+		seedRun({ id: 'mine', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		seedRun({
+			id: 'theirs',
+			sessionId: OTHER_AGENT_ID,
+			status: 'completed',
+			outputExcerpt: 'x',
+			createdAt: BASE_MS + 1_000,
+		});
+		// Still filtered: a silent success is not a bar on anyone's graph.
+		seedRun({
+			id: 'silent-ok',
+			sessionId: OTHER_AGENT_ID,
+			status: 'completed',
+			outputExcerpt: null,
+			createdAt: BASE_MS + 2_000,
+		});
+
+		expect(getCueHistoryBuckets({})).toEqual([{ timestamp: minuteStart(BASE_MS), count: 2 }]);
+	});
+
+	it('honors the since window on the fleet-wide read', () => {
+		seedRun({ id: 'old', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		seedRun({
+			id: 'new',
+			sessionId: OTHER_AGENT_ID,
+			status: 'completed',
+			outputExcerpt: 'x',
+			createdAt: BASE_MS + 120_000,
+		});
+
+		expect(getCueHistoryBuckets({ since: BASE_MS + 60_000 })).toEqual([
+			{ timestamp: minuteStart(BASE_MS + 120_000), count: 1 },
+		]);
+	});
+
 	it('returns nothing once the database is closed rather than throwing', () => {
 		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x' });
 		closeCueDb();
@@ -382,5 +420,26 @@ describe.skipIf(!canLoadNodeSqlite())('getCueHistoryFingerprint (real SQLite)', 
 		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x' });
 
 		expect(getCueHistoryFingerprint(OTHER_AGENT_ID)).not.toBe(getCueHistoryFingerprint(AGENT_ID));
+	});
+
+	// The fleet-wide form keys Director's Notes' graph cache: a run landing for
+	// ANY agent has to move it, or that graph freezes its CUE bars.
+	it('covers every agent when none is named', () => {
+		const empty = getCueHistoryFingerprint();
+
+		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		const afterMine = getCueHistoryFingerprint();
+		expect(afterMine).not.toBe(empty);
+
+		seedRun({
+			id: 'b',
+			sessionId: OTHER_AGENT_ID,
+			status: 'completed',
+			outputExcerpt: 'y',
+			createdAt: BASE_MS + 60_000,
+		});
+		expect(getCueHistoryFingerprint()).not.toBe(afterMine);
+		// A per-agent stamp would not have noticed the other agent's run.
+		expect(getCueHistoryFingerprint(AGENT_ID)).toBe(getCueHistoryFingerprint(AGENT_ID));
 	});
 });

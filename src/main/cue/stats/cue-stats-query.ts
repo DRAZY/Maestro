@@ -661,8 +661,11 @@ function cueEventToHistoryEntry(event: CueEventRecord, query: CueHistoryQuery): 
 
 /** Window for {@link getCueHistoryBuckets} / {@link getCueHistoryFingerprint}. */
 export interface CueHistoryBucketQuery {
-	/** Maestro agent id (`cue_events.session_id`). */
-	sessionId: string;
+	/**
+	 * Maestro agent id (`cue_events.session_id`). Omit for every agent - the
+	 * fleet-wide graph Director's Notes draws.
+	 */
+	sessionId?: string;
 	/** Inclusive lower bound on `created_at`, in ms. Unbounded when omitted. */
 	since?: number;
 	/** Exclusive upper bound on `created_at`, in ms. Unbounded when omitted. */
@@ -681,7 +684,8 @@ export interface CueHistoryBucket {
 
 /**
  * Counts of the Cue runs worth showing, grouped by minute, for the activity
- * graph's CUE series.
+ * graph's CUE series. Scoped to one agent, or to every agent when
+ * `query.sessionId` is omitted.
  *
  * The graph draws bars, so it asks the database for numbers rather than
  * reusing {@link getCueHistoryEntries}: an all-time graph would otherwise pull
@@ -695,14 +699,15 @@ export function getCueHistoryBuckets(query: CueHistoryBucketQuery): CueHistoryBu
 }
 
 /**
- * Fingerprint of one agent's Cue history, for the activity-graph cache.
+ * Fingerprint of one agent's Cue history, for the activity-graph cache. Omit
+ * `sessionId` for the fleet-wide fingerprint Director's Notes keys on.
  *
  * That cache invalidates on the history JSONL file's mtime + size, which stops
  * moving for Cue once the runs live only in `cue_events` - so the Cue half of
  * the key has to come from the database or the graph freezes its CUE bars at
  * whatever it first computed.
  */
-export function getCueHistoryFingerprint(sessionId: string): string {
+export function getCueHistoryFingerprint(sessionId?: string): string {
 	const stamp = getCueEventHistoryStamp(sessionId);
 	return `${stamp.count}-${stamp.maxCreatedAt}-${stamp.maxCompletedAt}`;
 }

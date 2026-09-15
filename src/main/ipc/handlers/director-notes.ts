@@ -42,6 +42,18 @@ import {
 } from '../../utils/history-bucket-cache';
 import { buildBucketAggregate } from '../../utils/history-bucket-builder';
 import {
+	cueScopeAgentsFromRecords,
+	dropCueRowsAlreadyInJsonl,
+	mergeEntriesById,
+	readCueEntries,
+	readCueGraphBuckets,
+	readCueGraphFingerprint,
+	sessionField,
+	type CueHistoryBucketsQuery,
+	type CueHistoryEntriesQuery,
+	type CueHistoryFingerprintQuery,
+} from '../../utils/cue-history-merge';
+import {
 	collectSharedHistoryEntries,
 	hasSharedHistorySources,
 	prepareSharedHistoryForSynopsis,
@@ -98,7 +110,77 @@ interface CorpusAgent {
 }
 
 /**
- * Load every agent's history - local store plus foreign-host shared entries.
+ * How a corpus read picks up Cue runs, which no longer reach the JSONL files.
+ *
+ * Omitting `query` means "JSONL only" - the right call for the activity-graph
+ * handler, which counts Cue from the database instead of materializing rows.
+ */
+interface CueCorpusOptions {
+	/** Cue runs as history rows; see `getCueHistoryEntries()`. */
+	query?: CueHistoryEntriesQuery;
+	/** Inclusive lower bound on run time. Unbounded when omitted. */
+	since?: number;
+}
+
+/**
+ * Fold `cue_events` runs into the corpus, one agent at a time.
+ *
+ * Cue stopped writing to the agent's history file in CUE-HISTORY-02, so without
+ * this every Director's Notes surface - the list, the CUE pill, the stats
+ * header, Rich Mode - would report zero Cue activity on a fleet doing thousands
+ * of runs a day.
+ *
+ * Two wrinkles the History panel's version also has to handle:
+ *
+ * - Runs recorded BEFORE the writes were removed are still in the JSONL file
+ *   and stay there (past the Cue retention window they are the only record), so
+ *   a DB row the file already carries is dropped rather than rendered twice.
+ * - An agent whose only activity is Cue has no history file at all, so it is
+ *   absent from `listSessionsWithHistory()` and has to be added here.
+ */
+function foldCueRunsIntoCorpus(corpus: CorpusAgent[], cue: CueCorpusOptions): CorpusAgent[] {
+	const scopes = cueScopeAgentsFromRecords(readSessionRecords());
+	// An agent deleted from the Left Bar keeps its history file, so the corpus
+	// can name agents the store no longer does. Keep their runs in scope.
+	const known = new Set(scopes.map((scope) => scope.id));
+	for (const agent of corpus) {
+		if (known.has(agent.sourceSessionId)) continue;
+		scopes.push({ id: agent.sourceSessionId, name: agent.agentName });
+	}
+
+	const byId = new Map(corpus.map((agent) => [agent.sourceSessionId, agent]));
+	for (const scope of scopes) {
+		const rows = readCueEntries(cue.query, [scope], {
+			since: cue.since,
+			limit: MAX_ENTRIES_PER_SESSION,
+		});
+		if (rows.length === 0) continue;
+
+		const existing = byId.get(scope.id);
+		if (existing) {
+			existing.entries = mergeEntriesById(
+				existing.entries,
+				dropCueRowsAlreadyInJsonl(existing.entries, rows)
+			);
+			continue;
+		}
+		const agent: CorpusAgent = {
+			sourceSessionId: scope.id,
+			agentName: scope.name,
+			entries: mergeEntriesById([], rows),
+			// The row cap, not file retention, is what could have trimmed this
+			// one - but the effect on the count is the same: it is a floor.
+			canBeTruncated: rows.length >= MAX_ENTRIES_PER_SESSION,
+		};
+		byId.set(scope.id, agent);
+		corpus.push(agent);
+	}
+	return corpus;
+}
+
+/**
+ * Load every agent's history - local JSONL store, Cue runs from `cue_events`,
+ * plus foreign-host shared entries.
  *
  * `shared` is passed in rather than fetched here so callers that can prove
  * there is nothing shared (or that must not pay for an SSH round trip) can hand
@@ -107,26 +189,29 @@ interface CorpusAgent {
 async function loadUnifiedCorpus(
 	historyManager: ReturnType<typeof getHistoryManager>,
 	sessionNameMap: Map<string, string>,
-	shared: SharedHistoryCollection
+	shared: SharedHistoryCollection,
+	cue: CueCorpusOptions = {}
 ): Promise<CorpusAgent[]> {
 	const sessionIds = await historyManager.listSessionsWithHistory();
 	// Parallel reads - independent files.
 	const sessionEntries = await Promise.all(sessionIds.map((sid) => historyManager.getEntries(sid)));
 
-	const corpus: CorpusAgent[] = sessionIds.map((sid, i) => ({
+	let corpus: CorpusAgent[] = sessionIds.map((sid, i) => ({
 		sourceSessionId: sid,
 		agentName: sessionNameMap.get(sid),
 		entries: sessionEntries[i],
 		canBeTruncated: true,
 	}));
 
+	if (cue.query) corpus = foldCueRunsIntoCorpus(corpus, cue);
+
 	if (shared.entries.length === 0) return corpus;
 
 	// A run we already hold locally can also appear in a peer's mirror; entry
 	// ids are stable across hosts, so they settle it.
 	const localIds = new Set<string>();
-	for (const entries of sessionEntries) {
-		for (const entry of entries) localIds.add(entry.id);
+	for (const agent of corpus) {
+		for (const entry of agent.entries) localIds.add(entry.id);
 	}
 
 	const foreignByAgent = new Map<string, CorpusAgent>();
@@ -171,17 +256,29 @@ function countAgentsAndSessions(corpus: CorpusAgent[]): {
 }
 
 /**
+ * Every session record in the store, loosely typed.
+ *
+ * Both the display-name map and the Cue scope read the same list: an agent's
+ * name and its directory live here and nowhere else, and a `cue_events` row
+ * knows neither.
+ */
+function readSessionRecords(): Array<Record<string, unknown>> {
+	const stored = getSessionsStore().get('sessions', []) as unknown as Array<
+		Record<string, unknown>
+	>;
+	return stored.filter((s) => typeof s === 'object' && s !== null);
+}
+
+/**
  * Build a map of Maestro session ID -> session name from the sessions store.
  * Used to resolve the display name shown in the left bar for each session.
  */
 function buildSessionNameMap(): Map<string, string> {
-	const sessionsStore = getSessionsStore();
-	const storedSessions = sessionsStore.get('sessions', []);
 	const map = new Map<string, string>();
-	for (const s of storedSessions) {
-		if (s.id && s.name) {
-			map.set(s.id, s.name);
-		}
+	for (const record of readSessionRecords()) {
+		const id = sessionField(record, 'id');
+		const name = sessionField(record, 'name');
+		if (id && name) map.set(id, name);
 	}
 	return map;
 }
@@ -206,6 +303,27 @@ export interface DirectorNotesHandlerDependencies {
 	getProcessManager: () => ProcessManager | null;
 	getAgentDetector: () => AgentDetector | null;
 	agentConfigsStore: Store<AgentConfigsData>;
+	/**
+	 * Cue runs for one agent, already shaped as `HistoryEntry` - see
+	 * `getCueHistoryEntries()` in `src/main/cue/stats/cue-stats-query.ts`.
+	 *
+	 * Injected rather than imported so this module keeps no static edge to the
+	 * Cue SQLite layer (`better-sqlite3` is a native binding built for Electron's
+	 * ABI). Omitted means Director's Notes reports zero Cue activity.
+	 */
+	getCueHistoryEntries?: CueHistoryEntriesQuery;
+	/**
+	 * Per-minute Cue run counts for the activity graph. Asked fleet-wide (no
+	 * `sessionId`), because this graph aggregates every agent at once and one
+	 * GROUP BY beats one query per agent.
+	 */
+	getCueHistoryBuckets?: CueHistoryBucketsQuery;
+	/**
+	 * Change-detector mixed into the activity-graph cache key. Without it the key
+	 * covers only the JSONL files, which no longer move when a Cue run lands, and
+	 * the CUE bars freeze at whatever was first computed.
+	 */
+	getCueHistoryFingerprint?: CueHistoryFingerprintQuery;
 }
 
 export interface UnifiedHistoryOptions {
@@ -355,6 +473,12 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 	const { getProcessManager, getAgentDetector, agentConfigsStore } = deps;
 	const historyManager = getHistoryManager();
 
+	/** Cue read options for a corpus load bounded by `cutoffTime` (0 = all time). */
+	const cueSince = (cutoffTime: number): CueCorpusOptions => ({
+		query: deps.getCueHistoryEntries,
+		since: cutoffTime > 0 ? cutoffTime : undefined,
+	});
+
 	// Aggregate history from all sessions with pagination support
 	ipcMain.handle(
 		'director-notes:getUnifiedHistory',
@@ -379,7 +503,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const corpus = await loadUnifiedCorpus(
 					historyManager,
 					buildSessionNameMap(),
-					await collectSharedHistoryEntries()
+					await collectSharedHistoryEntries(),
+					cueSince(cutoffTime)
 				);
 
 				// Collect all entries within time range (unfiltered by type for stats)
@@ -507,6 +632,10 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const safeBucketCount = Math.max(1, bucketCount | 0);
 				const lookbackMs =
 					lookbackHours !== null && lookbackHours > 0 ? lookbackHours * 60 * 60 * 1000 : null;
+				// One `now` for the whole call, so the window the Cue query is asked
+				// for is exactly the window the aggregate buckets.
+				const now = Date.now();
+				const cueSinceMs = lookbackMs !== null ? now - lookbackMs : undefined;
 				const sessionIds = await historyManager.listSessionsWithHistory();
 				const filePathsRaw = await Promise.all(
 					sessionIds.map((sid) => historyManager.getHistoryFilePath(sid))
@@ -516,7 +645,12 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const cache = getHistoryBucketCache();
 				const lookbackKey = lookbackHours === null ? 'all' : String(lookbackHours);
 				const cacheKey = `unified:bc=${safeBucketCount}:lb=${lookbackKey}`;
-				const fp = multiFileFingerprint(filePaths);
+				// The JSONL half of the key stopped moving for Cue when those writes
+				// were removed, so the database contributes its own change-detector or
+				// the CUE bars freeze at whatever was first computed.
+				const fp = `${multiFileFingerprint(filePaths)}|cue=${readCueGraphFingerprint(
+					deps.getCueHistoryFingerprint
+				)}`;
 
 				// The fingerprint covers LOCAL history files only, so a cached
 				// aggregate cannot see foreign-host entries. Skip the cache
@@ -566,7 +700,16 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const allEntries = corpus.flatMap((agent) => agent.entries);
 				const { agentCount, sessionCount } = countAgentsAndSessions(corpus);
 
-				const agg = buildBucketAggregate(allEntries, safeBucketCount, { lookbackMs });
+				// Counts, not rows: this graph spans every agent, and an all-time read
+				// would otherwise drag every run's stored output through memory just to
+				// increment a bar. The corpus above is deliberately loaded WITHOUT Cue
+				// rows for the same reason - which does mean `agentCount` misses an
+				// agent whose only activity is Cue, unlike `getUnifiedHistory`'s stats.
+				const agg = buildBucketAggregate(allEntries, safeBucketCount, {
+					lookbackMs,
+					endTime: now,
+					cueCounts: readCueGraphBuckets(deps.getCueHistoryBuckets, { since: cueSinceMs }),
+				});
 				// Fire-and-forget the disk write - the renderer doesn't need to
 				// wait for it; the in-memory cache layer was already updated.
 				// Skipped when shared history is in play: the fingerprint would
@@ -636,7 +779,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const corpus = await loadUnifiedCorpus(
 					historyManager,
 					buildSessionNameMap(),
-					await collectSharedHistoryEntries()
+					await collectSharedHistoryEntries(),
+					cueSince(cutoff)
 				);
 
 				const all: HistoryEntry[] = [];
@@ -675,7 +819,8 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const corpus = await loadUnifiedCorpus(
 					historyManager,
 					buildSessionNameMap(),
-					await collectSharedHistoryEntries()
+					await collectSharedHistoryEntries(),
+					cueSince(cutoffTime)
 				);
 
 				const windowEntries: HistoryEntry[] = [];
