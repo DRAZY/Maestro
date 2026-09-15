@@ -37,7 +37,10 @@ import { resolveThemeId } from '../../shared/theme-types';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../constants/shortcuts';
 import { findReservedShortcutCombo } from '../../shared/shortcutKeys';
 import { MAESTRO_FONT_STACK } from '../../shared/fontStacks';
-import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../shared/cue/retention';
+import {
+	DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+	resolveCueHistoryRetentionDays,
+} from '../../shared/cue/retention';
 import {
 	collectBoundShortcuts,
 	countUsedBoundShortcuts,
@@ -3063,13 +3066,12 @@ export async function loadAllSettings(): Promise<void> {
 		// Cue history retention. A stored value that isn't a usable day count
 		// falls back to the default rather than being shown as-is: the number in
 		// the UI is a promise about what the prune keeps, so it must never read
-		// back as NaN or 0.
+		// back as NaN or 0. Shared with the engine's prune so the window shown
+		// and the window deleted by can't disagree.
 		if (allSettings['cueHistoryRetentionDays'] !== undefined) {
-			const days = allSettings['cueHistoryRetentionDays'];
-			patch.cueHistoryRetentionDays =
-				typeof days === 'number' && Number.isFinite(days) && days >= 1
-					? Math.floor(days)
-					: DEFAULT_CUE_HISTORY_RETENTION_DAYS;
+			patch.cueHistoryRetentionDays = resolveCueHistoryRetentionDays(
+				allSettings['cueHistoryRetentionDays']
+			);
 		}
 
 		if (allSettings['wakatimeApiKey'] !== undefined)

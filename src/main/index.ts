@@ -39,6 +39,7 @@ import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';
 import { getHistoryManager } from './history-manager';
 import { MAX_ENTRIES_PER_SESSION, resolveHistoryEntryLimit } from '../shared/history';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../shared/cue/retention';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -1212,6 +1213,11 @@ app
 				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
 				return ef.usageStats === true;
 			},
+			// How far back the engine-start prune keeps cue_events. Read on every
+			// start (not captured once) so changing the setting takes effect the
+			// next time Cue is enabled, without an app restart.
+			getCueHistoryRetentionDays: () =>
+				store.get('cueHistoryRetentionDays', DEFAULT_CUE_HISTORY_RETENTION_DAYS),
 		});
 
 		// Configure Cue telemetry submitter. Reads installationId / encore flags

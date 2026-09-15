@@ -1636,11 +1636,24 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
 		});
 
+		// A hand-edited settings file or a CLI write can store the number as
+		// text. The shared resolver parses it rather than discarding what the
+		// user asked for, so the store agrees with the engine's prune window.
+		it('parses a numeric string stored by a hand edit', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: '30',
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+		});
+
 		// The number shown in the UI is a promise about what the prune keeps, so
 		// an unusable stored value must read back as the default rather than as
 		// NaN or 0 - a 0-day window would mean "delete everything".
 		it.each([
-			['a string', '30'],
+			['a non-numeric string', 'abc'],
 			['zero', 0],
 			['a negative count', -5],
 			['NaN', Number.NaN],
