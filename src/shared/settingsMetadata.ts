@@ -13,6 +13,7 @@
  */
 
 import path from 'path';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from './cue/retention';
 import { isWindows } from './platformDetection';
 import { APPEARANCE_SETTINGS_METADATA } from './settingsMetadataAppearance';
 
@@ -237,26 +238,6 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		category: 'editor',
 	},
 
-	// --- LLM / Provider ---
-	llmProvider: {
-		description: 'LLM provider for built-in AI features. E.g., openrouter, anthropic, openai.',
-		type: 'string',
-		default: 'openrouter',
-		category: 'advanced',
-	},
-	modelSlug: {
-		description: 'Model identifier for the selected LLM provider.',
-		type: 'string',
-		default: 'anthropic/claude-3.5-sonnet',
-		category: 'advanced',
-	},
-	apiKey: {
-		description: 'API key for the selected LLM provider.',
-		type: 'string',
-		default: '',
-		sensitive: true,
-		category: 'advanced',
-	},
 	allowConcurrentSend: {
 		description:
 			'Allow `maestro-cli send --live --force` to dispatch prompts to an agent whose active tab is already busy. Enables concurrent writes to a single agent; off by default because it can interleave responses.',
@@ -745,6 +726,20 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		description: "Director's Notes settings: provider, lookback window, optional ideal end state.",
 		type: 'object',
 		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
+		category: 'advanced',
+	},
+	cueHistoryRetentionDays: {
+		description:
+			'How many days of Maestro Cue run history to keep in the Cue database. Rows older than this are pruned when the Cue engine starts. Raise it to keep a longer Activity Log, lower it to keep the database small.',
+		type: 'number',
+		default: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+		category: 'advanced',
+	},
+	groupCueEntries: {
+		description:
+			'Collapse repeated Maestro Cue runs in the History panel into one row per trigger, showing the run count, the most recent run time, and a failure count. Expand a row to reach the individual runs. Turn this off to list every Cue run separately.',
+		type: 'boolean',
+		default: true,
 		category: 'advanced',
 	},
 

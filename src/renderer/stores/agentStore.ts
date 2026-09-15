@@ -254,12 +254,29 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 			const updatedAiTabs = targetTabId
 				? s.aiTabs.map((tab) => (tab.id === targetTabId ? { ...tab, agentError: undefined } : tab))
 				: s.aiTabs;
+			// Clearing the error must not claim the AGENT is idle while one of its
+			// tabs is still mid-turn. A re-authentication resumes blocked agents one
+			// after another (see `resolveAuthOutage`), so this runs while an earlier
+			// tab's replayed turn is already on the wire - and overwriting the busy
+			// state there hides the Thinking pill for live work and tells the queue
+			// recovery pass the agent is free.
+			const stillBusy =
+				updatedAiTabs.some((tab) => tab.state === 'busy') ||
+				!!s.orphanedThinkingTabs?.some((tab) => tab.state === 'busy');
 			return {
 				...s,
 				agentError: undefined,
 				agentErrorTabId: undefined,
 				agentErrorPaused: false,
-				state: 'idle' as SessionState,
+				// Either way the session leaves 'error': the busy branch reports the
+				// work that is genuinely running, the idle branch the absence of any.
+				...(stillBusy
+					? {
+							state: 'busy' as SessionState,
+							busySource: s.busySource ?? 'ai',
+							thinkingStartTime: s.thinkingStartTime ?? Date.now(),
+						}
+					: { state: 'idle' as SessionState }),
 				aiTabs: updatedAiTabs,
 			};
 		});

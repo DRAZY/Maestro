@@ -660,6 +660,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.setGroupChatRightTab('participants');
 				} else {
 					ctx.handleSetActiveRightTab('files');
+					// Move real DOM focus with the app's focus state. Without this the
+					// caret stayed in the editor the user came from, so the next Enter
+					// there also opened the tree's selected file.
+					ctx.rightPanelRef?.current?.focusFileTree();
 				}
 				ctx.setActiveFocus('right');
 				trackShortcut('goToFiles');

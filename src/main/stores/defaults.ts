@@ -8,6 +8,7 @@
 import path from 'path';
 import { isWindows } from '../../shared/platformDetection';
 import { MAESTRO_FONT_STACK } from '../../shared/fontStack';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../shared/cue/retention';
 
 import type {
 	MaestroSettings,
@@ -75,9 +76,6 @@ export function resolveConfiguredShell(store: ShellSettingsReader): string {
 
 export const SETTINGS_DEFAULTS: MaestroSettings = {
 	activeThemeId: 'dracula',
-	llmProvider: 'openrouter',
-	modelSlug: 'anthropic/claude-3.5-sonnet',
-	apiKey: '',
 	shortcuts: {},
 	fontSize: 14,
 	fontFamily: MAESTRO_FONT_STACK,
@@ -133,6 +131,8 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	annotatorTextFont: 'sans-serif',
 	annotatorTextBgColor: '',
 	globalShowHotkey: [],
+	cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+	groupCueEntries: true,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

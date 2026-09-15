@@ -532,6 +532,48 @@ describe('UnifiedHistoryTab', () => {
 				expect(screen.getByTestId('filter-cue')).toBeInTheDocument();
 			});
 		});
+
+		it('blames the filter, not the fleet, when the pills empty the list', async () => {
+			// The pill selection is sent to the main process as `filter`, and
+			// since CUE-HISTORY-02 Cue rows live in `cue_events` and are not
+			// queried at all when CUE is off. So an empty response with a pill
+			// switched off must NOT be reported as "no history entries found".
+			useSettingsStore.setState({
+				encoreFeatures: {
+					directorNotes: false,
+					usageStats: false,
+					symphony: false,
+					maestroCue: true,
+				},
+			});
+			const cueEntry = {
+				...createMockEntries()[0],
+				id: 'cue-only-1',
+				type: 'CUE',
+				summary: 'Nightly sweep finished',
+			};
+			// Mirror the handler: serve rows only for the requested types.
+			mockGetUnifiedHistory.mockImplementation(async (options: { filter?: string[] }) =>
+				createPaginatedResponse(
+					(options?.filter ?? []).includes('CUE') ? [cueEntry] : [],
+					false,
+					(options?.filter ?? []).includes('CUE') ? 1 : 0
+				)
+			);
+
+			render(<UnifiedHistoryTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Nightly sweep finished')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByTestId('filter-cue'));
+
+			await waitFor(() => {
+				expect(screen.getByText('No entries match the current filters.')).toBeInTheDocument();
+			});
+			expect(screen.queryByText(/No history entries/)).not.toBeInTheDocument();
+		});
 	});
 
 	describe('Activity Graph', () => {

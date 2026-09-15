@@ -14,7 +14,6 @@ import { useEffect } from 'react';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallow } from 'zustand/shallow';
 import type {
-	LLMProvider,
 	ThemeId,
 	ThemeColors,
 	Shortcut,
@@ -62,14 +61,6 @@ export interface UseSettingsReturn {
 	// Global show-Maestro hotkey (system-wide). Empty array = unset.
 	globalShowHotkey: string[];
 	setGlobalShowHotkey: (value: string[]) => void;
-
-	// LLM settings
-	llmProvider: LLMProvider;
-	modelSlug: string;
-	apiKey: string;
-	setLlmProvider: (value: LLMProvider) => void;
-	setModelSlug: (value: string) => void;
-	setApiKey: (value: string) => void;
 
 	// Shell settings
 	defaultShell: string;
@@ -426,6 +417,14 @@ export interface UseSettingsReturn {
 	// Director's Notes settings
 	directorNotesSettings: DirectorNotesSettings;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
+
+	// Maestro Cue history retention (days kept in cue.db)
+	cueHistoryRetentionDays: number;
+	setCueHistoryRetentionDays: (value: number) => void;
+
+	// Collapse repeated Cue runs in the History panel into one row per trigger
+	groupCueEntries: boolean;
+	setGroupCueEntries: (value: boolean) => void;
 
 	// WakaTime integration settings
 	wakatimeApiKey: string;

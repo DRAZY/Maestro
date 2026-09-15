@@ -1,13 +1,24 @@
 import { memo } from 'react';
-import { ExternalLink, Check, X, Clock, Award, Server } from 'lucide-react';
+import {
+	ExternalLink,
+	Check,
+	X,
+	Clock,
+	Award,
+	Server,
+	ChevronDown,
+	ChevronRight,
+} from 'lucide-react';
 import type { Theme, HistoryEntry } from '../../types';
 import { formatElapsedTime } from '../../utils/formatters';
 import { stripMarkdown } from '../../utils/textProcessing';
 import { DoubleCheck, getPillColor, getEntryIcon } from './historyConstants';
-import { formatTimestamp } from '../../../shared/formatters';
+import { formatCount, formatTimestamp } from '../../../shared/formatters';
 import { humanizeCueEventType } from '../../../shared/cue/cue-summary';
 import { getTokenSourcePill } from '../../../shared/claudeTokenModeLabel';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { CueGroupRuns } from './CueGroupRuns';
+import type { CueGroupExpansionApi } from '../../hooks/history/useExpandedCueGroups';
 
 const formatTime = (timestamp: number) => formatTimestamp(timestamp, 'smart');
 
@@ -21,6 +32,15 @@ export interface HistoryEntryItemProps {
 	onOpenAboutModal?: () => void;
 	/** When true, displays the agentName field prominently in the entry header (used in unified history view) */
 	showAgentName?: boolean;
+	/**
+	 * Toggle + loader for the runs behind a collapsed Cue group, from
+	 * `useExpandedCueGroups`. Omitted by surfaces that never request grouped
+	 * rows, which turns the expander off rather than drawing a control with
+	 * nothing behind it.
+	 */
+	cueGroupExpansion?: CueGroupExpansionApi;
+	/** Whether THIS row's group is currently open. */
+	isCueGroupExpanded?: boolean;
 }
 
 export const HistoryEntryItem = memo(function HistoryEntryItem({
@@ -32,6 +52,8 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 	onOpenSessionAsTab,
 	onOpenAboutModal,
 	showAgentName,
+	cueGroupExpansion,
+	isCueGroupExpanded = false,
 }: HistoryEntryItemProps) {
 	const colors = getPillColor(entry.type, theme);
 	const Icon = getEntryIcon(entry.type);
@@ -55,6 +77,17 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 		? (entry as HistoryEntry & { agentName?: string }).agentName
 		: undefined;
 
+	// A collapsed run of Cue triggers. The row is still the group's NEWEST run,
+	// so everything below reads the same fields as an ungrouped row; the group
+	// only changes what the header names it and swaps the per-run success dot
+	// for the group's failure tally, which is the honest summary of N runs.
+	const cueGroup = entry.cueGroup;
+	// The expander only exists when a caller supplied somewhere to get the runs
+	// from. `cueGroupToHistoryEntry()` never attaches `cueGroup` to a group of
+	// one, so a row that has one is always standing for runs worth opening.
+	const expandable = Boolean(cueGroup && cueGroupExpansion);
+	const expanded = expandable && isCueGroupExpanded;
+
 	return (
 		<div
 			onClick={() => onOpenDetailModal(entry, index)}
@@ -69,6 +102,26 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 			{/* Header Row - agent name, session pill, type pill left-justified; timestamp right-justified */}
 			<div className="flex items-center justify-between mb-2 gap-2">
 				<div className="flex items-center gap-2 min-w-0 flex-1">
+					{/* Expander for a collapsed group. Sized to the success dot it
+					    replaces so a grouped row is the same height as any other. */}
+					{expandable && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								cueGroupExpansion!.toggle(entry.id);
+							}}
+							className="flex items-center justify-center w-5 h-5 rounded flex-shrink-0 hover:bg-white/10 transition-colors"
+							aria-expanded={expanded}
+							title={expanded ? 'Hide individual runs' : 'Show individual runs'}
+						>
+							{expanded ? (
+								<ChevronDown className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+							) : (
+								<ChevronRight className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+							)}
+						</button>
+					)}
+
 					{/* Agent Name - shown in unified history view */}
 					{agentName && (
 						<h3
@@ -102,43 +155,58 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 						</button>
 					)}
 
-					{/* Success/Failure Indicator for AUTO and CUE entries */}
-					{(entry.type === 'AUTO' || entry.type === 'CUE') && entry.success !== undefined && (
-						<span
-							className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
-							style={{
-								backgroundColor: entry.success
-									? entry.validated
-										? theme.colors.success
-										: theme.colors.success + '20'
-									: theme.colors.error + '20',
-								border: `1px solid ${
-									entry.success
+					{/* Trigger name for a collapsed group of Cue runs */}
+					{cueGroup && (
+						<h3
+							className="text-sm font-bold truncate min-w-0"
+							style={{ color: theme.colors.textMain }}
+							title={cueGroup.label}
+						>
+							{cueGroup.label}
+						</h3>
+					)}
+
+					{/* Success/Failure Indicator for AUTO and CUE entries. Suppressed
+					    on a grouped row: one run's outcome cannot speak for the
+					    group, whose tally is on the meta line below instead. */}
+					{!cueGroup &&
+						(entry.type === 'AUTO' || entry.type === 'CUE') &&
+						entry.success !== undefined && (
+							<span
+								className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
+								style={{
+									backgroundColor: entry.success
 										? entry.validated
 											? theme.colors.success
-											: theme.colors.success + '40'
-										: theme.colors.error + '40'
-								}`,
-							}}
-							title={
-								entry.success
-									? entry.validated
-										? 'Task completed successfully, and you marked it as checked'
-										: 'Task completed successfully'
-									: 'Task failed'
-							}
-						>
-							{entry.success ? (
-								entry.validated ? (
-									<DoubleCheck className="w-3 h-3" style={{ color: '#ffffff' }} />
+											: theme.colors.success + '20'
+										: theme.colors.error + '20',
+									border: `1px solid ${
+										entry.success
+											? entry.validated
+												? theme.colors.success
+												: theme.colors.success + '40'
+											: theme.colors.error + '40'
+									}`,
+								}}
+								title={
+									entry.success
+										? entry.validated
+											? 'Task completed successfully, and you marked it as checked'
+											: 'Task completed successfully'
+										: 'Task failed'
+								}
+							>
+								{entry.success ? (
+									entry.validated ? (
+										<DoubleCheck className="w-3 h-3" style={{ color: '#ffffff' }} />
+									) : (
+										<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+									)
 								) : (
-									<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
-								)
-							) : (
-								<X className="w-3 h-3" style={{ color: theme.colors.error }} />
-							)}
-						</span>
-					)}
+									<X className="w-3 h-3" style={{ color: theme.colors.error }} />
+								)}
+							</span>
+						)}
 
 					{/* Type Pill */}
 					<span
@@ -173,15 +241,47 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 				{entry.summary ? stripMarkdown(entry.summary) : 'No summary available'}
 			</p>
 
-			{/* CUE metadata subtitle */}
-			{entry.type === 'CUE' && entry.cueEventType && (
+			{/* CUE metadata subtitle. A grouped row spends the same line on what
+			    the group is standing in for - how many runs, how many of them
+			    failed - and keeps the trigger type on the end of it. */}
+			{cueGroup ? (
 				<p
-					className="text-2xs mt-1"
+					data-cue-group={cueGroup.key}
+					className="text-2xs mt-1 flex items-center gap-1.5 truncate"
 					style={{ color: theme.colors.textDim }}
-					title={entry.cueEventType}
+					title={`${formatCount(cueGroup.runCount)} runs collapsed into this row`}
 				>
-					Triggered by: {humanizeCueEventType(entry.cueEventType)}
+					<span style={{ color: theme.colors.textMain }}>
+						{formatCount(cueGroup.runCount)} runs
+					</span>
+					{cueGroup.failureCount > 0 && (
+						<>
+							<span aria-hidden="true">·</span>
+							<span style={{ color: theme.colors.error }}>
+								{formatCount(cueGroup.failureCount)} failed
+							</span>
+						</>
+					)}
+					{entry.cueEventType && (
+						<>
+							<span aria-hidden="true">·</span>
+							<span className="truncate" title={entry.cueEventType}>
+								{humanizeCueEventType(entry.cueEventType)}
+							</span>
+						</>
+					)}
 				</p>
+			) : (
+				entry.type === 'CUE' &&
+				entry.cueEventType && (
+					<p
+						className="text-2xs mt-1"
+						style={{ color: theme.colors.textDim }}
+						title={entry.cueEventType}
+					>
+						Triggered by: {humanizeCueEventType(entry.cueEventType)}
+					</p>
+				)
 			)}
 
 			{/* Footer Row - Time, Cost, Token Source, Achievement Action, and Remote Origin */}
@@ -265,6 +365,17 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 						</span>
 					)}
 				</div>
+			)}
+
+			{/* The runs this row stands for. Mounted only while expanded, which
+			    is what fetches them - see CueGroupRuns. */}
+			{expanded && (
+				<CueGroupRuns
+					entry={entry}
+					theme={theme}
+					expansion={cueGroupExpansion!}
+					onOpenRun={(run) => onOpenDetailModal(run, index)}
+				/>
 			)}
 		</div>
 	);

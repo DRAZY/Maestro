@@ -247,8 +247,17 @@ export function useFilePreviewTabHandlers(): FilePreviewTabHandlersReturn {
 		);
 	}, []);
 
+	// `savedMtime` travels with `savedContent`: the tab's lastModified must track
+	// the mtime of the bytes it is holding. Leave it out on a save and the tab
+	// keeps its pre-save timestamp, so the next mount of FilePreview compares the
+	// disk against a stale value and raises a false "File changed on disk".
 	const handleFileTabEditContentChange = useCallback(
-		(tabId: string, editContent: string | undefined, savedContent?: string) => {
+		(
+			tabId: string,
+			editContent: string | undefined,
+			savedContent?: string,
+			savedMtime?: number
+		) => {
 			const { setSessions, activeSessionId } = useSessionStore.getState();
 			setSessions((prev: Session[]) =>
 				prev.map((s) => {
@@ -256,7 +265,12 @@ export function useFilePreviewTabHandlers(): FilePreviewTabHandlersReturn {
 					const updatedFileTabs = s.filePreviewTabs.map((tab) => {
 						if (tab.id !== tabId) return tab;
 						if (savedContent !== undefined) {
-							return { ...tab, editContent, content: savedContent };
+							return {
+								...tab,
+								editContent,
+								content: savedContent,
+								lastModified: savedMtime ?? tab.lastModified,
+							};
 						}
 						return { ...tab, editContent };
 					});

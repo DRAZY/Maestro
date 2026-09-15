@@ -242,7 +242,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 			<div data-setting-id="display-max-log-buffer">
 				<SettingsSectionHeading icon={Database}>Maximum Log Buffer</SettingsSectionHeading>
 				<ToggleButtonGroup
-					options={[1000, 5000, 10000, 25000]}
+					options={[1000, 5000, 10000, 25000, 50000]}
 					value={maxLogBuffer}
 					onChange={setMaxLogBuffer}
 					theme={theme}
