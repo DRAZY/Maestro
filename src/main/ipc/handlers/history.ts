@@ -39,7 +39,11 @@ import {
 	type CachedGraphBucket,
 } from '../../utils/history-bucket-cache';
 import { buildBucketAggregate, LOCAL_HOST_AGG_KEY } from '../../utils/history-bucket-builder';
-import type { CueHistoryQuery } from '../../cue/stats/cue-stats-query';
+import type {
+	CueHistoryBucket,
+	CueHistoryBucketQuery,
+	CueHistoryQuery,
+} from '../../cue/stats/cue-stats-query';
 
 const LOG_CONTEXT = '[History]';
 
@@ -165,6 +169,20 @@ export interface HistoryHandlerDependencies {
 	 * Omitted means History serves JSONL entries only.
 	 */
 	getCueHistoryEntries?: (query: CueHistoryQuery) => HistoryEntry[];
+	/**
+	 * Per-minute Cue run counts for the activity graph - see
+	 * `getCueHistoryBuckets()` in `src/main/cue/stats/cue-stats-query.ts`.
+	 * Counts rather than rows because a bar chart never needs the text.
+	 * Injected for the same reason as {@link getCueHistoryEntries}.
+	 */
+	getCueHistoryBuckets?: (query: CueHistoryBucketQuery) => CueHistoryBucket[];
+	/**
+	 * Change-detector for one agent's Cue history, mixed into the
+	 * activity-graph cache key. Without it the cache keys only off the JSONL
+	 * file, which no longer moves when a Cue run lands, and the CUE bars
+	 * freeze at whatever was first computed.
+	 */
+	getCueHistoryFingerprint?: (sessionId: string) => string;
 }
 
 /** The agent metadata a Cue history query needs, resolved from the store. */
@@ -254,6 +272,53 @@ function readCueEntries(
 		}
 	}
 	return entries;
+}
+
+/**
+ * The Cue half of the activity-graph cache key.
+ *
+ * Deliberately a separate, cheap query from {@link readCueGraphBuckets} rather
+ * than a hash of the buckets themselves: it is asked on every graph read,
+ * including the ones the cache answers, so it must not cost a full scan.
+ *
+ * A failed read returns a value that cannot match any stored fingerprint, so a
+ * stale aggregate is never served on the strength of a database we could not
+ * actually ask.
+ */
+function readCueGraphFingerprint(deps: HistoryHandlerDependencies, sessionId: string): string {
+	if (!deps.getCueHistoryFingerprint) return 'none';
+	try {
+		return deps.getCueHistoryFingerprint(sessionId);
+	} catch (error) {
+		void captureException(error);
+		logger.warn(
+			`Failed to fingerprint Cue history for session ${sessionId}: ${error}`,
+			LOG_CONTEXT
+		);
+		return `error-${Date.now()}`;
+	}
+}
+
+/**
+ * Per-minute Cue run counts for one agent's activity graph.
+ *
+ * Degrades to "no Cue bars" on a DB failure, for the same reason
+ * {@link readCueEntries} degrades to no rows: a missing or locked Cue database
+ * must not take the user's own history graph down with it.
+ */
+function readCueGraphBuckets(
+	deps: HistoryHandlerDependencies,
+	sessionId: string,
+	options: { since?: number } = {}
+): CueHistoryBucket[] {
+	if (!deps.getCueHistoryBuckets) return [];
+	try {
+		return deps.getCueHistoryBuckets({ sessionId, since: options.since });
+	} catch (error) {
+		void captureException(error);
+		logger.warn(`Failed to read Cue graph buckets for session ${sessionId}: ${error}`, LOG_CONTEXT);
+		return [];
+	}
 }
 
 /**
@@ -554,9 +619,10 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 
 	// Get graph data (buckets + counts) for a single session.
 	// Cached on disk keyed by (sessionId, bucketCount, lookbackHours,
-	// file mtime+size). The lookback is part of the cache key so each
-	// window the user picks gets its own cached aggregate; mtime
-	// invalidates them all at once when the file changes.
+	// file mtime+size + Cue fingerprint). The lookback is part of the cache
+	// key so each window the user picks gets its own cached aggregate; the
+	// fingerprint invalidates them all at once when either source moves -
+	// the JSONL file for USER/AUTO, `cue_events` for CUE.
 	ipcMain.handle(
 		'history:getGraphData',
 		withIpcErrorLogging(
@@ -571,6 +637,10 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				const safeBucketCount = Math.max(1, bucketCount | 0);
 				const lookbackMs =
 					lookbackHours !== null && lookbackHours > 0 ? lookbackHours * 60 * 60 * 1000 : null;
+				// One clock for the whole handler: the window the Cue query is
+				// asked for has to be the window the aggregate buckets, or the
+				// oldest bar loses runs to the gap between the two reads.
+				const endTime = Date.now();
 				const filePath = await historyManager.getHistoryFilePath(sessionId);
 				const hasShared = Boolean(sharedContext?.sshRemoteId && sharedContext?.remoteCwd);
 				// Local-shared overlay: a non-SSH session whose project dir
@@ -585,18 +655,28 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				// Cache only when there is no shared-history overlay (SSH or
 				// local-mirror). Shared entries come from arbitrary files we
 				// don't fingerprint, so the simple cached path can't see them.
+				// Cue runs are no longer in the JSONL file, so the CUE series comes
+				// from `cue_events` as per-minute counts. Read lazily - a cache
+				// hit only needs the fingerprint.
+				const cueSince = lookbackMs !== null ? endTime - lookbackMs : undefined;
+				const aggregateOptions = () => ({
+					lookbackMs,
+					endTime,
+					cueCounts: readCueGraphBuckets(deps, sessionId, { since: cueSince }),
+				});
+
 				if (filePath && !hasShared && !hasLocalShared) {
 					const cache = getHistoryBucketCache();
 					const lookbackKey = lookbackHours === null ? 'all' : String(lookbackHours);
 					const cacheKey = `single:${sessionId}:bc=${safeBucketCount}:lb=${lookbackKey}`;
-					const fp = fileFingerprint(filePath);
+					const fp = `${fileFingerprint(filePath)}|cue=${readCueGraphFingerprint(deps, sessionId)}`;
 					const hit = await cache.get(cacheKey, fp);
 					if (hit) {
 						return cachedToGraphData(hit, true);
 					}
 
 					const entries = await historyManager.getEntries(sessionId);
-					const agg = buildBucketAggregate(entries, safeBucketCount, { lookbackMs });
+					const agg = buildBucketAggregate(entries, safeBucketCount, aggregateOptions());
 					// Fire-and-forget the disk write - the renderer doesn't need to
 					// wait for it; the in-memory cache layer was already updated.
 					void cache.set({
@@ -654,7 +734,7 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 						logger.warn(`Failed to read local shared history for graph: ${err}`, LOG_CONTEXT);
 					}
 				}
-				const agg = buildBucketAggregate(entries, safeBucketCount, { lookbackMs });
+				const agg = buildBucketAggregate(entries, safeBucketCount, aggregateOptions());
 				return aggregateToGraphData(agg, safeBucketCount, false);
 			}
 		)

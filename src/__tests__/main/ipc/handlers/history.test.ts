@@ -6,18 +6,31 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as os from 'os';
+import * as path from 'path';
 import { ipcMain } from 'electron';
 import { registerHistoryHandlers } from '../../../../main/ipc/handlers/history';
+import {
+	HistoryBucketCache,
+	setHistoryBucketCacheForTest,
+} from '../../../../main/utils/history-bucket-cache';
+
+/** Temp dir the graph bucket cache writes to. Hoisted for the electron mock. */
+const GRAPH_CACHE_DIR = path.join(os.tmpdir(), `maestro-history-handler-test-${process.pid}`);
 import * as historyManagerModule from '../../../../main/history-manager';
 import * as sharedHistoryModule from '../../../../main/shared-history-manager';
 import type { HistoryManager } from '../../../../main/history-manager';
 import type { HistoryEntry } from '../../../../shared/types';
 
-// Mock electron's ipcMain
+// Mock electron's ipcMain. `app.getPath` is here for the activity-graph
+// bucket cache, which resolves its directory in the constructor.
 vi.mock('electron', () => ({
 	ipcMain: {
 		handle: vi.fn(),
 		removeHandler: vi.fn(),
+	},
+	app: {
+		getPath: vi.fn(() => GRAPH_CACHE_DIR),
 	},
 }));
 
@@ -687,6 +700,127 @@ describe('history IPC handlers', () => {
 			const handler = registerWith({ getCueHistoryEntries })('history:getOffsetForTimestamp');
 			// Merged newest-first: [user-new, cue-mid, user-old]
 			expect(await handler({} as any, 'session-1', 2000, null)).toBe(2);
+		});
+	});
+
+	describe('history:getGraphData Cue series', () => {
+		/** Register a fresh handler set and return a getter for its channels. */
+		const registerWith = (overrides: Record<string, unknown>): ((channel: string) => Function) => {
+			registerHistoryHandlers({ safeSend: mockSafeSend, ...overrides } as any);
+			return (channel: string) => {
+				const calls = (ipcMain.handle as any).mock.calls.filter(
+					([ch]: [string, Function]) => ch === channel
+				);
+				return calls[calls.length - 1][1];
+			};
+		};
+
+		/**
+		 * A cache in its own directory, plus a history file path so the handler
+		 * takes the cached branch (which is also the branch that reads the JSONL
+		 * entries - with no path it treats the agent as having none).
+		 */
+		const useFreshGraphCache = (): void => {
+			setHistoryBucketCacheForTest(
+				new HistoryBucketCache(path.join(GRAPH_CACHE_DIR, `run-${counter++}`))
+			);
+			vi.mocked(mockHistoryManager.getHistoryFilePath).mockReturnValue(
+				'/tmp/does-not-exist/session-1.jsonl' as any
+			);
+		};
+		let counter = 0;
+
+		afterEach(() => {
+			setHistoryBucketCacheForTest(null);
+		});
+
+		it('draws CUE bars from the database, not from the JSONL file', async () => {
+			useFreshGraphCache();
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'u1', type: 'USER', timestamp: now - 1000 }),
+			]);
+			const getCueHistoryBuckets = vi.fn(() => [
+				{ timestamp: now - 1000, count: 4 },
+				{ timestamp: now, count: 2 },
+			]);
+
+			const handler = registerWith({
+				getCueHistoryBuckets,
+				getCueHistoryFingerprint: () => 'fp',
+			})('history:getGraphData');
+			const result = await handler({} as any, 'session-1', 2, null);
+
+			expect(result.cueCount).toBe(6);
+			expect(result.userCount).toBe(1);
+			expect(result.totalCount).toBe(7);
+			expect(result.buckets.reduce((sum: number, b: any) => sum + b.cue, 0)).toBe(6);
+		});
+
+		it('asks for the lookback window, and for all time when there is none', async () => {
+			const getCueHistoryBuckets = vi.fn(() => []);
+			const handler = registerWith({
+				getCueHistoryBuckets,
+				getCueHistoryFingerprint: () => 'fp',
+			})('history:getGraphData');
+
+			await handler({} as any, 'session-1', 24, 24);
+			const windowed = getCueHistoryBuckets.mock.calls[0][0] as any;
+			expect(windowed.sessionId).toBe('session-1');
+			expect(windowed.since).toBeGreaterThan(Date.now() - 25 * 60 * 60 * 1000);
+			expect(windowed.since).toBeLessThanOrEqual(Date.now() - 23 * 60 * 60 * 1000);
+
+			await handler({} as any, 'session-1', 24, null);
+			expect((getCueHistoryBuckets.mock.calls[1][0] as any).since).toBeUndefined();
+		});
+
+		it('still returns the JSONL series when the Cue database throws', async () => {
+			useFreshGraphCache();
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'u1', type: 'USER', timestamp: now }),
+			]);
+			const getCueHistoryBuckets = vi.fn(() => {
+				throw new Error('database is locked');
+			});
+
+			const handler = registerWith({ getCueHistoryBuckets })('history:getGraphData');
+			const result = await handler({} as any, 'session-1', 4, null);
+
+			expect(result.userCount).toBe(1);
+			expect(result.cueCount).toBe(0);
+		});
+
+		it('recomputes cached buckets when the Cue fingerprint moves', async () => {
+			// The cache keys off the history file's mtime+size, which no longer
+			// changes when a Cue run lands. Without the Cue half of the key the
+			// graph would serve its first answer forever.
+			useFreshGraphCache();
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+
+			const now = Date.now();
+			let cueFingerprint = 'cue-1';
+			let cueCount = 3;
+			const handler = registerWith({
+				getCueHistoryBuckets: () => [{ timestamp: now, count: cueCount }],
+				getCueHistoryFingerprint: () => cueFingerprint,
+			})('history:getGraphData');
+
+			const first = await handler({} as any, 'session-1', 4, null);
+			expect(first.cached).toBe(false);
+			expect(first.cueCount).toBe(3);
+
+			// Same fingerprint: the cached aggregate answers.
+			cueCount = 99;
+			const second = await handler({} as any, 'session-1', 4, null);
+			expect(second.cached).toBe(true);
+			expect(second.cueCount).toBe(3);
+
+			// Fingerprint moved: recompute, and the new run shows up.
+			cueFingerprint = 'cue-2';
+			const third = await handler({} as any, 'session-1', 4, null);
+			expect(third.cached).toBe(false);
+			expect(third.cueCount).toBe(99);
 		});
 	});
 

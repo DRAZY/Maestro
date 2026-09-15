@@ -693,6 +693,108 @@ export function getCueEventsForHistory(options: {
 }
 
 /**
+ * Bucket width the activity-graph counts are grouped to in SQL.
+ *
+ * One minute is finer than the graph's finest bucket by a wide margin (the
+ * tightest lookback is 24 hours over 24 buckets, i.e. one hour a bar), so
+ * grouping here is lossless for every window the renderer can ask for while
+ * collapsing a busy agent's thousands of daily runs into a few hundred rows.
+ */
+export const CUE_EVENT_BUCKET_MS = 60_000;
+
+/** One minute of Cue runs, as counted by {@link getCueEventBucketCounts}. */
+export interface CueEventBucketCount {
+	/** Start of the minute the runs were dispatched in, unix ms. */
+	bucketStart: number;
+	count: number;
+}
+
+/**
+ * Per-minute counts of the Cue runs worth showing, for one agent inside a time
+ * window. Feeds the activity graph's CUE series.
+ *
+ * This exists instead of counting {@link getCueEventsForHistory} rows because
+ * the graph needs numbers, not text: a bar chart over a year of history would
+ * otherwise drag every run's `full_output` through memory to increment a
+ * counter.
+ *
+ * `since` is inclusive, `until` exclusive. Ordered oldest first.
+ */
+export function getCueEventBucketCounts(options: {
+	sessionId: string;
+	since?: number;
+	until?: number;
+}): CueEventBucketCount[] {
+	if (!db) return [];
+
+	const clauses = [`session_id = ?`];
+	const params: unknown[] = [options.sessionId];
+	if (options.since !== undefined) {
+		clauses.push(`created_at >= ?`);
+		params.push(options.since);
+	}
+	if (options.until !== undefined) {
+		clauses.push(`created_at < ?`);
+		params.push(options.until);
+	}
+	clauses.push(CUE_EVENT_WORTH_SHOWING_SQL);
+
+	const sql = `SELECT CAST(created_at / ${CUE_EVENT_BUCKET_MS} AS INTEGER) * ${CUE_EVENT_BUCKET_MS} AS bucket_start,
+			COUNT(*) AS run_count
+		FROM cue_events
+		WHERE ${clauses.join(' AND ')}
+		GROUP BY bucket_start
+		ORDER BY bucket_start ASC`;
+
+	const rows = db.prepare(sql).all(...params) as Array<{
+		bucket_start: number;
+		run_count: number;
+	}>;
+	return rows.map((row) => ({ bucketStart: row.bucket_start, count: row.run_count }));
+}
+
+/**
+ * Cheap change-detector for one agent's Cue history, used as the Cue half of
+ * the activity-graph cache fingerprint.
+ *
+ * The graph cache keys off the history JSONL file's mtime + size, which no
+ * longer moves when a Cue run lands - so without this the graph would keep
+ * serving the bars it computed the first time and never show a new run again.
+ *
+ * Three aggregates over the same predicate the bucket query uses, so the stamp
+ * moves on every transition that can change a bar: a new run (count and
+ * `MAX(created_at)`), a run finishing (`MAX(completed_at)`), a silent success
+ * dropping out of the filter or a failure entering it (count).
+ */
+export interface CueEventHistoryStamp {
+	count: number;
+	maxCreatedAt: number;
+	maxCompletedAt: number;
+}
+
+export function getCueEventHistoryStamp(sessionId: string): CueEventHistoryStamp {
+	if (!db) return { count: 0, maxCreatedAt: 0, maxCompletedAt: 0 };
+
+	const row = db
+		.prepare(
+			`SELECT COUNT(*) AS run_count,
+				COALESCE(MAX(created_at), 0) AS max_created,
+				COALESCE(MAX(completed_at), 0) AS max_completed
+			FROM cue_events
+			WHERE session_id = ? AND ${CUE_EVENT_WORTH_SHOWING_SQL}`
+		)
+		.get(sessionId) as
+		| { run_count: number; max_created: number; max_completed: number }
+		| undefined;
+
+	return {
+		count: row?.run_count ?? 0,
+		maxCreatedAt: row?.max_created ?? 0,
+		maxCompletedAt: row?.max_completed ?? 0,
+	};
+}
+
+/**
  * Retrieve recent Cue events created after a given timestamp.
  *
  * Returns `[]` if the DB hasn't been initialized yet. Mirrors the tolerance of

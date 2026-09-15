@@ -15,10 +15,17 @@
  *
  * Also the read side of the Cue/History split: `getCueHistoryEntries()` serves
  * Cue runs to the History panel straight from this table, so a chatty fleet no
- * longer evicts the user's own turns out of the per-agent JSONL file.
+ * longer evicts the user's own turns out of the per-agent JSONL file, and
+ * `getCueHistoryBuckets()` / `getCueHistoryFingerprint()` serve the same runs
+ * to the activity graph as counts rather than rows.
  */
 
-import { getCueEventsForHistory, getRecentCueEvents } from '../cue-db';
+import {
+	getCueEventBucketCounts,
+	getCueEventHistoryStamp,
+	getCueEventsForHistory,
+	getRecentCueEvents,
+} from '../cue-db';
 import type { CueEventRecord } from '../cue-db';
 import { getTimeRangeStart } from '../../stats/utils';
 import { computePercentiles } from '../../../shared/percentiles';
@@ -650,6 +657,54 @@ function cueEventToHistoryEntry(event: CueEventRecord, query: CueHistoryQuery): 
 		cueEventType: event.type,
 		cueSourceSession: sourceSession != null ? String(sourceSession) : undefined,
 	};
+}
+
+/** Window for {@link getCueHistoryBuckets} / {@link getCueHistoryFingerprint}. */
+export interface CueHistoryBucketQuery {
+	/** Maestro agent id (`cue_events.session_id`). */
+	sessionId: string;
+	/** Inclusive lower bound on `created_at`, in ms. Unbounded when omitted. */
+	since?: number;
+	/** Exclusive upper bound on `created_at`, in ms. Unbounded when omitted. */
+	until?: number;
+}
+
+/**
+ * One minute of Cue runs, in the shape the activity-graph aggregator folds in
+ * (see `buildBucketAggregate`'s `cueCounts` option).
+ */
+export interface CueHistoryBucket {
+	/** Start of the minute, unix ms. */
+	timestamp: number;
+	count: number;
+}
+
+/**
+ * Counts of the Cue runs worth showing, grouped by minute, for the activity
+ * graph's CUE series.
+ *
+ * The graph draws bars, so it asks the database for numbers rather than
+ * reusing {@link getCueHistoryEntries}: an all-time graph would otherwise pull
+ * every run's stored output through memory just to increment a counter.
+ */
+export function getCueHistoryBuckets(query: CueHistoryBucketQuery): CueHistoryBucket[] {
+	return getCueEventBucketCounts(query).map((bucket) => ({
+		timestamp: bucket.bucketStart,
+		count: bucket.count,
+	}));
+}
+
+/**
+ * Fingerprint of one agent's Cue history, for the activity-graph cache.
+ *
+ * That cache invalidates on the history JSONL file's mtime + size, which stops
+ * moving for Cue once the runs live only in `cue_events` - so the Cue half of
+ * the key has to come from the database or the graph freezes its CUE bars at
+ * whatever it first computed.
+ */
+export function getCueHistoryFingerprint(sessionId: string): string {
+	const stamp = getCueEventHistoryStamp(sessionId);
+	return `${stamp.count}-${stamp.maxCreatedAt}-${stamp.maxCompletedAt}`;
 }
 
 /** Tolerant payload parse - a corrupt row must not break the History list. */

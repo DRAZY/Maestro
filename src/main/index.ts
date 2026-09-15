@@ -28,7 +28,11 @@ import { executeCueNotify } from './cue/cue-notify-executor';
 import { reportCueAuthFailure } from './cue/cue-auth-detector';
 import { setSusFactorNotifier } from './cue/cue-susfactor';
 import { emitCueNotifyToast } from './cue/cue-notify-bridge';
-import { getCueHistoryEntries } from './cue/stats/cue-stats-query';
+import {
+	getCueHistoryBuckets,
+	getCueHistoryEntries,
+	getCueHistoryFingerprint,
+} from './cue/stats/cue-stats-query';
 import { getAgentDisplayName } from '../shared/agentMetadata';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
@@ -1495,6 +1499,8 @@ function setupIpcHandlers() {
 		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
 		getAllSessions: readSessionRecords,
 		getCueHistoryEntries,
+		getCueHistoryBuckets,
+		getCueHistoryFingerprint,
 	});
 
 	// Director's Notes - unified history + synopsis generation

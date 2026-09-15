@@ -16,6 +16,11 @@
  *
  * Timestamps are driven with fake `Date` so `created_at` / `completed_at`,
  * which the DB module stamps itself, stay deterministic.
+ *
+ * Task #4 adds the activity-graph half to the same suite: `getCueHistoryBuckets()`
+ * has to apply that identical predicate through a `GROUP BY`, and
+ * `getCueHistoryFingerprint()` has to move whenever it would return different
+ * numbers - both facts only a real database can demonstrate.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -42,7 +47,11 @@ import {
 	updateCueEventStatus,
 	getCueEventsForHistory,
 } from '../../../main/cue/cue-db';
-import { getCueHistoryEntries } from '../../../main/cue/stats/cue-stats-query';
+import {
+	getCueHistoryBuckets,
+	getCueHistoryEntries,
+	getCueHistoryFingerprint,
+} from '../../../main/cue/stats/cue-stats-query';
 import type { HistoryEntry } from '../../../shared/types';
 
 const AGENT_ID = 'agent-rc';
@@ -95,6 +104,13 @@ function seedRun(opts: SeedOptions): void {
 }
 
 const idsOf = (entries: HistoryEntry[]): string[] => entries.map((entry) => entry.id);
+
+/**
+ * Start of the minute a timestamp falls in - what the bucket query groups on.
+ * BASE_MS is deliberately NOT on a minute boundary (it sits 20s in), so the
+ * bucket expectations have to be derived rather than written as `BASE_MS + n`.
+ */
+const minuteStart = (ms: number): number => Math.floor(ms / 60_000) * 60_000;
 
 describe.skipIf(!canLoadNodeSqlite())('getCueHistoryEntries (real SQLite)', () => {
 	beforeEach(() => {
@@ -226,5 +242,145 @@ describe.skipIf(!canLoadNodeSqlite())('getCueHistoryEntries (real SQLite)', () =
 		closeCueDb();
 
 		expect(getCueHistoryEntries({ sessionId: AGENT_ID })).toEqual([]);
+	});
+});
+
+describe.skipIf(!canLoadNodeSqlite())('getCueHistoryBuckets (real SQLite)', () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(BASE_MS);
+		closeCueDb();
+		initCueDb(undefined, ':memory:');
+	});
+
+	afterEach(() => {
+		closeCueDb();
+		vi.useRealTimers();
+	});
+
+	it('counts runs per minute under the same filter the entry query uses', () => {
+		// Three runs inside one minute, of which only two are worth showing.
+		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		seedRun({ id: 'b', status: 'failed', outputExcerpt: null, createdAt: BASE_MS + 1_000 });
+		seedRun({
+			id: 'silent-ok',
+			status: 'completed',
+			outputExcerpt: null,
+			createdAt: BASE_MS + 2_000,
+		});
+		// A fourth two minutes later, in its own bucket.
+		seedRun({ id: 'c', status: 'completed', outputExcerpt: 'y', createdAt: BASE_MS + 120_000 });
+
+		expect(getCueHistoryBuckets({ sessionId: AGENT_ID })).toEqual([
+			{ timestamp: minuteStart(BASE_MS), count: 2 },
+			{ timestamp: minuteStart(BASE_MS + 120_000), count: 1 },
+		]);
+	});
+
+	it('floors each run to the start of its minute', () => {
+		// BASE_MS sits 20s into a minute, so +37.5s is still that minute while
+		// +40s has crossed into the next one.
+		seedRun({
+			id: 'same-minute',
+			status: 'completed',
+			outputExcerpt: 'x',
+			createdAt: BASE_MS + 37_500,
+		});
+		seedRun({
+			id: 'next-minute',
+			status: 'completed',
+			outputExcerpt: 'x',
+			createdAt: BASE_MS + 40_000,
+		});
+
+		expect(getCueHistoryBuckets({ sessionId: AGENT_ID })).toEqual([
+			{ timestamp: minuteStart(BASE_MS), count: 1 },
+			{ timestamp: minuteStart(BASE_MS) + 60_000, count: 1 },
+		]);
+	});
+
+	it('scopes to one agent and honors the since / until window', () => {
+		seedRun({ id: 'old', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		seedRun({ id: 'kept', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS + 60_000 });
+		seedRun({ id: 'new', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS + 180_000 });
+		seedRun({
+			id: 'other-agent',
+			sessionId: OTHER_AGENT_ID,
+			status: 'completed',
+			outputExcerpt: 'x',
+			createdAt: BASE_MS + 60_000,
+		});
+
+		expect(
+			getCueHistoryBuckets({
+				sessionId: AGENT_ID,
+				since: BASE_MS + 60_000,
+				until: BASE_MS + 180_000,
+			})
+		).toEqual([{ timestamp: minuteStart(BASE_MS + 60_000), count: 1 }]);
+	});
+
+	it('returns nothing once the database is closed rather than throwing', () => {
+		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x' });
+		closeCueDb();
+
+		expect(getCueHistoryBuckets({ sessionId: AGENT_ID })).toEqual([]);
+	});
+});
+
+describe.skipIf(!canLoadNodeSqlite())('getCueHistoryFingerprint (real SQLite)', () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(BASE_MS);
+		closeCueDb();
+		initCueDb(undefined, ':memory:');
+	});
+
+	afterEach(() => {
+		closeCueDb();
+		vi.useRealTimers();
+	});
+
+	it('moves when a run lands, and holds still when nothing changes', () => {
+		const empty = getCueHistoryFingerprint(AGENT_ID);
+		expect(getCueHistoryFingerprint(AGENT_ID)).toBe(empty);
+
+		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x', createdAt: BASE_MS });
+		const afterFirst = getCueHistoryFingerprint(AGENT_ID);
+		expect(afterFirst).not.toBe(empty);
+		expect(getCueHistoryFingerprint(AGENT_ID)).toBe(afterFirst);
+
+		seedRun({ id: 'b', status: 'completed', outputExcerpt: 'y', createdAt: BASE_MS + 60_000 });
+		expect(getCueHistoryFingerprint(AGENT_ID)).not.toBe(afterFirst);
+	});
+
+	it('moves when a silent success drops out of the filter', () => {
+		// The dispatch row is `running`, so it passes the filter; completing
+		// silently removes it, which has to change the stamp or the graph would
+		// keep drawing a bar for a run it no longer shows.
+		vi.setSystemTime(BASE_MS);
+		recordCueEvent({
+			id: 'heartbeat',
+			type: 'time.heartbeat',
+			triggerName: 'Heartbeat',
+			sessionId: AGENT_ID,
+			subscriptionName: 'Heartbeat',
+			status: 'running',
+		});
+		const inFlight = getCueHistoryFingerprint(AGENT_ID);
+
+		vi.setSystemTime(BASE_MS + 5_000);
+		updateCueEventStatus('heartbeat', 'completed', undefined, {
+			outputExcerpt: null,
+			fullOutput: null,
+		});
+
+		expect(getCueHistoryFingerprint(AGENT_ID)).not.toBe(inFlight);
+	});
+
+	it('is per agent', () => {
+		seedRun({ id: 'a', status: 'completed', outputExcerpt: 'x' });
+
+		expect(getCueHistoryFingerprint(OTHER_AGENT_ID)).not.toBe(getCueHistoryFingerprint(AGENT_ID));
 	});
 });

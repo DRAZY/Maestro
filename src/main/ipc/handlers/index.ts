@@ -44,7 +44,11 @@ import {
 import { registerMarketplaceHandlers, MarketplaceHandlerDependencies } from './marketplace';
 import { registerStatsHandlers, StatsHandlerDependencies } from './stats';
 import { registerCueStatsHandlers, CueStatsHandlerDependencies } from './cue-stats';
-import { getCueHistoryEntries } from '../../cue/stats/cue-stats-query';
+import {
+	getCueHistoryBuckets,
+	getCueHistoryEntries,
+	getCueHistoryFingerprint,
+} from '../../cue/stats/cue-stats-query';
 import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from './documentGraph';
 import { registerSshRemoteHandlers, SshRemoteHandlerDependencies } from './ssh-remote';
 import { registerFilesystemHandlers } from './filesystem';
@@ -206,6 +210,8 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
 		getAllSessions: readSessionRecords,
 		getCueHistoryEntries,
+		getCueHistoryBuckets,
+		getCueHistoryFingerprint,
 	});
 	registerAgentsHandlers({
 		getAgentDetector: deps.getAgentDetector,
