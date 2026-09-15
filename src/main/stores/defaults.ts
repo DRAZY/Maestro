@@ -115,6 +115,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	annotatorTextBgColor: '',
 	globalShowHotkey: [],
 	cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+	groupCueEntries: true,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

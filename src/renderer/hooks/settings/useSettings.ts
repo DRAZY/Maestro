@@ -388,6 +388,10 @@ export interface UseSettingsReturn {
 	cueHistoryRetentionDays: number;
 	setCueHistoryRetentionDays: (value: number) => void;
 
+	// Collapse repeated Cue runs in the History panel into one row per trigger
+	groupCueEntries: boolean;
+	setGroupCueEntries: (value: boolean) => void;
+
 	// WakaTime integration settings
 	wakatimeApiKey: string;
 	setWakatimeApiKey: (value: string) => void;

@@ -451,6 +451,7 @@ export interface SettingsStoreState {
 	symphonyRegistryUrls: string[];
 	directorNotesSettings: DirectorNotesSettings;
 	cueHistoryRetentionDays: number;
+	groupCueEntries: boolean;
 	wakatimeApiKey: string;
 	wakatimeEnabled: boolean;
 	wakatimeDetailedTracking: boolean;
@@ -604,6 +605,7 @@ export interface SettingsStoreActions {
 	setSymphonyRegistryUrls: (value: string[]) => void;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
 	setCueHistoryRetentionDays: (value: number) => void;
+	setGroupCueEntries: (value: boolean) => void;
 	setWakatimeApiKey: (value: string) => void;
 	setWakatimeEnabled: (value: boolean) => void;
 	setWakatimeDetailedTracking: (value: boolean) => void;
@@ -848,6 +850,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		symphonyRegistryUrls: [],
 		directorNotesSettings: DEFAULT_DIRECTOR_NOTES_SETTINGS,
 		cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+		groupCueEntries: true,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
 		wakatimeDetailedTracking: false,
@@ -1550,6 +1553,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setCueHistoryRetentionDays: (value) => {
 			set({ cueHistoryRetentionDays: value });
 			window.maestro.settings.set('cueHistoryRetentionDays', value);
+		},
+
+		setGroupCueEntries: (value) => {
+			set({ groupCueEntries: value });
+			window.maestro.settings.set('groupCueEntries', value);
 		},
 
 		setWakatimeApiKey: (value) => {
@@ -3073,6 +3081,9 @@ export async function loadAllSettings(): Promise<void> {
 				allSettings['cueHistoryRetentionDays']
 			);
 		}
+
+		if (allSettings['groupCueEntries'] !== undefined)
+			patch.groupCueEntries = allSettings['groupCueEntries'] as boolean;
 
 		if (allSettings['wakatimeApiKey'] !== undefined)
 			patch.wakatimeApiKey = allSettings['wakatimeApiKey'] as string;

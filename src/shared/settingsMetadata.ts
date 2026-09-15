@@ -1050,6 +1050,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 		category: 'advanced',
 	},
+	groupCueEntries: {
+		description:
+			'Collapse repeated Maestro Cue runs in the History panel into one row per trigger, showing the run count, the most recent run time, and a failure count. Expand a row to reach the individual runs. Turn this off to list every Cue run separately.',
+		type: 'boolean',
+		default: true,
+		category: 'advanced',
+	},
 
 	// --- System ---
 	installationId: {

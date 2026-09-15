@@ -152,6 +152,8 @@ function resetStore() {
 		fileTabAutoRefreshEnabled: false,
 		suppressWindowsWarning: false,
 		directorNotesSettings: { provider: 'claude-code', defaultLookbackDays: 7 },
+		cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+		groupCueEntries: true,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
 		forcedParallelExecution: false,
@@ -664,6 +666,21 @@ describe('settingsStore', () => {
 				useSettingsStore.getState().setCueHistoryRetentionDays(30);
 				expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
 				expect(window.maestro.settings.set).toHaveBeenCalledWith('cueHistoryRetentionDays', 30);
+			});
+		});
+
+		describe('Cue History grouping', () => {
+			// Default ON: the ungrouped view is what made the History panel
+			// unreadable on a machine running high-frequency triggers.
+			it('defaults to grouping Cue entries', () => {
+				expect(useSettingsStore.getState().groupCueEntries).toBe(true);
+				expect(SETTINGS_METADATA.groupCueEntries.default).toBe(true);
+			});
+
+			it('setGroupCueEntries updates state and persists', () => {
+				useSettingsStore.getState().setGroupCueEntries(false);
+				expect(useSettingsStore.getState().groupCueEntries).toBe(false);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('groupCueEntries', false);
 			});
 		});
 
@@ -1624,6 +1641,26 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			expect(useSettingsStore.getState().activeThemeId).toBe('dracula');
+		});
+
+		// Opting out has to survive a restart: a user who turned grouping off
+		// did so because they need to see every run.
+		it('loads a persisted Cue grouping opt-out', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				groupCueEntries: false,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().groupCueEntries).toBe(false);
+		});
+
+		it('keeps Cue grouping on when nothing is stored', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().groupCueEntries).toBe(true);
 		});
 
 		it('loads a persisted Cue retention window', async () => {
