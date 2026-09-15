@@ -51,6 +51,7 @@ import {
 	getCueHistoryBuckets,
 	getCueHistoryEntries,
 	getCueHistoryFingerprint,
+	getCueHistoryGroups,
 } from '../../../main/cue/stats/cue-stats-query';
 import type { HistoryEntry } from '../../../shared/types';
 
@@ -74,6 +75,8 @@ interface SeedOptions {
 	createdAt?: number;
 	/** `completed_at`. Defaults to `createdAt`, i.e. a zero-duration run. */
 	completedAt?: number;
+	/** Lineage column. Omit for a run recorded without a pipeline. */
+	pipelineId?: string;
 }
 
 /**
@@ -92,6 +95,7 @@ function seedRun(opts: SeedOptions): void {
 		subscriptionName: opts.subscriptionName ?? 'Pedsidian-Command-Bus',
 		status: 'running',
 		payload: opts.payload,
+		pipelineId: opts.pipelineId,
 	});
 
 	if (!opts.status) return;
@@ -441,5 +445,274 @@ describe.skipIf(!canLoadNodeSqlite())('getCueHistoryFingerprint (real SQLite)', 
 		expect(getCueHistoryFingerprint()).not.toBe(afterMine);
 		// A per-agent stamp would not have noticed the other agent's run.
 		expect(getCueHistoryFingerprint(AGENT_ID)).toBe(getCueHistoryFingerprint(AGENT_ID));
+	});
+});
+
+/**
+ * CUE-HISTORY-03 task #1 - `getCueHistoryGroups()`.
+ *
+ * Also against a real database, for the same reason the suites above are: the
+ * thing under test is a `GROUP BY` plus SQLite's bare-column rule (with exactly
+ * one `MAX()` in the query, bare columns come from the row that produced it).
+ * A mocked statement recorder would assert the string, not that the preview
+ * body actually belongs to the newest run.
+ */
+describe.skipIf(!canLoadNodeSqlite())('getCueHistoryGroups (real SQLite)', () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(BASE_MS);
+		closeCueDb();
+		initCueDb(undefined, ':memory:');
+	});
+
+	afterEach(() => {
+		closeCueDb();
+		vi.useRealTimers();
+	});
+
+	it('renders a single-run trigger as a group of one', () => {
+		seedRun({
+			id: 'lonely',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Synced 4 notes.',
+		});
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0]).toMatchObject({
+			key: 'Nightly Sync',
+			label: 'Nightly Sync',
+			runCount: 1,
+			failureCount: 0,
+			lastRunAtMs: BASE_MS,
+		});
+		// The one run is shaped exactly as the ungrouped path shapes it, which
+		// is what lets the renderer draw a group of one as an ordinary row.
+		const [ungrouped] = getCueHistoryEntries({ sessionId: AGENT_ID, sessionName: 'rc' });
+		expect(groups[0].latestEntry).toEqual(ungrouped);
+	});
+
+	it('collapses a many-run trigger to one row carrying the newest run', () => {
+		for (let i = 0; i < 5; i++) {
+			seedRun({
+				id: `bus-${i}`,
+				subscriptionName: 'Pedsidian-Command-Bus',
+				status: 'completed',
+				outputExcerpt: `Handled command ${i}.`,
+				createdAt: BASE_MS + i * 60_000,
+			});
+		}
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].runCount).toBe(5);
+		expect(groups[0].lastRunAtMs).toBe(BASE_MS + 4 * 60_000);
+		// Preview body is the NEWEST run's excerpt, not an arbitrary member's.
+		expect(groups[0].latestEntry.id).toBe('bus-4');
+		expect(groups[0].latestEntry.summary).toBe('Handled command 4.');
+	});
+
+	it('counts failures inside a mixed-status trigger without dropping them', () => {
+		seedRun({
+			id: 'mixed-ok',
+			subscriptionName: 'Fact Check',
+			status: 'completed',
+			outputExcerpt: 'Checked 12 claims.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'mixed-fail',
+			subscriptionName: 'Fact Check',
+			status: 'failed',
+			outputExcerpt: null,
+			createdAt: BASE_MS + 60_000,
+		});
+		seedRun({
+			id: 'mixed-timeout',
+			subscriptionName: 'Fact Check',
+			status: 'timeout',
+			outputExcerpt: 'Gave up after 300s.',
+			createdAt: BASE_MS + 120_000,
+		});
+		// An in-flight run counts as a failure here, matching the rule the
+		// ungrouped entry mapping paints rows with (`success: status ===
+		// 'completed'`).
+		seedRun({
+			id: 'mixed-running',
+			subscriptionName: 'Fact Check',
+			createdAt: BASE_MS + 180_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(group.runCount).toBe(4);
+		expect(group.failureCount).toBe(3);
+		expect(group.latestEntry.id).toBe('mixed-running');
+	});
+
+	it('does not count a silent success that History would never show', () => {
+		seedRun({
+			id: 'heard',
+			subscriptionName: 'Heartbeat',
+			status: 'completed',
+			outputExcerpt: 'Ping.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'unheard',
+			subscriptionName: 'Heartbeat',
+			status: 'completed',
+			outputExcerpt: null,
+			createdAt: BASE_MS + 60_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(group.runCount).toBe(1);
+		expect(group.latestEntry.id).toBe('heard');
+	});
+
+	it('collapses two chain steps of one pipeline into a single group', () => {
+		seedRun({
+			id: 'step-1',
+			subscriptionName: 'PR Triage-chain-1',
+			status: 'completed',
+			outputExcerpt: 'Fetched PR #891.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'step-2',
+			subscriptionName: 'PR Triage-chain-2',
+			status: 'failed',
+			outputExcerpt: 'Review step crashed.',
+			createdAt: BASE_MS + 60_000,
+		});
+		seedRun({
+			id: 'step-sink',
+			subscriptionName: 'PR Triage-fanin',
+			status: 'completed',
+			outputExcerpt: 'Posted the summary.',
+			createdAt: BASE_MS + 120_000,
+		});
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0]).toMatchObject({
+			label: 'PR Triage',
+			runCount: 3,
+			failureCount: 1,
+			lastRunAtMs: BASE_MS + 120_000,
+		});
+		expect(groups[0].latestEntry.id).toBe('step-sink');
+	});
+
+	it('groups on the recorded pipeline name when the runs carry lineage', () => {
+		seedRun({
+			id: 'lineage-a',
+			subscriptionName: 'Internal-Plumbing-A',
+			pipelineId: 'Morning Briefing',
+			status: 'completed',
+			outputExcerpt: 'Gathered sources.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'lineage-b',
+			subscriptionName: 'Internal-Plumbing-B',
+			pipelineId: 'Morning Briefing',
+			status: 'completed',
+			outputExcerpt: 'Wrote the briefing.',
+			createdAt: BASE_MS + 60_000,
+		});
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0]).toMatchObject({ label: 'Morning Briefing', runCount: 2 });
+	});
+
+	it('keeps unrelated triggers apart and orders them by their last run', () => {
+		seedRun({
+			id: 'older',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Synced.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'newer',
+			subscriptionName: 'Fact Check',
+			status: 'completed',
+			outputExcerpt: 'Checked.',
+			createdAt: BASE_MS + 60_000,
+		});
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, sessionName: 'rc' });
+
+		expect(groups.map((group) => group.label)).toEqual(['Fact Check', 'Nightly Sync']);
+	});
+
+	it('scopes to one agent and honors the time window', () => {
+		seedRun({
+			id: 'mine',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Mine.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'theirs',
+			sessionId: OTHER_AGENT_ID,
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Theirs.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'too-old',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Ancient.',
+			createdAt: BASE_MS - 600_000,
+		});
+
+		const [group] = getCueHistoryGroups({ sessionId: AGENT_ID, since: BASE_MS });
+
+		expect(group.runCount).toBe(1);
+		expect(group.latestEntry.id).toBe('mine');
+	});
+
+	it('caps GROUPS with `limit`, after every run in the window is counted', () => {
+		seedRun({
+			id: 'busy-1',
+			subscriptionName: 'Pedsidian-Command-Bus',
+			status: 'completed',
+			outputExcerpt: 'One.',
+			createdAt: BASE_MS,
+		});
+		seedRun({
+			id: 'busy-2',
+			subscriptionName: 'Pedsidian-Command-Bus',
+			status: 'completed',
+			outputExcerpt: 'Two.',
+			createdAt: BASE_MS + 60_000,
+		});
+		seedRun({
+			id: 'quiet',
+			subscriptionName: 'Nightly Sync',
+			status: 'completed',
+			outputExcerpt: 'Synced.',
+			createdAt: BASE_MS - 60_000,
+		});
+
+		const groups = getCueHistoryGroups({ sessionId: AGENT_ID, limit: 1 });
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].label).toBe('Pedsidian-Command-Bus');
+		// The cap dropped a GROUP; it did not shrink the surviving group's count.
+		expect(groups[0].runCount).toBe(2);
 	});
 });

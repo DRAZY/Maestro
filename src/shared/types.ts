@@ -314,6 +314,32 @@ export interface HistoryEntry {
 	tokenSourceReason?: 'auto' | 'limit';
 }
 
+/**
+ * A run of Cue rows the History panel collapses into one line, e.g.
+ * "Pedsidian-Command-Bus - 1,382 runs, last 6:54 PM, 3 failed".
+ *
+ * Grouped at the PIPELINE level, so the `-chain-N` / `-fanin` steps that one
+ * pipeline emits share a row instead of each claiming their own.
+ *
+ * `latestEntry` is the newest run, shaped exactly as the ungrouped read path
+ * would have shaped it. That is what lets a group of ONE render as an ordinary
+ * History row rather than as a group with a "1 run" badge.
+ */
+export interface CueHistoryGroup {
+	/** Stable identity for the group. Equal to {@link label}. */
+	key: string;
+	/** Pipeline name when the runs carry lineage, else the base trigger name. */
+	label: string;
+	/** Runs collapsed into this row, including silent failures. */
+	runCount: number;
+	/** Runs that did not complete cleanly. Zero means the row shows no failures. */
+	failureCount: number;
+	/** `timestamp` of the newest run - what the row's time reads. */
+	lastRunAtMs: number;
+	/** The newest run, as a normal History row. */
+	latestEntry: HistoryEntry;
+}
+
 // Document entry within a playbook
 export interface PlaybookDocumentEntry {
 	filename: string;

@@ -693,6 +693,91 @@ export function getCueEventsForHistory(options: {
 }
 
 /**
+ * One trigger's runs inside a window, collapsed to a single row by
+ * {@link getCueEventGroupCounts}.
+ *
+ * `latest` is the newest run in the group, mapped with the same
+ * {@link rowToCueEventRecord} the ungrouped read path uses, so a caller can
+ * render a one-run group as an ordinary row without a second mapping.
+ */
+export interface CueEventGroupCount {
+	/** `pipeline_id` of the grouped runs; NULL for runs with no lineage. */
+	pipelineId: string | null;
+	/** Raw `subscription_name`, chain suffixes intact. */
+	subscriptionName: string;
+	/** Runs in the group, including silent failures. */
+	runCount: number;
+	/** Runs that did not reach `completed` - the same rule History paints red. */
+	failureCount: number;
+	/** The newest run in the group. Its `createdAt` IS the group's last run. */
+	latest: CueEventRecord;
+}
+
+/**
+ * Per-trigger rollup of the Cue runs worth showing for one agent, for the
+ * History panel's collapsed rows.
+ *
+ * Grouping happens here rather than in the renderer because a week of a chatty
+ * pipeline is thousands of rows: `Pedsidian-Command-Bus` alone put 1,382 of
+ * them in one History list. This returns one row per `(pipeline_id,
+ * subscription_name)` pair instead, which is at most a handful.
+ *
+ * Grouping stops at the raw subscription name on purpose. Collapsing the
+ * `-chain-N` / `-fanin` steps of one pipeline onto a single label is a
+ * NAME-parsing rule that already has a canonical owner in
+ * `parseSubscriptionName()` (shared/cue/cue-summary.ts); re-implementing its
+ * regex in SQL would be a second copy free to drift. The caller folds these
+ * rows the rest of the way - the fold is over a handful of rows, not thousands.
+ *
+ * The bare columns in the `SELECT *` are not arbitrary: SQLite guarantees that
+ * when a query contains exactly one `min()`/`max()` aggregate, every bare
+ * column takes its value from the row that produced that extreme. `MAX(created_at)`
+ * is that aggregate, so `latest` is the newest run of the group - which is
+ * where `output_excerpt` (the group's preview body) comes from.
+ *
+ * `since` is inclusive, `until` exclusive. Newest last-run first.
+ */
+export function getCueEventGroupCounts(options: {
+	sessionId: string;
+	since?: number;
+	until?: number;
+}): CueEventGroupCount[] {
+	if (!db) return [];
+
+	const clauses = [`session_id = ?`];
+	const params: unknown[] = [options.sessionId];
+	if (options.since !== undefined) {
+		clauses.push(`created_at >= ?`);
+		params.push(options.since);
+	}
+	if (options.until !== undefined) {
+		clauses.push(`created_at < ?`);
+		params.push(options.until);
+	}
+	clauses.push(CUE_EVENT_WORTH_SHOWING_SQL);
+
+	const sql = `SELECT *,
+			COUNT(*) AS run_count,
+			MAX(created_at) AS last_run_at,
+			SUM(status != 'completed') AS failure_count
+		FROM cue_events
+		WHERE ${clauses.join(' AND ')}
+		GROUP BY pipeline_id, subscription_name
+		ORDER BY last_run_at DESC`;
+
+	const rows = db.prepare(sql).all(...params) as Array<
+		CueEventRow & { run_count: number; failure_count: number }
+	>;
+	return rows.map((row) => ({
+		pipelineId: row.pipeline_id,
+		subscriptionName: row.subscription_name,
+		runCount: row.run_count,
+		failureCount: row.failure_count,
+		latest: rowToCueEventRecord(row),
+	}));
+}
+
+/**
  * Bucket width the activity-graph counts are grouped to in SQL.
  *
  * One minute is finer than the graph's finest bucket by a wide margin (the

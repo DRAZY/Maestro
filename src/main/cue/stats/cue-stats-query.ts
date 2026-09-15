@@ -22,6 +22,7 @@
 
 import {
 	getCueEventBucketCounts,
+	getCueEventGroupCounts,
 	getCueEventHistoryStamp,
 	getCueEventsForHistory,
 	getRecentCueEvents,
@@ -30,9 +31,9 @@ import type { CueEventRecord } from '../cue-db';
 import { getTimeRangeStart } from '../../stats/utils';
 import { computePercentiles } from '../../../shared/percentiles';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
-import { buildCueRunSummary } from '../../../shared/cue/cue-summary';
+import { buildCueRunSummary, parseSubscriptionName } from '../../../shared/cue/cue-summary';
 import type { CueEventType } from '../../../shared/cue/contracts';
-import type { HistoryEntry } from '../../../shared/types';
+import type { CueHistoryGroup, HistoryEntry } from '../../../shared/types';
 import {
 	getAgentTypesForSessions,
 	getSessionTokenSummaries,
@@ -657,6 +658,84 @@ function cueEventToHistoryEntry(event: CueEventRecord, query: CueHistoryQuery): 
 		cueEventType: event.type,
 		cueSourceSession: sourceSession != null ? String(sourceSession) : undefined,
 	};
+}
+
+/**
+ * Cue runs for one agent, collapsed to one {@link CueHistoryGroup} per
+ * pipeline-level trigger. The grouped variant of {@link getCueHistoryEntries}:
+ * same window, same noise filter, same row shape for the run it surfaces.
+ *
+ * Why this exists: a high-frequency trigger produces hundreds of near-identical
+ * History rows (1,382 for `Pedsidian-Command-Bus` in one week on this machine),
+ * and scrolling past the same sentence that many times is what made the panel
+ * unreadable. One row per trigger restores it, with the runs one expand away.
+ *
+ * Grouping is two-stage by design. SQL does the expensive half - thousands of
+ * rows down to one per `(pipeline_id, subscription_name)` pair, over the
+ * indexed filter columns. This function does the cheap half: folding the
+ * `<base>-chain-N` / `<base>-fanin` steps of one pipeline onto their shared
+ * pipeline label, using `parseSubscriptionName()` - the canonical owner of that
+ * stripping rule, and the same one `buildCueRunSummary()` labels rows with. A
+ * SQL re-implementation of its regex would be a second copy free to drift.
+ *
+ * (The task brief named `triggerGroupKey()` for this. That helper keys a live
+ * `CueSubscription` OBJECT by its trigger CONFIG - event type, schedule, watch
+ * globs - none of which `cue_events` stores, and it performs no name-suffix
+ * stripping at all, so it cannot collapse chain steps. `parseSubscriptionName()`
+ * is the helper that implements the rule the brief describes.)
+ *
+ * `limit` caps GROUPS, not runs: every run in the window is counted before the
+ * cap applies, so a group's count never lies about how much it is hiding.
+ * Newest last-run first, matching the ungrouped order.
+ */
+export function getCueHistoryGroups(query: CueHistoryQuery): CueHistoryGroup[] {
+	const rows = getCueEventGroupCounts({
+		sessionId: query.sessionId,
+		since: query.since,
+		until: query.until,
+	});
+
+	const groups = new Map<string, CueHistoryGroup>();
+	for (const row of rows) {
+		const label = cueHistoryGroupLabel(row.pipelineId, row.subscriptionName);
+		const existing = groups.get(label);
+		if (!existing) {
+			groups.set(label, {
+				key: label,
+				label,
+				runCount: row.runCount,
+				failureCount: row.failureCount,
+				lastRunAtMs: row.latest.createdAt,
+				latestEntry: cueEventToHistoryEntry(row.latest, query),
+			});
+			continue;
+		}
+		existing.runCount += row.runCount;
+		existing.failureCount += row.failureCount;
+		// Two chain steps of one pipeline: the group's preview body and time
+		// come from whichever step ran most recently.
+		if (row.latest.createdAt > existing.lastRunAtMs) {
+			existing.lastRunAtMs = row.latest.createdAt;
+			existing.latestEntry = cueEventToHistoryEntry(row.latest, query);
+		}
+	}
+
+	const ordered = Array.from(groups.values()).sort((a, b) => b.lastRunAtMs - a.lastRunAtMs);
+	return query.limit !== undefined ? ordered.slice(0, query.limit) : ordered;
+}
+
+/**
+ * Pipeline-level label for a group of runs: the recorded pipeline name when
+ * the runs carry lineage, else the subscription name with its `-chain-N` /
+ * `-fanin` suffix stripped. Falls back to the raw name for the degenerate case
+ * where stripping leaves nothing (a subscription literally named `-fanin`),
+ * because an empty label would silently merge unrelated triggers.
+ */
+function cueHistoryGroupLabel(pipelineId: string | null, subscriptionName: string): string {
+	const pipeline = pipelineId?.trim();
+	if (pipeline) return pipeline;
+	const base = parseSubscriptionName(subscriptionName).base.trim();
+	return base || subscriptionName;
 }
 
 /** Window for {@link getCueHistoryBuckets} / {@link getCueHistoryFingerprint}. */
