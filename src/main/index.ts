@@ -306,6 +306,13 @@ if (disableGpuAcceleration) {
 // This creates a unique identifier per Maestro installation for telemetry differentiation
 const store = getSettingsStore();
 let installationId = store.get('installationId');
+// An installationId already on disk means this settings store existed before
+// this boot, i.e. the app has launched before. Record that once, permanently -
+// it is how the renderer tells a returning user who deleted every agent from a
+// genuinely new install (sessions.length alone reads both as "new").
+if (installationId && !store.get('hasPriorInstallation')) {
+	store.set('hasPriorInstallation', true);
+}
 if (!installationId) {
 	installationId = crypto.randomUUID();
 	store.set('installationId', installationId);
