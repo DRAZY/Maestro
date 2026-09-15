@@ -63,7 +63,11 @@ function renderedHeightTerms(entry: HistoryEntry): number {
 		/>
 	);
 	const hasFooter = container.querySelector('.border-t') !== null;
-	const hasCueSubtitle = (container.textContent ?? '').includes('Triggered by:');
+	// The tally line of a grouped row replaces the "Triggered by:" subtitle and
+	// occupies the same slot, so either one counts as the subtitle term.
+	const subtitleText = container.textContent ?? '';
+	const hasCueSubtitle =
+		subtitleText.includes('Triggered by:') || container.querySelector('[data-cue-group]') !== null;
 	unmount();
 
 	return (
@@ -120,6 +124,31 @@ describe('estimateHistoryRowHeight for DB-sourced CUE rows', () => {
 			const entry = cueRow({ cueEventType });
 			expect(estimateHistoryRowHeight(entry)).toBe(renderedHeightTerms(entry));
 		}
+	});
+
+	it('matches the rendered row for a collapsed Cue group', () => {
+		// The group's tally line sits exactly where the "Triggered by:" subtitle
+		// would, so a grouped row costs the same single extra line.
+		const entry = cueRow({
+			cueGroup: { key: 'Command-Bus', label: 'Command-Bus', runCount: 1382, failureCount: 3 },
+		});
+		expect(estimateHistoryRowHeight(entry)).toBe(renderedHeightTerms(entry));
+		expect(estimateHistoryRowHeight(entry)).toBe(
+			ESTIMATED_ROW_HEIGHT_BASE + ESTIMATED_ROW_HEIGHT_FOOTER + ESTIMATED_ROW_HEIGHT_CUE_SUBTITLE
+		);
+	});
+
+	it('charges the tally line for a group whose row carries no cueEventType', () => {
+		// A grouped row renders its tally whether or not the trigger type is
+		// known, so the subtitle term can no longer hang on `cueEventType` alone.
+		const entry = cueRow({
+			cueEventType: undefined,
+			cueGroup: { key: 'Command-Bus', label: 'Command-Bus', runCount: 12, failureCount: 0 },
+		});
+		expect(estimateHistoryRowHeight(entry)).toBe(renderedHeightTerms(entry));
+		expect(estimateHistoryRowHeight(entry)).toBe(
+			ESTIMATED_ROW_HEIGHT_BASE + ESTIMATED_ROW_HEIGHT_FOOTER + ESTIMATED_ROW_HEIGHT_CUE_SUBTITLE
+		);
 	});
 
 	it('never under-estimates a USER row, which carries no CUE subtitle', () => {

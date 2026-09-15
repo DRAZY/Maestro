@@ -48,6 +48,7 @@ import {
 	getCueHistoryBuckets,
 	getCueHistoryEntries,
 	getCueHistoryFingerprint,
+	getCueHistoryGroups,
 } from '../../cue/stats/cue-stats-query';
 import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from './documentGraph';
 import { registerSshRemoteHandlers, SshRemoteHandlerDependencies } from './ssh-remote';
@@ -210,6 +211,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
 		getAllSessions: readSessionRecords,
 		getCueHistoryEntries,
+		getCueHistoryGroups,
 		getCueHistoryBuckets,
 		getCueHistoryFingerprint,
 	});

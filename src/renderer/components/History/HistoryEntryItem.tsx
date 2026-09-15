@@ -4,7 +4,7 @@ import type { Theme, HistoryEntry } from '../../types';
 import { formatElapsedTime } from '../../utils/formatters';
 import { stripMarkdown } from '../../utils/textProcessing';
 import { DoubleCheck, getPillColor, getEntryIcon } from './historyConstants';
-import { formatTimestamp } from '../../../shared/formatters';
+import { formatCount, formatTimestamp } from '../../../shared/formatters';
 import { humanizeCueEventType } from '../../../shared/cue/cue-summary';
 import { getTokenSourcePill } from '../../../shared/claudeTokenModeLabel';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -55,6 +55,12 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 		? (entry as HistoryEntry & { agentName?: string }).agentName
 		: undefined;
 
+	// A collapsed run of Cue triggers. The row is still the group's NEWEST run,
+	// so everything below reads the same fields as an ungrouped row; the group
+	// only changes what the header names it and swaps the per-run success dot
+	// for the group's failure tally, which is the honest summary of N runs.
+	const cueGroup = entry.cueGroup;
+
 	return (
 		<div
 			onClick={() => onOpenDetailModal(entry, index)}
@@ -102,43 +108,58 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 						</button>
 					)}
 
-					{/* Success/Failure Indicator for AUTO and CUE entries */}
-					{(entry.type === 'AUTO' || entry.type === 'CUE') && entry.success !== undefined && (
-						<span
-							className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
-							style={{
-								backgroundColor: entry.success
-									? entry.validated
-										? theme.colors.success
-										: theme.colors.success + '20'
-									: theme.colors.error + '20',
-								border: `1px solid ${
-									entry.success
+					{/* Trigger name for a collapsed group of Cue runs */}
+					{cueGroup && (
+						<h3
+							className="text-sm font-bold truncate min-w-0"
+							style={{ color: theme.colors.textMain }}
+							title={cueGroup.label}
+						>
+							{cueGroup.label}
+						</h3>
+					)}
+
+					{/* Success/Failure Indicator for AUTO and CUE entries. Suppressed
+					    on a grouped row: one run's outcome cannot speak for the
+					    group, whose tally is on the meta line below instead. */}
+					{!cueGroup &&
+						(entry.type === 'AUTO' || entry.type === 'CUE') &&
+						entry.success !== undefined && (
+							<span
+								className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
+								style={{
+									backgroundColor: entry.success
 										? entry.validated
 											? theme.colors.success
-											: theme.colors.success + '40'
-										: theme.colors.error + '40'
-								}`,
-							}}
-							title={
-								entry.success
-									? entry.validated
-										? 'Task completed successfully, and you marked it as checked'
-										: 'Task completed successfully'
-									: 'Task failed'
-							}
-						>
-							{entry.success ? (
-								entry.validated ? (
-									<DoubleCheck className="w-3 h-3" style={{ color: '#ffffff' }} />
+											: theme.colors.success + '20'
+										: theme.colors.error + '20',
+									border: `1px solid ${
+										entry.success
+											? entry.validated
+												? theme.colors.success
+												: theme.colors.success + '40'
+											: theme.colors.error + '40'
+									}`,
+								}}
+								title={
+									entry.success
+										? entry.validated
+											? 'Task completed successfully, and you marked it as checked'
+											: 'Task completed successfully'
+										: 'Task failed'
+								}
+							>
+								{entry.success ? (
+									entry.validated ? (
+										<DoubleCheck className="w-3 h-3" style={{ color: '#ffffff' }} />
+									) : (
+										<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+									)
 								) : (
-									<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
-								)
-							) : (
-								<X className="w-3 h-3" style={{ color: theme.colors.error }} />
-							)}
-						</span>
-					)}
+									<X className="w-3 h-3" style={{ color: theme.colors.error }} />
+								)}
+							</span>
+						)}
 
 					{/* Type Pill */}
 					<span
@@ -173,15 +194,47 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 				{entry.summary ? stripMarkdown(entry.summary) : 'No summary available'}
 			</p>
 
-			{/* CUE metadata subtitle */}
-			{entry.type === 'CUE' && entry.cueEventType && (
+			{/* CUE metadata subtitle. A grouped row spends the same line on what
+			    the group is standing in for - how many runs, how many of them
+			    failed - and keeps the trigger type on the end of it. */}
+			{cueGroup ? (
 				<p
-					className="text-2xs mt-1"
+					data-cue-group={cueGroup.key}
+					className="text-2xs mt-1 flex items-center gap-1.5 truncate"
 					style={{ color: theme.colors.textDim }}
-					title={entry.cueEventType}
+					title={`${formatCount(cueGroup.runCount)} runs collapsed into this row`}
 				>
-					Triggered by: {humanizeCueEventType(entry.cueEventType)}
+					<span style={{ color: theme.colors.textMain }}>
+						{formatCount(cueGroup.runCount)} runs
+					</span>
+					{cueGroup.failureCount > 0 && (
+						<>
+							<span aria-hidden="true">·</span>
+							<span style={{ color: theme.colors.error }}>
+								{formatCount(cueGroup.failureCount)} failed
+							</span>
+						</>
+					)}
+					{entry.cueEventType && (
+						<>
+							<span aria-hidden="true">·</span>
+							<span className="truncate" title={entry.cueEventType}>
+								{humanizeCueEventType(entry.cueEventType)}
+							</span>
+						</>
+					)}
 				</p>
+			) : (
+				entry.type === 'CUE' &&
+				entry.cueEventType && (
+					<p
+						className="text-2xs mt-1"
+						style={{ color: theme.colors.textDim }}
+						title={entry.cueEventType}
+					>
+						Triggered by: {humanizeCueEventType(entry.cueEventType)}
+					</p>
+				)
 			)}
 
 			{/* Footer Row - Time, Cost, Token Source, Achievement Action, and Remote Origin */}

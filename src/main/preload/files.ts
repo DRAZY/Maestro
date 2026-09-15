@@ -99,6 +99,8 @@ export function createHistoryApi() {
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: ('AUTO' | 'USER' | 'CUE')[];
 			hostKey?: string | null;
+			/** Collapse Cue runs to one row per trigger (`groupCueEntries`). */
+			groupCue?: boolean;
 		}) => ipcRenderer.invoke('history:getAllPaginated', options),
 
 		add: (entry: HistoryEntry, sharedContext?: { sshRemoteId: string; remoteCwd: string }) =>

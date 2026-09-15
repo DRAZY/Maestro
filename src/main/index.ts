@@ -32,6 +32,7 @@ import {
 	getCueHistoryBuckets,
 	getCueHistoryEntries,
 	getCueHistoryFingerprint,
+	getCueHistoryGroups,
 } from './cue/stats/cue-stats-query';
 import { getAgentDisplayName } from '../shared/agentMetadata';
 import { logger } from './utils/logger';
@@ -1499,6 +1500,7 @@ function setupIpcHandlers() {
 		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
 		getAllSessions: readSessionRecords,
 		getCueHistoryEntries,
+		getCueHistoryGroups,
 		getCueHistoryBuckets,
 		getCueHistoryFingerprint,
 	});

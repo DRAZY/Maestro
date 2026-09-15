@@ -312,6 +312,18 @@ export interface HistoryEntry {
 	 * selected, `limit` = forced API fallback because the Max plan quota was exhausted.
 	 */
 	tokenSourceReason?: 'auto' | 'limit';
+	/**
+	 * Present when this row STANDS FOR many Cue runs instead of one - the
+	 * collapsed form the History panel draws while `groupCueEntries` is on.
+	 *
+	 * The row itself is still the group's NEWEST run, byte-identical to the
+	 * ungrouped entry, so every existing consumer (detail modal, keyboard
+	 * navigation, the activity graph) keeps working on it unchanged and only
+	 * the row renderer has to know about the collapse. A group of exactly one
+	 * run carries no `cueGroup` at all: there is nothing to collapse, and "1
+	 * run" is a worse row than the run itself.
+	 */
+	cueGroup?: CueHistoryGroupSummary;
 }
 
 /**
@@ -325,7 +337,22 @@ export interface HistoryEntry {
  * would have shaped it. That is what lets a group of ONE render as an ordinary
  * History row rather than as a group with a "1 run" badge.
  */
-export interface CueHistoryGroup {
+export interface CueHistoryGroup extends CueHistoryGroupSummary {
+	/** `timestamp` of the newest run - what the row's time reads. */
+	lastRunAtMs: number;
+	/** The newest run, as a normal History row. */
+	latestEntry: HistoryEntry;
+}
+
+/**
+ * The part of a {@link CueHistoryGroup} a rendered row needs: what the group is
+ * called and how much it is standing in for.
+ *
+ * Split out because the row the History panel receives IS the group's newest
+ * run (see `HistoryEntry.cueGroup`), so the summary travels attached to that
+ * entry while `latestEntry` would be a self-reference.
+ */
+export interface CueHistoryGroupSummary {
 	/** Stable identity for the group. Equal to {@link label}. */
 	key: string;
 	/** Pipeline name when the runs carry lineage, else the base trigger name. */
@@ -334,10 +361,6 @@ export interface CueHistoryGroup {
 	runCount: number;
 	/** Runs that did not complete cleanly. Zero means the row shows no failures. */
 	failureCount: number;
-	/** `timestamp` of the newest run - what the row's time reads. */
-	lastRunAtMs: number;
-	/** The newest run, as a normal History row. */
-	latestEntry: HistoryEntry;
 }
 
 // Document entry within a playbook

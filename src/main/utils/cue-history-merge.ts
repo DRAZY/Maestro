@@ -19,7 +19,7 @@
  * every consumer of these modules.
  */
 
-import type { HistoryEntry } from '../../shared/types';
+import type { CueHistoryGroup, HistoryEntry } from '../../shared/types';
 import { sortEntriesByTimestamp } from '../../shared/history';
 import { logger } from './logger';
 import { captureException } from './sentry';
@@ -33,6 +33,8 @@ const LOG_CONTEXT = '[CueHistory]';
 
 /** Cue runs for one agent, shaped as history rows. */
 export type CueHistoryEntriesQuery = (query: CueHistoryQuery) => HistoryEntry[];
+/** One agent's Cue runs collapsed to one row per pipeline-level trigger. */
+export type CueHistoryGroupsQuery = (query: CueHistoryQuery) => CueHistoryGroup[];
 /** Per-minute Cue run counts for the activity graph. */
 export type CueHistoryBucketsQuery = (query: CueHistoryBucketQuery) => CueHistoryBucket[];
 /** Change-detector for the activity-graph cache key. */
@@ -127,6 +129,75 @@ export function readCueEntries(
 		} catch (error) {
 			void captureException(error);
 			logger.warn(`Failed to read Cue history for session ${agent.id}: ${error}`, LOG_CONTEXT);
+		}
+	}
+	return entries;
+}
+
+/**
+ * A collapsed group of Cue runs, as the single History row that stands for it.
+ *
+ * The row IS the group's newest run - the panel's detail modal, keyboard
+ * navigation and jump-to-session all keep operating on a real entry - with the
+ * count and failure tally hung off it in `cueGroup`.
+ *
+ * A group of ONE run is returned unchanged. "lint-on-save - 1 run" is strictly
+ * worse than the run's own summary, and it would put an expander on a row with
+ * nothing behind it.
+ */
+export function cueGroupToHistoryEntry(group: CueHistoryGroup): HistoryEntry {
+	if (group.runCount <= 1) return group.latestEntry;
+	return {
+		...group.latestEntry,
+		cueGroup: {
+			key: group.key,
+			label: group.label,
+			runCount: group.runCount,
+			failureCount: group.failureCount,
+		},
+	};
+}
+
+/**
+ * Cue runs for the agents in scope, COLLAPSED to one row per pipeline-level
+ * trigger. The grouped counterpart of {@link readCueEntries}, degrading the
+ * same way on a database failure.
+ *
+ * Note what this path deliberately does NOT do: it never runs
+ * {@link dropCueRowsAlreadyInJsonl}. That suppressor works run-by-run, and a
+ * group cannot give up one of its runs without lying about its count. So for
+ * the shrinking set of runs recorded while BOTH writers were live (before the
+ * JSONL Cue writes were removed in CUE-HISTORY-02), the legacy JSONL row still
+ * renders beside the group that also counts it. That is the deliberate trade:
+ * the alternative - hiding JSONL Cue rows whose trigger matches a group - would
+ * erase runs that have since aged out of the Cue retention window, where the
+ * JSONL entry is the only surviving record.
+ */
+export function readCueGroupedEntries(
+	query: CueHistoryGroupsQuery | undefined,
+	agents: CueScopeAgent[],
+	options: { since?: number; limit?: number } = {}
+): HistoryEntry[] {
+	if (!query || agents.length === 0) return [];
+
+	const entries: HistoryEntry[] = [];
+	for (const agent of agents) {
+		try {
+			for (const group of query({
+				sessionId: agent.id,
+				sessionName: agent.name,
+				projectPath: agent.projectPath,
+				since: options.since,
+				limit: options.limit,
+			})) {
+				entries.push(cueGroupToHistoryEntry(group));
+			}
+		} catch (error) {
+			void captureException(error);
+			logger.warn(
+				`Failed to read grouped Cue history for session ${agent.id}: ${error}`,
+				LOG_CONTEXT
+			);
 		}
 	}
 	return entries;

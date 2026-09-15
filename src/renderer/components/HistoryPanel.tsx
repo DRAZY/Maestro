@@ -93,6 +93,11 @@ export const HistoryPanel = React.memo(
 		ref
 	) {
 		const maestroCueEnabled = useSettingsStore((s) => s.encoreFeatures.maestroCue);
+		// Collapse repeated Cue triggers into one row. The rollup runs in the
+		// main process (SQL over `cue_events`), so flipping this changes the
+		// SHAPE of the loaded window and has to reset pagination - which it
+		// does by being part of `loadPage`'s identity.
+		const groupCueEntries = useSettingsStore((s) => s.groupCueEntries);
 		const shortcuts = useSettingsStore((s) => s.shortcuts);
 		const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
 		const compact = rightPanelWidth < RIGHT_PANEL_COMPACT_THRESHOLD;
@@ -198,6 +203,11 @@ export const HistoryPanel = React.memo(
 					// client-side. Changing the host changes this callback's
 					// identity, resetting the window to the newest N of that host.
 					hostKey: selectedHost,
+					// Cue grouping also runs server-side: the panel only ever
+					// holds a page of entries, so grouping here would report a
+					// page's worth of runs for a trigger that ran thousands of
+					// times.
+					groupCue: groupCueEntries,
 					pagination: { offset, limit },
 				});
 				return {
@@ -213,6 +223,7 @@ export const HistoryPanel = React.memo(
 				graphLookbackHours,
 				activeFilters,
 				selectedHost,
+				groupCueEntries,
 			]
 		);
 

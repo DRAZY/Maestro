@@ -495,6 +495,97 @@ describe('HistoryEntryItem', () => {
 		expect(onOpenDetailModal).not.toHaveBeenCalled();
 	});
 
+	/**
+	 * Collapsed Cue rows (CUE-HISTORY-03 task #3).
+	 *
+	 * A grouped row IS the group's newest run with a `cueGroup` summary attached,
+	 * so these tests pin the three things the collapse changes: the header names
+	 * the TRIGGER rather than leaving the run unlabelled, the per-run success dot
+	 * gives way to the group's failure tally, and a row with no `cueGroup` is
+	 * untouched.
+	 */
+	describe('collapsed Cue group', () => {
+		const groupedRow = (overrides: Partial<HistoryEntry> = {}): HistoryEntry =>
+			createMockEntry({
+				type: 'CUE' as HistoryEntryType,
+				summary: 'Bus drained 4 commands',
+				success: true,
+				cueTriggerName: 'Pedsidian-Command-Bus',
+				cueEventType: 'file.changed',
+				cueGroup: {
+					key: 'Pedsidian-Command-Bus',
+					label: 'Pedsidian-Command-Bus',
+					runCount: 1382,
+					failureCount: 3,
+				},
+				...overrides,
+			});
+
+		const renderRow = (entry: HistoryEntry) =>
+			render(
+				<HistoryEntryItem
+					entry={entry}
+					index={0}
+					isSelected={false}
+					theme={mockTheme}
+					onOpenDetailModal={vi.fn()}
+				/>
+			);
+
+		it('names the trigger and reports the run count with digit grouping', () => {
+			renderRow(groupedRow());
+			expect(screen.getByText('Pedsidian-Command-Bus')).toBeInTheDocument();
+			// The number IS the information here, so it is never abbreviated to "1.4K".
+			expect(screen.getByText('1,382 runs')).toBeInTheDocument();
+		});
+
+		it('reports the failure count when runs failed', () => {
+			renderRow(groupedRow());
+			expect(screen.getByText('3 failed')).toBeInTheDocument();
+		});
+
+		it('omits the failure count when every run succeeded', () => {
+			renderRow(
+				groupedRow({
+					cueGroup: {
+						key: 'Pedsidian-Command-Bus',
+						label: 'Pedsidian-Command-Bus',
+						runCount: 40,
+						failureCount: 0,
+					},
+				})
+			);
+			expect(screen.getByText('40 runs')).toBeInTheDocument();
+			expect(screen.queryByText(/failed$/)).not.toBeInTheDocument();
+		});
+
+		it('keeps the newest run summary as the row body', () => {
+			renderRow(groupedRow());
+			expect(screen.getByText('Bus drained 4 commands')).toBeInTheDocument();
+		});
+
+		it('folds the trigger type into the tally instead of a second subtitle line', () => {
+			const { container } = renderRow(groupedRow());
+			expect(container.textContent).not.toContain('Triggered by:');
+			expect(screen.getByText('File Change')).toBeInTheDocument();
+		});
+
+		it('drops the per-run success indicator, which cannot speak for N runs', () => {
+			const { container } = renderRow(groupedRow());
+			// The ungrouped row paints a success/failure dot from `entry.success`.
+			// On a group that dot would report only the newest run's outcome while
+			// sitting next to a count of 1,382.
+			expect(container.querySelector('[title="Task completed successfully"]')).toBeNull();
+		});
+
+		it('leaves an ungrouped Cue row exactly as it was', () => {
+			const { container } = renderRow(groupedRow({ cueGroup: undefined }));
+			expect(container.textContent).toContain('Triggered by: File Change');
+			expect(container.querySelector('[data-cue-group]')).toBeNull();
+			expect(container.querySelector('[title="Task completed successfully"]')).not.toBeNull();
+		});
+	});
+
 	it('formats today timestamps as time only', () => {
 		const now = new Date('2025-06-15T12:00:00Z');
 		const entry = createMockEntry({ timestamp: now.getTime() });

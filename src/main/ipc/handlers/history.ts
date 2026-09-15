@@ -14,7 +14,12 @@
 
 import { ipcMain } from 'electron';
 import { logger } from '../../utils/logger';
-import { HistoryEntry, HistoryEntryType, SshRemoteConfig } from '../../../shared/types';
+import {
+	CueHistoryGroup,
+	HistoryEntry,
+	HistoryEntryType,
+	SshRemoteConfig,
+} from '../../../shared/types';
 import {
 	PaginationOptions,
 	ORPHANED_SESSION_ID,
@@ -50,6 +55,7 @@ import {
 	dropCueRowsAlreadyInJsonl,
 	mergeEntriesById,
 	readCueEntries as readCueEntriesForAgents,
+	readCueGroupedEntries as readCueGroupedEntriesForAgents,
 	readCueGraphBuckets as readCueGraphBucketsForAgent,
 	readCueGraphFingerprint as readCueGraphFingerprintForAgent,
 	type CueScopeAgent,
@@ -180,6 +186,14 @@ export interface HistoryHandlerDependencies {
 	 */
 	getCueHistoryEntries?: (query: CueHistoryQuery) => HistoryEntry[];
 	/**
+	 * The same runs as {@link getCueHistoryEntries}, collapsed to one row per
+	 * pipeline-level trigger - see `getCueHistoryGroups()` in the same module.
+	 * Used when the caller asks for grouped Cue rows; the rollup runs in SQL
+	 * over the indexed columns, so a week of a chatty pipeline costs one row
+	 * instead of the thousands it actually ran.
+	 */
+	getCueHistoryGroups?: (query: CueHistoryQuery) => CueHistoryGroup[];
+	/**
 	 * Per-minute Cue run counts for the activity graph - see
 	 * `getCueHistoryBuckets()` in `src/main/cue/stats/cue-stats-query.ts`.
 	 * Counts rather than rows because a bar chart never needs the text.
@@ -207,7 +221,7 @@ function cueScopeAgents(
 	sessionId?: string,
 	projectPath?: string
 ): CueScopeAgent[] {
-	if (!deps.getCueHistoryEntries) return [];
+	if (!deps.getCueHistoryEntries && !deps.getCueHistoryGroups) return [];
 	if (sessionId) {
 		return [cueScopeAgentFromRecord(sessionId, deps.getSessionById?.(sessionId), projectPath)];
 	}
@@ -221,6 +235,18 @@ function readCueEntries(
 	options: { since?: number } = {}
 ): HistoryEntry[] {
 	return readCueEntriesForAgents(deps.getCueHistoryEntries, agents, {
+		since: options.since,
+		limit: deps.getMaxEntries?.(),
+	});
+}
+
+/** Cue rows for the agents in scope, collapsed to one row per trigger. */
+function readCueGroupedEntries(
+	deps: HistoryHandlerDependencies,
+	agents: CueScopeAgent[],
+	options: { since?: number } = {}
+): HistoryEntry[] {
+	return readCueGroupedEntriesForAgents(deps.getCueHistoryGroups, agents, {
 		since: options.since,
 		limit: deps.getMaxEntries?.(),
 	});
@@ -342,9 +368,18 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				sharedContext?: SharedHistoryContext;
 				types?: HistoryEntryType[];
 				hostKey?: string | null;
+				groupCue?: boolean;
 			}) => {
-				const { projectPath, sessionId, pagination, lookbackHours, sharedContext, types, hostKey } =
-					options || {};
+				const {
+					projectPath,
+					sessionId,
+					pagination,
+					lookbackHours,
+					sharedContext,
+					types,
+					hostKey,
+					groupCue,
+				} = options || {};
 				const cutoffTime =
 					lookbackHours !== null && lookbackHours !== undefined && lookbackHours > 0
 						? Date.now() - lookbackHours * 60 * 60 * 1000
@@ -387,14 +422,21 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 				// belong to the local bucket).
 				const wantsCue =
 					(!typeSet || typeSet.has('CUE')) && (!hostKey || hostKey === LOCAL_HOST_AGG_KEY);
+				//
+				// `groupCue` (the user's `groupCueEntries` setting) picks the
+				// collapsed read instead: one row per pipeline-level trigger,
+				// rolled up in SQL. The rollup has to happen HERE rather than in
+				// the renderer because the renderer only ever holds a page of
+				// 100 entries - grouping that would report "100 runs" for a
+				// trigger that actually ran 1,382 times, which is the exact
+				// number the row exists to tell the user.
 				const mergeCueEntries = (jsonlEntries: HistoryEntry[]): HistoryEntry[] => {
 					if (!wantsCue) return jsonlEntries;
-					const cueEntries = dropCueRowsAlreadyInJsonl(
-						jsonlEntries,
-						readCueEntries(deps, cueScopeAgents(deps, sessionId, projectPath), {
-							since: cutoffTime > 0 ? cutoffTime : undefined,
-						})
-					);
+					const since = cutoffTime > 0 ? cutoffTime : undefined;
+					const agents = cueScopeAgents(deps, sessionId, projectPath);
+					const cueEntries = groupCue
+						? readCueGroupedEntries(deps, agents, { since })
+						: dropCueRowsAlreadyInJsonl(jsonlEntries, readCueEntries(deps, agents, { since }));
 					return mergeEntriesById(jsonlEntries, cueEntries);
 				};
 

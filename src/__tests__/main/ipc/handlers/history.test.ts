@@ -20,7 +20,7 @@ const GRAPH_CACHE_DIR = path.join(os.tmpdir(), `maestro-history-handler-test-${p
 import * as historyManagerModule from '../../../../main/history-manager';
 import * as sharedHistoryModule from '../../../../main/shared-history-manager';
 import type { HistoryManager } from '../../../../main/history-manager';
-import type { HistoryEntry } from '../../../../shared/types';
+import type { CueHistoryGroup, HistoryEntry } from '../../../../shared/types';
 
 // Mock electron's ipcMain. `app.getPath` is here for the activity-graph
 // bucket cache, which resolves its directory in the constructor.
@@ -686,6 +686,172 @@ describe('history IPC handlers', () => {
 			const result = await handler({} as any, '/repo');
 
 			expect(result.map((e: HistoryEntry) => e.id).sort()).toEqual(['cue-agent-a', 'cue-agent-b']);
+		});
+
+		// `groupCue` (the user's `groupCueEntries` setting) swaps the ungrouped
+		// read for the SQL rollup: one row per pipeline-level trigger, carrying
+		// the count the row exists to report. CUE-HISTORY-03 task #3.
+		describe('grouped Cue rows', () => {
+			const group = (overrides: Partial<CueHistoryGroup> = {}): CueHistoryGroup => ({
+				key: 'PR-Sweep',
+				label: 'PR-Sweep',
+				runCount: 1382,
+				failureCount: 3,
+				lastRunAtMs: 3000,
+				latestEntry: cueRow({ id: 'cue-newest', timestamp: 3000 }),
+				...overrides,
+			});
+
+			it('serves one row per trigger, carrying the run and failure counts', async () => {
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+					createMockEntry({ id: 'user-new', type: 'USER', timestamp: 4000 }),
+				]);
+				const getCueHistoryGroups = vi.fn(() => [group()]);
+
+				const handler = registerWith({ getCueHistoryGroups })('history:getAllPaginated');
+				const result = await handler({} as any, { sessionId: 'session-1', groupCue: true });
+
+				expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual(['user-new', 'cue-newest']);
+				expect(result.entries[1].cueGroup).toEqual({
+					key: 'PR-Sweep',
+					label: 'PR-Sweep',
+					runCount: 1382,
+					failureCount: 3,
+				});
+			});
+
+			it('passes a group of ONE through as an ordinary row', async () => {
+				// "PR-Sweep - 1 run" is a worse row than the run's own summary, and
+				// it would put an expander on a row with nothing behind it.
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+				const getCueHistoryGroups = vi.fn(() => [group({ runCount: 1, failureCount: 0 })]);
+
+				const handler = registerWith({ getCueHistoryGroups })('history:getAllPaginated');
+				const result = await handler({} as any, { sessionId: 'session-1', groupCue: true });
+
+				expect(result.entries).toHaveLength(1);
+				expect(result.entries[0].id).toBe('cue-newest');
+				expect(result.entries[0].cueGroup).toBeUndefined();
+			});
+
+			it('uses the ungrouped query when the setting is off', async () => {
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+				const getCueHistoryEntries = vi.fn(() => [cueRow({ id: 'cue-1', timestamp: 3000 })]);
+				const getCueHistoryGroups = vi.fn(() => [group()]);
+
+				const handler = registerWith({ getCueHistoryEntries, getCueHistoryGroups })(
+					'history:getAllPaginated'
+				);
+				const result = await handler({} as any, { sessionId: 'session-1', groupCue: false });
+
+				expect(getCueHistoryGroups).not.toHaveBeenCalled();
+				expect(getCueHistoryEntries).toHaveBeenCalledTimes(1);
+				expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual(['cue-1']);
+			});
+
+			it('never runs the ungrouped query alongside the rollup', async () => {
+				// The whole point of grouping in SQL is that the thousands of rows
+				// are never materialized. Reading both would give that back.
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+				const getCueHistoryEntries = vi.fn(() => []);
+				const getCueHistoryGroups = vi.fn(() => [group()]);
+
+				const handler = registerWith({ getCueHistoryEntries, getCueHistoryGroups })(
+					'history:getAllPaginated'
+				);
+				await handler({} as any, { sessionId: 'session-1', groupCue: true });
+
+				expect(getCueHistoryEntries).not.toHaveBeenCalled();
+			});
+
+			it('passes the agent name, directory and lookback to the rollup', async () => {
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([]);
+				const getCueHistoryGroups = vi.fn(() => []);
+				const now = 1_000_000_000_000;
+				vi.useFakeTimers();
+				vi.setSystemTime(now);
+
+				const handler = registerWith({
+					getCueHistoryGroups,
+					getMaxEntries: () => 500,
+					getSessionById: () => ({ id: 'session-1', name: 'rc', projectRoot: '/repo/rc' }),
+				})('history:getAllPaginated');
+				await handler({} as any, { sessionId: 'session-1', lookbackHours: 24, groupCue: true });
+
+				expect(getCueHistoryGroups).toHaveBeenCalledWith({
+					sessionId: 'session-1',
+					sessionName: 'rc',
+					projectPath: '/repo/rc',
+					since: now - 24 * 60 * 60 * 1000,
+					limit: 500,
+				});
+				vi.useRealTimers();
+			});
+
+			it('skips the rollup when the CUE filter pill is off', async () => {
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+					createMockEntry({ id: 'user-1', type: 'USER', timestamp: 4000 }),
+				]);
+				const getCueHistoryGroups = vi.fn(() => [group()]);
+
+				const handler = registerWith({ getCueHistoryGroups })('history:getAllPaginated');
+				const result = await handler({} as any, {
+					sessionId: 'session-1',
+					types: ['USER', 'AUTO'],
+					groupCue: true,
+				});
+
+				expect(getCueHistoryGroups).not.toHaveBeenCalled();
+				expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual(['user-1']);
+			});
+
+			it('still serves JSONL history when the rollup throws', async () => {
+				vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+					createMockEntry({ id: 'user-1', type: 'USER', timestamp: 4000 }),
+				]);
+				const getCueHistoryGroups = vi.fn(() => {
+					throw new Error('database is locked');
+				});
+
+				const handler = registerWith({ getCueHistoryGroups })('history:getAllPaginated');
+				const result = await handler({} as any, { sessionId: 'session-1', groupCue: true });
+
+				expect(result.entries.map((e: HistoryEntry) => e.id)).toEqual(['user-1']);
+			});
+
+			it('collapses every agent in a project-wide read', async () => {
+				vi.mocked(mockHistoryManager.getEntriesByProjectPath).mockReturnValue([]);
+				vi.mocked(mockHistoryManager.getEntriesByProjectPathPaginated).mockReturnValue({
+					entries: [],
+					total: 0,
+					limit: 100,
+					offset: 0,
+					hasMore: false,
+				});
+				vi.mocked(sharedHistoryModule.readRemoteEntriesLocal).mockReturnValue([]);
+				const getCueHistoryGroups = vi.fn(({ sessionId }: { sessionId: string }) => [
+					group({
+						key: sessionId,
+						label: sessionId,
+						latestEntry: cueRow({ id: `cue-${sessionId}`, timestamp: 1000, sessionId }),
+					}),
+				]);
+
+				const handler = registerWith({
+					getCueHistoryGroups,
+					getAllSessions: () => [
+						{ id: 'agent-a', name: 'A', projectRoot: '/repo' },
+						{ id: 'agent-b', name: 'B', cwd: '/repo' },
+						{ id: 'agent-elsewhere', name: 'C', projectRoot: '/other' },
+					],
+				})('history:getAllPaginated');
+				const result = await handler({} as any, { projectPath: '/repo', groupCue: true });
+
+				expect(result.entries.map((e: HistoryEntry) => e.id).sort()).toEqual([
+					'cue-agent-a',
+					'cue-agent-b',
+				]);
+			});
 		});
 
 		it('counts Cue rows when resolving a graph-click offset', async () => {

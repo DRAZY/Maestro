@@ -1937,6 +1937,8 @@ interface MaestroAPI {
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: HistoryEntryType[];
 			hostKey?: string | null;
+			/** Collapse Cue runs to one row per trigger (`groupCueEntries`). */
+			groupCue?: boolean;
 		}) => Promise<{
 			entries: Array<{
 				id: string;

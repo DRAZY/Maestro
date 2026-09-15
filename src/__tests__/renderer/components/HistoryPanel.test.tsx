@@ -1051,6 +1051,82 @@ describe('HistoryPanel', () => {
 	});
 
 	// ===== KEYBOARD NAVIGATION =====
+	// The Cue rollup runs in the MAIN process, because the panel only ever holds
+	// a page of entries and grouping that would report a page's worth of runs for
+	// a trigger that ran thousands of times. So the panel's whole job here is to
+	// forward the setting and to reset the window when it flips.
+	// CUE-HISTORY-03 task #3.
+	describe('groupCueEntries', () => {
+		// The store's default is ON, and these tests flip it. Restore it or the
+		// flip leaks into every later test in the file (see the same trap in
+		// settingsStore.test.ts's partial `resetStore`).
+		afterEach(() => {
+			useSettingsStore.setState({ groupCueEntries: true });
+		});
+
+		const paginatedCalls = () =>
+			(
+				window as unknown as {
+					maestro: { history: { getAllPaginated: { mock: { calls: unknown[][] } } } };
+				}
+			).maestro.history.getAllPaginated.mock.calls;
+
+		it('forwards the setting to the paginated read', async () => {
+			useSettingsStore.setState({ groupCueEntries: true });
+			mockHistoryGetAll.mockResolvedValue([]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => expect(paginatedCalls().length).toBeGreaterThan(0));
+			expect((paginatedCalls()[0][0] as { groupCue?: boolean }).groupCue).toBe(true);
+		});
+
+		it('asks for ungrouped rows when the user turns grouping off', async () => {
+			useSettingsStore.setState({ groupCueEntries: false });
+			mockHistoryGetAll.mockResolvedValue([]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => expect(paginatedCalls().length).toBeGreaterThan(0));
+			expect((paginatedCalls()[0][0] as { groupCue?: boolean }).groupCue).toBe(false);
+		});
+
+		it('renders a collapsed row with its trigger name and run count', async () => {
+			useSettingsStore.setState({
+				groupCueEntries: true,
+				encoreFeatures: {
+					directorNotes: false,
+					usageStats: false,
+					symphony: false,
+					maestroCue: true,
+				},
+			});
+			mockHistoryGetAll.mockResolvedValue([
+				createMockEntry({
+					id: 'cue-newest',
+					type: 'CUE',
+					summary: 'Bus drained 4 commands',
+					cueTriggerName: 'Pedsidian-Command-Bus',
+					cueEventType: 'file.changed',
+					cueGroup: {
+						key: 'Pedsidian-Command-Bus',
+						label: 'Pedsidian-Command-Bus',
+						runCount: 1382,
+						failureCount: 3,
+					},
+				}),
+			]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Pedsidian-Command-Bus')).toBeInTheDocument();
+			});
+			expect(screen.getByText('1,382 runs')).toBeInTheDocument();
+			expect(screen.getByText('3 failed')).toBeInTheDocument();
+		});
+	});
+
 	describe('keyboard navigation', () => {
 		it('should navigate with ArrowDown', async () => {
 			const entries = [
