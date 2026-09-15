@@ -154,6 +154,7 @@ import { notifyToast } from './stores/notificationStore';
 import { useModalActions, useModalStore } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
 import { WindowProvider, useWindowContextOptional } from './contexts/WindowContext';
+import { GitShortcutActionsBridge } from './components/GitShortcutActionsBridge';
 import { InputProvider, useInputContext } from './contexts/InputContext';
 import {
 	useGroupChatStore,
@@ -3675,6 +3676,9 @@ function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
 	return (
 		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{/* Renders nothing - holds the git-status subscription the keyboard
+			    shortcuts for pull/push/branch/PR need, so App doesn't have to. */}
+			<GitShortcutActionsBridge />
 			{children}
 		</GitStatusProvider>
 	);

@@ -78,9 +78,14 @@ export const FEATURES_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	},
 	directorNotesSettings: {
 		description:
-			"Director's Notes settings: provider, lookback window, default reading mode, optional ideal end state.",
+			"Director's Notes settings: provider (or auto-select), lookback window, default reading mode, optional ideal end state.",
 		type: 'object',
-		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
+		default: {
+			provider: 'claude-code',
+			autoSelectProvider: true,
+			defaultLookbackDays: 7,
+			defaultMode: 'rich',
+		},
 		category: 'advanced',
 	},
 	cueHistoryRetentionDays: {

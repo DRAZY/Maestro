@@ -1735,8 +1735,19 @@ export interface EncoreFeatureFlags {
 
 // Director's Notes settings for synopsis generation
 export interface DirectorNotesSettings {
-	/** Agent type to use for synopsis generation */
+	/**
+	 * Agent type to use for synopsis generation when `autoSelectProvider` is off.
+	 * Kept even while auto is on so toggling auto off restores the conductor's
+	 * last manual pick rather than resetting to the first provider in the list.
+	 */
 	provider: ToolType;
+	/**
+	 * Pick the first installed supported provider at generation time instead of
+	 * using `provider`. Defaults to true (undefined counts as on), so a fresh
+	 * install generates a synopsis without anyone opening Settings, and a broken
+	 * account is not a dead end when a second provider is present.
+	 */
+	autoSelectProvider?: boolean;
 	/** Default lookback period in days (1-90) */
 	defaultLookbackDays: number;
 	/** Default AI Overview reading mode (Rich widget dashboard vs Plain markdown). Defaults to 'rich'. */

@@ -25,13 +25,15 @@ import {
 } from '../../utils/ipcHandler';
 import { groomContext } from '../../utils/context-groomer';
 import { buildDirectorNotesSynopsisPrompt } from '../../utils/director-notes-prompt';
+import { resolveSynopsisProvider } from '../../utils/director-notes-provider';
+import type { SynopsisProviderChoice } from '../../../shared/directorNotesProvider';
+import { getPrompt } from '../../prompt-manager';
 import {
 	looksLikeStructuredOutput,
 	parseDirectorNotesNarrative,
 	recoverDirectorNotesNarrative,
 	type DirectorNotesNarrative,
 } from '../../../shared/directorNotesNarrative';
-import { getPrompt } from '../../prompt-manager';
 import type { ProcessManager } from '../../process-manager';
 import type { AgentDetector } from '../../agents';
 import type Store from 'electron-store';
@@ -421,7 +423,12 @@ export interface RichOverviewStats {
 
 export interface SynopsisOptions {
 	lookbackDays: number;
-	provider: ToolType;
+	/**
+	 * The agent to spawn, or `'auto'` to use the first installed supported
+	 * provider (see `resolveSynopsisProvider`). Auto is what every surface sends
+	 * unless the conductor turned auto-selection off in Settings.
+	 */
+	provider: SynopsisProviderChoice;
 	customPath?: string;
 	customArgs?: string;
 	customEnvVars?: Record<string, string>;
@@ -525,6 +532,11 @@ export interface SynopsisResult {
 	 * partial report off as a complete one.
 	 */
 	narrativeRecovery?: string;
+	/**
+	 * The provider that actually ran. Worth reporting because under auto-selection
+	 * the caller does not know which agent it asked for.
+	 */
+	provider?: ToolType;
 }
 
 /**
@@ -1047,14 +1059,14 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				const processManager = requireDependency(getProcessManager, 'Process manager');
 				const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
 
-				// Verify the requested agent is available
-				const agent = await agentDetector.getAgent(options.provider);
-				if (!agent || !agent.available) {
-					return {
-						success: false,
-						synopsis: '',
-						error: `Agent "${options.provider}" is not available. Please install it or select a different provider in Settings > Director's Notes.`,
-					};
+				// Resolve 'auto' to a concrete agent and verify it is available.
+				const resolved = await resolveSynopsisProvider(options.provider, agentDetector);
+				if ('error' in resolved) {
+					return { success: false, synopsis: '', error: resolved.error };
+				}
+				const provider = resolved.provider;
+				if (resolved.auto) {
+					logger.info(`Auto-selected synopsis provider: ${provider}`, LOG_CONTEXT);
 				}
 
 				// Build the synopsis prompt: a manifest of history file paths scoped
@@ -1087,7 +1099,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 				try {
 					// Look up agent-level config values for override resolution
 					const allConfigs = agentConfigsStore.get('configs', {});
-					const dnAgentConfigValues = allConfigs[options.provider] || {};
+					const dnAgentConfigValues = allConfigs[provider] || {};
 
 					// Send progress updates to the renderer and web-desktop bridge clients
 					const sendProgress = (update: {
@@ -1105,7 +1117,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 					const result = await groomContext(
 						{
 							projectRoot: process.cwd(),
-							agentType: options.provider,
+							agentType: provider,
 							prompt,
 							readOnlyMode: true,
 							sessionCustomPath: options.customPath,
@@ -1184,6 +1196,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						success: true,
 						synopsis,
 						generatedAt: Date.now(),
+						provider,
 						stats: {
 							agentCount,
 							entryCount,

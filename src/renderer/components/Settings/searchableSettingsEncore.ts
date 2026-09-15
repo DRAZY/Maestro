@@ -167,6 +167,27 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 		],
 	},
 	{
+		id: 'encore-director-notes-provider',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Synopsis Provider (Director's Notes)",
+		description:
+			'Use the first available provider, or pin the synopsis to one agent and customize it',
+		keywords: [
+			'director',
+			'notes',
+			'synopsis',
+			'provider',
+			'agent',
+			'auto',
+			'automatic',
+			'first available',
+			'claude',
+			'codex',
+			'opencode',
+		],
+	},
+	{
 		id: 'encore-director-notes-default-mode',
 		tab: 'encore',
 		tabLabel: 'Plugins',
