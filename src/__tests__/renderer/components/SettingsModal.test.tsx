@@ -2265,12 +2265,8 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			expect(
-				screen.getByText(/Optional features that extend Maestro's capabilities/)
-			).toBeInTheDocument();
-			expect(
-				screen.getByText(/Contributors building new features should consider gating them here/)
-			).toBeInTheDocument();
+			expect(screen.getByText(/Features that extend Maestro's capabilities/)).toBeInTheDocument();
+			expect(screen.getByText(/Contributors should gate a new feature here/)).toBeInTheDocument();
 		});
 
 		it("should show Director's Notes feature toggle defaulting to off", async () => {
