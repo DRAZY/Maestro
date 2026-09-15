@@ -225,6 +225,71 @@ describe('cue-db lifecycle', () => {
 	});
 });
 
+describe('cue-db additive column migration', () => {
+	const dbPath = path.join(os.tmpdir(), 'test-cue.db');
+
+	it('declares the Cue-history output columns in CREATE TABLE', () => {
+		initCueDb(undefined, dbPath);
+
+		const createSql = prepareCalls.find((sql) =>
+			sql.includes('CREATE TABLE IF NOT EXISTS cue_events')
+		);
+		expect(createSql).toBeDefined();
+		expect(createSql).toContain('output_excerpt TEXT');
+		expect(createSql).toContain('full_output TEXT');
+	});
+
+	it('ALTERs an existing database that predates the output columns', () => {
+		// The mocked `table_info(cue_events)` reports the pre-output column
+		// set, i.e. a database created before this phase. The idempotent
+		// migration must backfill both columns rather than leave the table
+		// behind the CREATE TABLE schema.
+		initCueDb(undefined, dbPath);
+
+		expect(
+			prepareCalls.some((sql) => sql === 'ALTER TABLE cue_events ADD COLUMN output_excerpt TEXT')
+		).toBe(true);
+		expect(
+			prepareCalls.some((sql) => sql === 'ALTER TABLE cue_events ADD COLUMN full_output TEXT')
+		).toBe(true);
+	});
+
+	it('skips the ALTER when the columns are already present', () => {
+		const originalPragma = mockDb.pragma.getMockImplementation();
+		mockDb.pragma.mockImplementation((query: string) => {
+			if (query.startsWith('table_info(cue_events)')) {
+				return [
+					{ name: 'id' },
+					{ name: 'type' },
+					{ name: 'trigger_name' },
+					{ name: 'session_id' },
+					{ name: 'subscription_name' },
+					{ name: 'status' },
+					{ name: 'created_at' },
+					{ name: 'completed_at' },
+					{ name: 'payload' },
+					{ name: 'pipeline_id' },
+					{ name: 'chain_root_id' },
+					{ name: 'parent_event_id' },
+					{ name: 'provider_session_id' },
+					{ name: 'error_message' },
+					{ name: 'exit_code' },
+					{ name: 'output_excerpt' },
+					{ name: 'full_output' },
+				];
+			}
+			return originalPragma?.(query);
+		});
+
+		try {
+			initCueDb(undefined, dbPath);
+			expect(prepareCalls.some((sql) => sql.startsWith('ALTER TABLE cue_events'))).toBe(false);
+		} finally {
+			if (originalPragma) mockDb.pragma.mockImplementation(originalPragma);
+		}
+	});
+});
+
 describe('cue-db event journal', () => {
 	beforeEach(() => {
 		initCueDb(undefined, path.join(os.tmpdir(), 'test-cue.db'));

@@ -77,18 +77,26 @@ const CREATE_CUE_EVENTS_SQL = `
     parent_event_id TEXT,
     provider_session_id TEXT,
     error_message TEXT,
-    exit_code INTEGER
+    exit_code INTEGER,
+    output_excerpt TEXT,
+    full_output TEXT
   )
 `;
 
 // Additive columns. These are nullable on purpose: existing callers that don't
 // pass lineage / pipeline metadata (e.g. when usageStats is off) must continue
-// to record events. `provider_session_id`, `error_message`, and `exit_code`
-// are written on run completion (NULL at record time, and for command/shell
-// runs that carry no equivalent). Each entry carries its own column type
-// (`exit_code` is INTEGER; the rest are TEXT) - same shape as the
-// `cue_github_seen` additive set. The migration block in initCueDb() ALTERs
-// existing databases to match the CREATE TABLE schema.
+// to record events. `provider_session_id`, `error_message`, `exit_code`,
+// `output_excerpt`, and `full_output` are written on run completion (NULL at
+// record time, and for command/shell runs that carry no equivalent). Each entry
+// carries its own column type (`exit_code` is INTEGER; the rest are TEXT) -
+// same shape as the `cue_github_seen` additive set. The migration block in
+// initCueDb() ALTERs existing databases to match the CREATE TABLE schema.
+//
+// `output_excerpt` is the short row body the activity log renders;
+// `full_output` is the truncated stdout behind it. Both stay NULL for a run
+// that produced no output, which is what makes
+// `WHERE output_excerpt IS NOT NULL` the noise filter that lets History be
+// served from this table instead of the per-agent JSONL files.
 const CUE_EVENTS_ADDITIVE_COLUMNS = [
 	{ name: 'pipeline_id', type: 'TEXT' },
 	{ name: 'chain_root_id', type: 'TEXT' },
@@ -96,6 +104,8 @@ const CUE_EVENTS_ADDITIVE_COLUMNS = [
 	{ name: 'provider_session_id', type: 'TEXT' },
 	{ name: 'error_message', type: 'TEXT' },
 	{ name: 'exit_code', type: 'INTEGER' },
+	{ name: 'output_excerpt', type: 'TEXT' },
+	{ name: 'full_output', type: 'TEXT' },
 ] as const;
 
 const CREATE_CUE_EVENTS_INDEXES_SQL = `
