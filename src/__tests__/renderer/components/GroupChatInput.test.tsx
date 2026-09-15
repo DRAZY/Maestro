@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { GroupChatInput } from '../../../renderer/components/GroupChatInput';
+import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnotator/imageAnnotatorStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import type { Session, Group, GroupChatParticipant } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
@@ -86,6 +87,7 @@ function typeInTextarea(textarea: HTMLTextAreaElement, value: string) {
 describe('GroupChatInput', () => {
 	beforeEach(() => {
 		useSessionStore.setState({ sessions: [] });
+		useImageAnnotatorStore.setState({ isOpen: false, imageDataUrl: null, onSave: null });
 	});
 
 	afterEach(() => {
@@ -232,8 +234,8 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Should show dropdown with both sessions
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
-			expect(screen.getByText('@RunMaestro.ai')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
+			expect(screen.getByText('RunMaestro.ai')).toBeInTheDocument();
 		});
 
 		it('filters mention suggestions as user types', () => {
@@ -249,8 +251,8 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@Mae');
 
 			// Should only show matching sessions (case-insensitive)
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
-			expect(screen.queryByText('@OtherAgent')).not.toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
+			expect(screen.queryByText('OtherAgent')).not.toBeInTheDocument();
 		});
 
 		it('inserts mention when clicking suggestion', () => {
@@ -262,7 +264,7 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Click on the suggestion
-			const suggestion = screen.getByText('@Maestro');
+			const suggestion = screen.getByText('Maestro');
 			fireEvent.click(suggestion);
 
 			// Should insert the mention
@@ -331,13 +333,13 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Dropdown should be visible
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
 
 			// Press Escape
 			fireEvent.keyDown(textarea, { key: 'Escape' });
 
 			// Dropdown should be hidden
-			expect(screen.queryByText('@Maestro')).not.toBeInTheDocument();
+			expect(screen.queryByText('Maestro')).not.toBeInTheDocument();
 		});
 
 		it('closes dropdown when typing space after @mention trigger', () => {
@@ -349,13 +351,13 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Dropdown should be visible
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
 
 			// Type space to close
 			typeInTextarea(textarea, '@ ');
 
 			// Dropdown should be hidden
-			expect(screen.queryByText('@Maestro')).not.toBeInTheDocument();
+			expect(screen.queryByText('Maestro')).not.toBeInTheDocument();
 		});
 
 		it('excludes terminal sessions from mention suggestions', () => {
@@ -370,8 +372,8 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Should only show non-terminal sessions
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
-			expect(screen.queryByText('@Terminal')).not.toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
+			expect(screen.queryByText('Terminal')).not.toBeInTheDocument();
 		});
 
 		it('shows no dropdown when sessions array is empty', () => {
@@ -400,12 +402,12 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// All should be shown
-			expect(screen.getByText('@RunMaestro.ai')).toBeInTheDocument();
-			expect(screen.getByText('@my-agent')).toBeInTheDocument();
-			expect(screen.getByText('@agent_test')).toBeInTheDocument();
+			expect(screen.getByText('RunMaestro.ai')).toBeInTheDocument();
+			expect(screen.getByText('my-agent')).toBeInTheDocument();
+			expect(screen.getByText('agent_test')).toBeInTheDocument();
 		});
 
-		it('shows agent type in parentheses', () => {
+		it("shows the agent's display name", () => {
 			const sessions = [createMockSession('session-1', 'Maestro', 'claude-code')];
 
 			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
@@ -413,11 +415,11 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@');
 
-			// Should show agent type (displayed without parentheses)
-			expect(screen.getByText('claude-code')).toBeInTheDocument();
+			// The unified picker shows the provider's display name, not the raw id
+			expect(screen.getByText('Claude Code')).toBeInTheDocument();
 		});
 
-		it('wraps arrow key navigation (down from last goes to first)', () => {
+		it('clamps arrow key navigation at the last item (does not wrap)', () => {
 			const sessions = [
 				createMockSession('session-1', 'Agent1', 'claude-code'),
 				createMockSession('session-2', 'Agent2', 'claude-code'),
@@ -431,15 +433,15 @@ describe('GroupChatInput', () => {
 			// Go to last item
 			fireEvent.keyDown(textarea, { key: 'ArrowDown' });
 
-			// Go past last - should wrap to first
+			// Go past last - clamps, stays on the last item (matches InputArea's
+			// own @ picker, which this now shares code with)
 			fireEvent.keyDown(textarea, { key: 'ArrowDown' });
 
-			// Insert should get first item
 			fireEvent.keyDown(textarea, { key: 'Tab' });
-			expect(textarea.value).toBe('@Agent1 ');
+			expect(textarea.value).toBe('@Agent2 ');
 		});
 
-		it('wraps arrow key navigation (up from first goes to last)', () => {
+		it('clamps arrow key navigation at the first item (does not wrap)', () => {
 			const sessions = [
 				createMockSession('session-1', 'Agent1', 'claude-code'),
 				createMockSession('session-2', 'Agent2', 'claude-code'),
@@ -450,12 +452,11 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@');
 
-			// Go up from first - should wrap to last
+			// Go up from first - clamps, stays on the first item
 			fireEvent.keyDown(textarea, { key: 'ArrowUp' });
 
-			// Insert should get last item
 			fireEvent.keyDown(textarea, { key: 'Tab' });
-			expect(textarea.value).toBe('@Agent2 ');
+			expect(textarea.value).toBe('@Agent1 ');
 		});
 	});
 
@@ -467,7 +468,7 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@');
 
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
 		});
 
 		it('shows dropdown when @ is typed after text', () => {
@@ -477,7 +478,7 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, 'Hello @');
 
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
 		});
 
 		it('hides dropdown when all text is deleted', () => {
@@ -487,12 +488,12 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@');
 
-			expect(screen.getByText('@Maestro')).toBeInTheDocument();
+			expect(screen.getByText('Maestro')).toBeInTheDocument();
 
 			// Clear the input
 			typeInTextarea(textarea, '');
 
-			expect(screen.queryByText('@Maestro')).not.toBeInTheDocument();
+			expect(screen.queryByText('Maestro')).not.toBeInTheDocument();
 		});
 
 		it('hides dropdown when no sessions match filter', () => {
@@ -503,7 +504,7 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@xyz');
 
 			// No matches, dropdown should not show
-			expect(screen.queryByText('@Maestro')).not.toBeInTheDocument();
+			expect(screen.queryByText('Maestro')).not.toBeInTheDocument();
 		});
 	});
 
@@ -519,7 +520,7 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@myagent');
 
 			// Should find the PascalCase session
-			expect(screen.getByText('@MyAgent')).toBeInTheDocument();
+			expect(screen.getByText('MyAgent')).toBeInTheDocument();
 		});
 	});
 
@@ -536,9 +537,10 @@ describe('GroupChatInput', () => {
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@');
 
-			// Should show the group in the dropdown
-			expect(screen.getByText('@PROJECTS')).toBeInTheDocument();
-			expect(screen.getByText(/group · 2/)).toBeInTheDocument();
+			// Should show the group in the dropdown, with a count of the agents
+			// accepting it will expand into.
+			expect(screen.getByText('PROJECTS')).toBeInTheDocument();
+			expect(screen.getByText('2 agents')).toBeInTheDocument();
 		});
 
 		it('shows groups before individual agents', () => {
@@ -555,12 +557,12 @@ describe('GroupChatInput', () => {
 			// Get all buttons in the dropdown
 			const buttons = screen.getAllByRole('button');
 			const mentionButtons = buttons.filter(
-				(btn) => btn.textContent?.includes('@PROJECTS') || btn.textContent?.includes('@Agent1')
+				(btn) => btn.textContent?.includes('PROJECTS') || btn.textContent?.includes('Agent1')
 			);
 
 			// Group should appear first
 			expect(mentionButtons.length).toBeGreaterThanOrEqual(2);
-			expect(mentionButtons[0].textContent).toContain('@PROJECTS');
+			expect(mentionButtons[0].textContent).toContain('PROJECTS');
 		});
 
 		it('expands group into all member mentions on click', () => {
@@ -576,7 +578,7 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Click the group
-			fireEvent.click(screen.getByText('@PROJECTS'));
+			fireEvent.click(screen.getByText('PROJECTS'));
 
 			// Should expand to all member @mentions
 			expect(textarea.value).toBe('@Agent1 @Agent2 ');
@@ -612,7 +614,7 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Group should not appear since it has no non-terminal members
-			expect(screen.queryByText('@TERMINALS')).not.toBeInTheDocument();
+			expect(screen.queryByText('TERMINALS')).not.toBeInTheDocument();
 		});
 
 		it('filters groups by name', () => {
@@ -631,8 +633,8 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@proj');
 
 			// Only the matching group should show
-			expect(screen.getByText('@PROJECTS')).toBeInTheDocument();
-			expect(screen.queryByText('@TOOLS')).not.toBeInTheDocument();
+			expect(screen.getByText('PROJECTS')).toBeInTheDocument();
+			expect(screen.queryByText('TOOLS')).not.toBeInTheDocument();
 		});
 
 		it('works without groups prop', () => {
@@ -644,7 +646,62 @@ describe('GroupChatInput', () => {
 			typeInTextarea(textarea, '@');
 
 			// Should still show individual agents
-			expect(screen.getByText('@Agent1')).toBeInTheDocument();
+			expect(screen.getByText('Agent1')).toBeInTheDocument();
+		});
+	});
+
+	// =========================================================================
+	// STAGED IMAGES
+	// =========================================================================
+	//
+	// GroupChatInput renders staged images through the same StagedImagesStrip/
+	// StagedImageTile InputArea uses, rather than its own hand-rolled thumbnail
+	// markup. These tests cover the wiring GroupChatInput itself owns (which
+	// prop maps to which callback); the strip's own rendering and drag-to-reorder
+	// mechanics are covered by StagedImagesStrip.test.tsx.
+	describe('staged images', () => {
+		it('renders a thumbnail per staged image and opens the lightbox on click', () => {
+			const onOpenLightbox = vi.fn();
+			const stagedImages = ['data:image/png;base64,a', 'data:image/png;base64,b'];
+
+			render(
+				<GroupChatInput
+					{...createDefaultProps({ stagedImages, setStagedImages: vi.fn(), onOpenLightbox })}
+				/>
+			);
+
+			expect(screen.getByRole('button', { name: 'Staged image 1' })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Staged image 2' })).toBeInTheDocument();
+
+			fireEvent.click(screen.getByRole('button', { name: 'Staged image 1' }));
+
+			expect(onOpenLightbox).toHaveBeenCalledWith(stagedImages[0], stagedImages, 'staged');
+		});
+
+		it('removes a staged image by content when its remove button is clicked', () => {
+			const setStagedImages = vi.fn();
+			const stagedImages = ['data:image/png;base64,a', 'data:image/png;base64,b'];
+
+			render(<GroupChatInput {...createDefaultProps({ stagedImages, setStagedImages })} />);
+
+			fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }));
+
+			expect(setStagedImages).toHaveBeenCalledOnce();
+			const updater = setStagedImages.mock.calls[0][0] as (prev: string[]) => string[];
+			expect(updater(stagedImages)).toEqual([stagedImages[1]]);
+		});
+
+		it('opens the shared image annotator for a staged image', () => {
+			const stagedImages = ['data:image/png;base64,a'];
+			render(
+				<GroupChatInput {...createDefaultProps({ stagedImages, setStagedImages: vi.fn() })} />
+			);
+
+			fireEvent.click(screen.getByRole('button', { name: 'Annotate image' }));
+
+			const annotatorState = useImageAnnotatorStore.getState();
+			expect(annotatorState.isOpen).toBe(true);
+			expect(annotatorState.imageDataUrl).toBe(stagedImages[0]);
 		});
 	});
 
