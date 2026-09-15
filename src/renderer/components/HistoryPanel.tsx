@@ -123,6 +123,12 @@ export const HistoryPanel = React.memo(
 		const activeFiltersAgentIdRef = useRef(session.id);
 		const [detailModalEntry, setDetailModalEntry] = useState<HistoryEntry | null>(null);
 		const [searchFilter, setSearchFilter] = useState('');
+		// Whether a text search is running at all - deliberately a BOOLEAN and
+		// not the search text, because it feeds `loadPage`'s identity (see
+		// `groupCue` there). Keying on the text would reset the pagination
+		// window on every keystroke; keying on "is there a term" resets it once
+		// when the user starts typing and once when they clear the box.
+		const isSearching = searchFilter.length > 0;
 		// Source/host filter - null means "All Sources". When set, both the
 		// entry list and the activity graph narrow to entries from that host.
 		const [selectedHost, setSelectedHost] = useState<string | null>(null);
@@ -208,7 +214,18 @@ export const HistoryPanel = React.memo(
 					// holds a page of entries, so grouping here would report a
 					// page's worth of runs for a trigger that ran thousands of
 					// times.
-					groupCue: groupCueEntries,
+					//
+					// A live search turns grouping OFF. Search matches text, and
+					// a collapsed row carries the text of exactly one run - its
+					// newest - so leaving grouping on would hide every run whose
+					// output matched the term unless it happened to be the last
+					// one the trigger fired. Serving Cue runs ungrouped while a
+					// term is active is what keeps "the filter matches a run
+					// inside a collapsed group" from silently losing that run:
+					// the run itself is on screen, with its own time and
+					// outcome, which is what the user searching for it wanted.
+					// Density is not the goal mid-search - drilling down is.
+					groupCue: groupCueEntries && !isSearching,
 					pagination: { offset, limit },
 				});
 				return {
@@ -225,6 +242,7 @@ export const HistoryPanel = React.memo(
 				activeFilters,
 				selectedHost,
 				groupCueEntries,
+				isSearching,
 			]
 		);
 
@@ -412,12 +430,19 @@ export const HistoryPanel = React.memo(
 					const sessionIdMatch = entry.agentSessionId?.toLowerCase().includes(searchLower);
 					const sessionNameMatch = entry.sessionName?.toLowerCase().includes(searchLower);
 					const hostnameMatch = entry.hostname?.toLowerCase().includes(searchLower);
+					// The trigger name is the most prominent text on a Cue row
+					// (and the whole label on a collapsed one), so a user who
+					// types it expects that row back. Without this, the name is
+					// only findable when it happens to appear in the run's own
+					// output excerpt.
+					const cueTriggerMatch = entry.cueTriggerName?.toLowerCase().includes(searchLower);
 					if (
 						!summaryMatch &&
 						!responseMatch &&
 						!sessionIdMatch &&
 						!sessionNameMatch &&
-						!hostnameMatch
+						!hostnameMatch &&
+						!cueTriggerMatch
 					)
 						return false;
 				}

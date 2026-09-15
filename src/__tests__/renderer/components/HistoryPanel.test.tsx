@@ -1127,6 +1127,185 @@ describe('HistoryPanel', () => {
 		});
 	});
 
+	// CUE-HISTORY-03 task #5. Grouping narrows the list; so do the pills and
+	// the search box. These cover the two ways that combination can lose a run.
+	//
+	// The pill is the easy half: 'CUE' leaving `types` makes the main process
+	// skip the Cue query outright, grouped or not.
+	//
+	// Search is the half that is easy to get wrong. A collapsed row carries the
+	// text of exactly ONE run (its newest), so a term matching any earlier run
+	// in the group would match nothing and the row would vanish - hiding every
+	// run it stood for. The panel therefore turns grouping OFF for the duration
+	// of a search, so the matching run is on screen as itself.
+	describe('grouped Cue rows under the filter pills and search', () => {
+		afterEach(() => {
+			useSettingsStore.setState({ groupCueEntries: true });
+		});
+
+		const CUE_ENCORE = {
+			directorNotes: false,
+			usageStats: false,
+			symphony: false,
+			maestroCue: true,
+		};
+
+		// Two runs of one chatty trigger. Neither summary contains the trigger
+		// name, and only the OLDER one mentions the term the tests search for -
+		// which is exactly the case a collapsed row cannot answer by itself.
+		const newestRun = () =>
+			createMockEntry({
+				id: 'cue-newest',
+				type: 'CUE',
+				timestamp: 3000,
+				summary: 'Bus drained 4 commands',
+				cueTriggerName: 'Pedsidian-Command-Bus',
+				cueEventType: 'file.changed',
+			});
+		const olderRun = () =>
+			createMockEntry({
+				id: 'cue-older',
+				type: 'CUE',
+				timestamp: 1000,
+				summary: 'Bus hit a timeout',
+				success: false,
+				cueTriggerName: 'Pedsidian-Command-Bus',
+				cueEventType: 'file.changed',
+			});
+
+		const paginatedMock = () =>
+			(
+				window as unknown as {
+					maestro: { history: { getAllPaginated: ReturnType<typeof vi.fn> } };
+				}
+			).maestro.history.getAllPaginated;
+
+		const lastRequest = () => {
+			const calls = paginatedMock().mock.calls;
+			return calls[calls.length - 1][0] as { groupCue?: boolean; types?: string[] };
+		};
+
+		/**
+		 * Stands in for the main process's own branch: `groupCue` picks the
+		 * rollup over the per-run read, and 'CUE' missing from `types` skips
+		 * the Cue query entirely. The shared adapter in `beforeEach` cannot do
+		 * this - it slices one fixed array - and the whole point here is that
+		 * the two reads return DIFFERENT rows.
+		 */
+		const installSplitRead = () => {
+			const read = vi.fn(async (options?: { groupCue?: boolean; types?: string[] }) => {
+				const wantsCue = !options?.types || options.types.includes('CUE');
+				const entries = !wantsCue
+					? []
+					: options?.groupCue
+						? [
+								{
+									...newestRun(),
+									cueGroup: {
+										key: 'Pedsidian-Command-Bus',
+										label: 'Pedsidian-Command-Bus',
+										runCount: 2,
+										failureCount: 1,
+									},
+								},
+							]
+						: [newestRun(), olderRun()];
+				return { entries, total: entries.length, limit: 100, offset: 0, hasMore: false };
+			});
+			(
+				window as unknown as {
+					maestro: { history: { getAllPaginated: unknown } };
+				}
+			).maestro.history.getAllPaginated = read;
+			return read;
+		};
+
+		const typeInSearch = (term: string) =>
+			fireEvent.change(screen.getByPlaceholderText('Filter history...'), {
+				target: { value: term },
+			});
+
+		it('surfaces a run inside a collapsed group when the search matches it', async () => {
+			useSettingsStore.setState({ groupCueEntries: true, encoreFeatures: CUE_ENCORE });
+			useUIStore.setState({ historySearchFilterOpen: true });
+			installSplitRead();
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			// Collapsed: the older run's text is nowhere on screen.
+			await waitFor(() => expect(screen.getByText('2 runs')).toBeInTheDocument());
+			expect(screen.queryByText('Bus hit a timeout')).not.toBeInTheDocument();
+
+			typeInSearch('timeout');
+
+			await waitFor(() => {
+				expect(screen.getByText('Bus hit a timeout')).toBeInTheDocument();
+			});
+			// And the row it was hiding behind is gone, not sitting beside it.
+			expect(screen.queryByText('2 runs')).not.toBeInTheDocument();
+		});
+
+		it('asks the main process for ungrouped rows while a term is typed, and groups again when it is cleared', async () => {
+			useSettingsStore.setState({ groupCueEntries: true, encoreFeatures: CUE_ENCORE });
+			useUIStore.setState({ historySearchFilterOpen: true });
+			mockHistoryGetAll.mockResolvedValue([]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => expect(paginatedMock()).toHaveBeenCalled());
+			expect(lastRequest().groupCue).toBe(true);
+
+			typeInSearch('timeout');
+			await waitFor(() => expect(lastRequest().groupCue).toBe(false));
+
+			// Typing MORE must not re-fetch: the read only cares whether a term
+			// exists, so the window is not reset on every keystroke.
+			const callsWhileSearching = paginatedMock().mock.calls.length;
+			typeInSearch('timeout error');
+			await waitFor(() =>
+				expect(screen.getByPlaceholderText('Filter history...')).toHaveValue('timeout error')
+			);
+			expect(paginatedMock().mock.calls.length).toBe(callsWhileSearching);
+
+			typeInSearch('');
+			await waitFor(() => expect(lastRequest().groupCue).toBe(true));
+		});
+
+		it('matches a Cue row by its trigger name, which is all a collapsed row shows', async () => {
+			useSettingsStore.setState({ groupCueEntries: true, encoreFeatures: CUE_ENCORE });
+			useUIStore.setState({ historySearchFilterOpen: true });
+			installSplitRead();
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+			await waitFor(() => expect(screen.getByText('2 runs')).toBeInTheDocument());
+
+			// Neither run's summary contains 'Pedsidian'.
+			typeInSearch('Pedsidian');
+
+			await waitFor(() => {
+				expect(screen.getByText('Bus drained 4 commands')).toBeInTheDocument();
+			});
+			expect(screen.getByText('Bus hit a timeout')).toBeInTheDocument();
+		});
+
+		it('hides grouped rows entirely when the CUE pill is toggled off', async () => {
+			useSettingsStore.setState({ groupCueEntries: true, encoreFeatures: CUE_ENCORE });
+			installSplitRead();
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+			await waitFor(() => expect(screen.getByText('Pedsidian-Command-Bus')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: /CUE/i }));
+
+			await waitFor(() => {
+				expect(screen.queryByText('Pedsidian-Command-Bus')).not.toBeInTheDocument();
+			});
+			expect(screen.queryByText('2 runs')).not.toBeInTheDocument();
+			// Server half: the rollup must not even be asked for.
+			expect(lastRequest().types).not.toContain('CUE');
+		});
+	});
+
 	describe('keyboard navigation', () => {
 		it('should navigate with ArrowDown', async () => {
 			const entries = [
