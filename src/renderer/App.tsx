@@ -766,7 +766,7 @@ function MaestroConsoleInner() {
 	const groupChatState = useGroupChatStore((s) => s.groupChatState);
 	const groupChatStagedImages = useGroupChatStore(selectActiveGroupChatStagedImages);
 	const groupChatReadOnlyMode = useGroupChatStore((s) => s.groupChatReadOnlyMode);
-	const groupChatExecutionQueue = useGroupChatStore((s) => s.groupChatExecutionQueue);
+	const groupChatQueues = useGroupChatStore((s) => s.groupChatQueues);
 	const groupChatRightTab = useGroupChatStore((s) => s.groupChatRightTab);
 	const groupChatParticipantColors = useGroupChatStore((s) => s.groupChatParticipantColors);
 	const groupChatModeratorOnly = useGroupChatStore((s) => s.groupChatModeratorOnly);
@@ -1208,6 +1208,7 @@ function MaestroConsoleInner() {
 		handleGroupChatDraftChange,
 		handleRemoveGroupChatQueueItem,
 		handleReorderGroupChatQueueItems,
+		handleResumeGroupChatQueue,
 		handleStopAll: handleGroupChatStopAll,
 		handleNewGroupChat,
 		handleEditGroupChat,
@@ -3222,10 +3223,9 @@ function MaestroConsoleInner() {
 									handlePaste={handlePaste}
 									handleDrop={handleGroupChatDrop}
 									onOpenLightbox={handleSetLightboxImage}
-									executionQueue={groupChatExecutionQueue.filter(
-										(item) => item.tabId === activeGroupChatId
-									)}
+									queueState={activeGroupChatId ? groupChatQueues[activeGroupChatId] : undefined}
 									onRemoveQueuedItem={handleRemoveGroupChatQueueItem}
+									onResumeQueue={handleResumeGroupChatQueue}
 									onReorderQueuedItems={handleReorderGroupChatQueueItems}
 									markdownEditMode={chatRawTextMode}
 									onToggleMarkdownEditMode={handleToggleGroupChatMarkdownMode}

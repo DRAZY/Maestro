@@ -89,7 +89,7 @@ describe('groupChatStore', () => {
 			expect(state.groupChatStates).toEqual(new Map());
 			expect(state.allGroupChatParticipantStates).toEqual(new Map());
 			expect(state.unreadGroupChatIds).toEqual(new Set());
-			expect(state.groupChatExecutionQueue).toEqual([]);
+			expect(state.groupChatQueues).toEqual({});
 			expect(state.groupChatReadOnlyMode).toBe(false);
 			expect(state.groupChatRightTab).toBe('participants');
 			expect(state.groupChatParticipantColors).toEqual({});
@@ -331,24 +331,44 @@ describe('groupChatStore', () => {
 	// ==========================================================================
 
 	describe('execution queue', () => {
-		it('sets execution queue', () => {
-			const items = [
-				createMockQueuedItem({ content: 'msg1' }),
-				createMockQueuedItem({ content: 'msg2' }),
-			];
-			useGroupChatStore.getState().setGroupChatExecutionQueue(items);
-			expect(useGroupChatStore.getState().groupChatExecutionQueue).toHaveLength(2);
+		// The renderer no longer OWNS the queue: main does, and the store keeps a
+		// per-chat mirror written only from the `groupChat:queueState` broadcast.
+		// The old tests drove a renderer-local array through a functional updater,
+		// which is exactly the shape that let a phone's queue be invisible to the
+		// desktop, so they are replaced rather than adapted.
+		it('mirrors one chat queue from a broadcast', () => {
+			useGroupChatStore.getState().setGroupChatQueue('gc-1', {
+				items: [{ id: 'a', timestamp: 1, text: 'msg1' }],
+				paused: false,
+			});
+			expect(useGroupChatStore.getState().groupChatQueues['gc-1'].items).toHaveLength(1);
 		});
 
-		it('dequeues with functional updater', () => {
-			const items = [
-				createMockQueuedItem({ content: 'first' }),
-				createMockQueuedItem({ content: 'second' }),
-			];
-			useGroupChatStore.getState().setGroupChatExecutionQueue(items);
-			useGroupChatStore.getState().setGroupChatExecutionQueue((prev) => prev.slice(1));
-			expect(useGroupChatStore.getState().groupChatExecutionQueue).toHaveLength(1);
-			expect(useGroupChatStore.getState().groupChatExecutionQueue[0].content).toBe('second');
+		it('keeps each chat queue separate', () => {
+			const store = useGroupChatStore.getState();
+			store.setGroupChatQueue('gc-1', {
+				items: [{ id: 'a', timestamp: 1, text: 'A' }],
+				paused: false,
+			});
+			store.setGroupChatQueue('gc-2', { items: [], paused: true });
+
+			const queues = useGroupChatStore.getState().groupChatQueues;
+			expect(queues['gc-1'].items[0].text).toBe('A');
+			expect(queues['gc-2'].paused).toBe(true);
+		});
+
+		it('replaces a chat queue wholesale, since main sends the whole state', () => {
+			const store = useGroupChatStore.getState();
+			store.setGroupChatQueue('gc-1', {
+				items: [{ id: 'a', timestamp: 1, text: 'A' }],
+				paused: false,
+			});
+			store.setGroupChatQueue('gc-1', { items: [], paused: true });
+
+			expect(useGroupChatStore.getState().groupChatQueues['gc-1']).toEqual({
+				items: [],
+				paused: true,
+			});
 		});
 
 		it('sets read-only mode', () => {
@@ -626,7 +646,7 @@ describe('groupChatStore', () => {
 			expect(typeof state.setModeratorUsage).toBe('function');
 			expect(typeof state.setGroupChatStates).toBe('function');
 			expect(typeof state.setAllGroupChatParticipantStates).toBe('function');
-			expect(typeof state.setGroupChatExecutionQueue).toBe('function');
+			expect(typeof state.setGroupChatQueue).toBe('function');
 			expect(typeof state.setGroupChatReadOnlyMode).toBe('function');
 			expect(typeof state.setGroupChatRightTab).toBe('function');
 			expect(typeof state.setGroupChatParticipantColors).toBe('function');
@@ -680,7 +700,7 @@ describe('groupChatStore', () => {
 			expect(state.groupChatStates).toEqual(new Map());
 			expect(state.allGroupChatParticipantStates).toEqual(new Map());
 			expect(state.unreadGroupChatIds).toEqual(new Set());
-			expect(state.groupChatExecutionQueue).toEqual([]);
+			expect(state.groupChatQueues).toEqual({});
 			expect(state.groupChatReadOnlyMode).toBe(false);
 			expect(state.groupChatRightTab).toBe('participants');
 			expect(state.groupChatParticipantColors).toEqual({});

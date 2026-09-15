@@ -41,7 +41,7 @@ const baseState = {
 	groupChatStates: new Map([[CHAT_ID, 'moderator-thinking' as const]]),
 	allGroupChatParticipantStates: new Map(),
 	unreadGroupChatIds: new Set<string>(),
-	groupChatExecutionQueue: [],
+	groupChatQueues: {},
 	groupChatReadOnlyMode: false,
 	groupChatRightTab: 'participants' as const,
 	groupChatParticipantColors: {},
@@ -71,6 +71,18 @@ describe('opening a group chat does not resurrect a stale busy state', () => {
 			}),
 			onMessage: vi.fn().mockReturnValue(() => {}),
 			onStateChange: vi.fn().mockReturnValue(() => {}),
+			// The queue moved into main, so the hook loads it on open and subscribes to
+			// the broadcast. Without these the hook throws before it does anything else.
+			getQueue: vi.fn().mockResolvedValue({ items: [], paused: false }),
+			submitMessage: vi.fn().mockResolvedValue({ items: [], paused: false }),
+			queueRemove: vi
+				.fn()
+				.mockResolvedValue({ state: { items: [], paused: false }, refused: false }),
+			queueReorder: vi
+				.fn()
+				.mockResolvedValue({ state: { items: [], paused: false }, refused: false }),
+			queueResume: vi.fn().mockResolvedValue({ items: [], paused: false }),
+			onQueueState: vi.fn().mockReturnValue(() => {}),
 			onParticipantsChanged: vi.fn().mockReturnValue(() => {}),
 			onModeratorUsage: vi.fn().mockReturnValue(() => {}),
 			onParticipantState: vi.fn().mockReturnValue(() => {}),

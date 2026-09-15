@@ -14,7 +14,7 @@
 
 import { create } from 'zustand';
 import type { GroupChat, GroupChatMessage, GroupChatState, AgentError } from '../types';
-import type { QueuedItem } from '../types';
+import type { GroupChatQueueState } from '../../shared/group-chat-types';
 
 // ============================================================================
 // Types
@@ -85,7 +85,17 @@ export interface GroupChatStoreState {
 	unreadGroupChatIds: Set<string>;
 
 	// Execution
-	groupChatExecutionQueue: QueuedItem[];
+	/**
+	 * Pending sends for each chat, as MAIN reports them.
+	 *
+	 * Keyed by chat id and written only from the `groupChat:queueState`
+	 * broadcast. It is a MIRROR, never a source of truth: the queue used to be a
+	 * renderer array, so every client had its own and a message queued on a phone
+	 * was invisible to the desktop and died with the browser tab holding it. Main
+	 * owns it now, so the rule here is simply to render what we are told and send
+	 * every change back over IPC.
+	 */
+	groupChatQueues: Record<string, GroupChatQueueState>;
 	groupChatReadOnlyMode: boolean;
 
 	// UI
@@ -163,7 +173,8 @@ export interface GroupChatStoreActions {
 	clearGroupChatUnread: (groupChatId?: string) => void;
 
 	// Execution
-	setGroupChatExecutionQueue: (v: QueuedItem[] | ((prev: QueuedItem[]) => QueuedItem[])) => void;
+	/** Replace one chat's mirrored queue from a main broadcast. */
+	setGroupChatQueue: (groupChatId: string, state: GroupChatQueueState) => void;
 	setGroupChatReadOnlyMode: (v: boolean | ((prev: boolean) => boolean)) => void;
 
 	// UI
@@ -264,7 +275,7 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 	groupChatStates: new Map(),
 	allGroupChatParticipantStates: new Map(),
 	unreadGroupChatIds: new Set(),
-	groupChatExecutionQueue: [],
+	groupChatQueues: {},
 	groupChatReadOnlyMode: false,
 	groupChatRightTab: 'participants' as GroupChatRightTab,
 	groupChatParticipantColors: {},
@@ -308,8 +319,8 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 			return { unreadGroupChatIds: next };
 		}),
 
-	setGroupChatExecutionQueue: (v) =>
-		set((s) => ({ groupChatExecutionQueue: resolve(v, s.groupChatExecutionQueue) })),
+	setGroupChatQueue: (groupChatId, state) =>
+		set((s) => ({ groupChatQueues: { ...s.groupChatQueues, [groupChatId]: state } })),
 	setGroupChatReadOnlyMode: (v) =>
 		set((s) => ({ groupChatReadOnlyMode: resolve(v, s.groupChatReadOnlyMode) })),
 	setGroupChatRightTab: (v) => set((s) => ({ groupChatRightTab: resolve(v, s.groupChatRightTab) })),

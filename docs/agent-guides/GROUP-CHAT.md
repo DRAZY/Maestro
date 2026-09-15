@@ -517,6 +517,16 @@ Located in `src/renderer/components/`:
 | `DeleteGroupChatModal.tsx`  | Deletion confirmation                                                 |
 | `RenameGroupChatModal.tsx`  | Rename dialog                                                         |
 
+### The queue on the renderer side
+
+The renderer holds a MIRROR of each chat's pending sends and nothing more.
+
+- **`groupChatQueues` in `groupChatStore`** is that mirror: a `Record<chatId, GroupChatQueueState>`, written from exactly two places - the `groupChat:queueState` broadcast, and the `getQueue` read a chat performs when it opens. Opening pulls from main rather than trusting whatever this client held, because a client can have been asleep, reloaded, or never seen the chat before. Both calls are optional-chained so a web client on an older preload still opens the room.
+- **There is no drain.** `useGroupChatHandlers` used to send the head of the queue whenever it saw the moderator go idle. That only works while that one client is awake and watching: a phone that slept or reloaded left its messages queued forever, and two clients that both saw idle each sent the same item. Main drains it now.
+- **Sending is a hand-off**, `groupChat:submitMessage`. The renderer does not branch on `groupChatState` to decide send-vs-queue - a client's copy is stale by the time it reads it, and a stale copy sends directly while items are already waiting, putting the newest message ahead of older ones. A rejection from that IPC call means main never saw the message and it is in no queue, which is a different outcome from a send that fails inside main (there the item is kept, marked, and the chat paused), so the notice tells the user to send it again.
+- **Remove and reorder are addressed by item id.** `handleReorderGroupChatQueueItems` resolves the dragged row's index against the mirror and sends the id, because main is the authority and its list can have moved since this client rendered the row. Main answers `{ state, refused }`; a refusal only happens while an item is in flight, which the composer is already showing.
+- **`GroupChatInput` adapts and renders.** It maps `GroupChatQueuedItem` onto the `QueuedItem` shape `QueuedItemsList` already speaks - the adaptation belongs here rather than teaching main a renderer type - and it draws the two states a mirror has to surface: a paused banner with a Resume button (a paused queue sends nothing, and messages sitting there with no explanation and no control is the failure), and a "Sending, cannot remove" line for the in-flight item.
+
 ## Symphony System
 
 Symphony is a separate feature that connects Maestro users with open-source projects seeking contributions. It is not part of the group chat system, but shares some infrastructure:
