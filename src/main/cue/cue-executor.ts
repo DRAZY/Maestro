@@ -18,8 +18,8 @@ import type { HistoryEntry, SessionInfo, ToolType } from '../../shared/types';
 import { substituteTemplateVariables, type TemplateContext } from '../../shared/templateVariables';
 import { buildCueTemplateContext } from './cue-template-context-builder';
 import { buildSpawnSpec } from './cue-spawn-builder';
-import { sliceHeadByChars } from './cue-text-utils';
-import { buildCueRunSummary, extractCueOutputExcerpt } from '../../shared/cue/cue-summary';
+import { buildCuePersistedOutput } from './cue-text-utils';
+import { buildCueRunSummary } from '../../shared/cue/cue-summary';
 import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
 import {
 	runProcess,
@@ -34,8 +34,6 @@ import { beginSleepAwareSpan, sleepAwareElapsedMs } from '../utils/sleep-tracker
 // Re-export types that external consumers use
 export type { CueProcessInfo } from './cue-process-lifecycle';
 export type { SpawnSpec } from './cue-spawn-builder';
-
-const MAX_HISTORY_RESPONSE_LENGTH = 10000;
 
 /** Configuration for executing a Cue-triggered prompt */
 export interface CueExecutionConfig {
@@ -369,21 +367,16 @@ export function recordCueHistoryEntry(
 ): HistoryEntry | null {
 	if (!cueRunIsWorthRecording(result)) return null;
 
-	const fullResponse =
-		result.stdout.length > MAX_HISTORY_RESPONSE_LENGTH
-			? sliceHeadByChars(result.stdout, MAX_HISTORY_RESPONSE_LENGTH)
-			: result.stdout;
-
-	// Prefer stdout for the row body; fall back to stderr so a run kept for its
-	// error output isn't reduced to the bare trigger label, then to the label.
-	const excerpt = extractCueOutputExcerpt(result.stdout) ?? extractCueOutputExcerpt(result.stderr);
+	// Shared with the `cue_events` row finalizer so the DB row and this history
+	// entry carry byte-identical output - see `buildCuePersistedOutput()`.
+	const { excerpt, fullOutput } = buildCuePersistedOutput(result);
 
 	return {
 		id: crypto.randomUUID(),
 		type: 'CUE',
 		timestamp: Date.now(),
 		summary: excerpt ?? buildCueRunSummary(result),
-		fullResponse: fullResponse || undefined,
+		fullResponse: fullOutput ?? undefined,
 		projectPath: session.projectRoot || session.cwd,
 		sessionId: session.id,
 		sessionName: session.name,

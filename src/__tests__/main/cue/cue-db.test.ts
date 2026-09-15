@@ -351,6 +351,45 @@ describe('cue-db event journal', () => {
 		expect(lastRun[2]).toBe('evt-3'); // id
 	});
 
+	it('should leave output columns untouched when no completion info is given', () => {
+		// A bare status flip ('stopped') must not clobber a previously-written
+		// excerpt with NULL - only completion-time writes touch these columns.
+		updateCueEventStatus('evt-4', 'stopped');
+
+		const lastPrepare = prepareCalls[prepareCalls.length - 1];
+		expect(lastPrepare).not.toContain('output_excerpt');
+		expect(lastPrepare).not.toContain('full_output');
+	});
+
+	it('should write output_excerpt and full_output on completion', () => {
+		updateCueEventStatus('evt-5', 'completed', 'provider-1', {
+			errorMessage: null,
+			exitCode: 0,
+			outputExcerpt: 'Merged PR #12.',
+			fullOutput: 'Merged PR #12.\nDetails follow.',
+		});
+
+		const lastPrepare = prepareCalls[prepareCalls.length - 1];
+		expect(lastPrepare).toContain('output_excerpt = ?');
+		expect(lastPrepare).toContain('full_output = ?');
+		const lastRun = runCalls[runCalls.length - 1];
+		// status, completed_at, provider_session_id, error_message, exit_code,
+		// output_excerpt, full_output, id
+		expect(lastRun[5]).toBe('Merged PR #12.');
+		expect(lastRun[6]).toBe('Merged PR #12.\nDetails follow.');
+		expect(lastRun[7]).toBe('evt-5');
+	});
+
+	it('should write NULL output columns for a silent run', () => {
+		updateCueEventStatus('evt-6', 'completed', null, { errorMessage: null, exitCode: 0 });
+
+		const lastRun = runCalls[runCalls.length - 1];
+		// No provider session id, so the columns shift left by one.
+		expect(lastRun[4]).toBeNull(); // output_excerpt
+		expect(lastRun[5]).toBeNull(); // full_output
+		expect(lastRun[6]).toBe('evt-6');
+	});
+
 	it('should query recent events with correct since parameter', () => {
 		const since = Date.now() - 1000;
 		getRecentCueEvents(since);

@@ -437,12 +437,21 @@ export function recordCueEvent(event: {
 		);
 }
 
-/** Optional failure diagnostics stamped on an event row at completion time. */
-export interface CueEventFailureInfo {
+/**
+ * Optional diagnostics + output stamped on an event row at completion time.
+ * Every field is a completion-time write: a status flip that isn't a run
+ * completion (e.g. 'stopped') omits the whole object and leaves the columns
+ * untouched rather than clobbering them with NULL.
+ */
+export interface CueEventCompletionInfo {
 	/** Trimmed stderr / agent error reason; null when the run had no error. */
 	errorMessage?: string | null;
 	/** Process exit code; null when none was produced. */
 	exitCode?: number | null;
+	/** Short row body from the run's output; null when it printed nothing. */
+	outputExcerpt?: string | null;
+	/** Head-truncated stdout; null when the run printed nothing. */
+	fullOutput?: string | null;
 }
 
 /**
@@ -454,17 +463,19 @@ export interface CueEventFailureInfo {
  * id (command/shell runs, or status flips that aren't run completions) simply
  * don't pass it rather than clobbering a previously-written value with NULL.
  *
- * When `failure` is provided, `error_message` and `exit_code` are written too
- * (NULL is fine for a success - these are completion-time writes). Status flips
- * that aren't run completions (e.g. 'stopped') omit it and leave both columns
+ * When `completion` is provided, `error_message`, `exit_code`,
+ * `output_excerpt`, and `full_output` are written too (NULL is fine for a
+ * success or a silent run - these are completion-time writes). Status flips
+ * that aren't run completions (e.g. 'stopped') omit it and leave the columns
  * untouched. This is what lets the activity log explain WHY a dispatch failed
- * without a DB dig.
+ * without a DB dig, and what lets History be served from this table instead of
+ * the per-agent JSONL files.
  */
 export function updateCueEventStatus(
 	id: string,
 	status: string,
 	providerSessionId?: string | null,
-	failure?: CueEventFailureInfo
+	completion?: CueEventCompletionInfo
 ): void {
 	const columns = ['status = ?', 'completed_at = ?'];
 	const values: Array<string | number | null> = [status, Date.now()];
@@ -473,11 +484,17 @@ export function updateCueEventStatus(
 		columns.push('provider_session_id = ?');
 		values.push(providerSessionId);
 	}
-	if (failure) {
+	if (completion) {
 		columns.push('error_message = ?');
-		values.push(failure.errorMessage ?? null);
+		values.push(completion.errorMessage ?? null);
 		columns.push('exit_code = ?');
-		values.push(failure.exitCode ?? null);
+		values.push(completion.exitCode ?? null);
+		// NULL, never '' - `WHERE output_excerpt IS NOT NULL` is the filter
+		// that separates runs worth reading from heartbeat noise.
+		columns.push('output_excerpt = ?');
+		values.push(completion.outputExcerpt ?? null);
+		columns.push('full_output = ?');
+		values.push(completion.fullOutput ?? null);
 	}
 
 	values.push(id);
@@ -531,7 +548,7 @@ export function safeUpdateCueEventStatus(
 	id: string,
 	status: string,
 	providerSessionId?: string | null,
-	failure?: CueEventFailureInfo
+	completion?: CueEventCompletionInfo
 ): void {
 	if (!db) {
 		// Expected during shutdown or before init completes - log and skip Sentry.
@@ -542,7 +559,7 @@ export function safeUpdateCueEventStatus(
 		return;
 	}
 	try {
-		updateCueEventStatus(id, status, providerSessionId, failure);
+		updateCueEventStatus(id, status, providerSessionId, completion);
 	} catch (err) {
 		log(
 			'warn',
