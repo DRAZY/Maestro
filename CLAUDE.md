@@ -189,6 +189,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Model tier / effort level (`'low' | 'medium' | 'high'`):** `resolveTierModel()`, `resolveEffortLevel()` in `src/shared/modelTiers.ts`
 - **Auto Run markers (HITL / halt / model hint):** `scanMaestroMarkers()`, `findPendingHitlGate()` in `src/shared/autorunMarkers.ts`
 - **Fence-aware markdown scanning:** `forEachMarkdownLine()`, `UNCHECKED_TASK_REGEX` in `src/shared/markdownTaskScan.ts`
+- **Encore Feature flags and their defaults:** `DEFAULT_ENCORE_FEATURES`, `resolveEncoreFeatures()` in `src/shared/encoreFeatures.ts`
 - **Thinking mode (`'off' | 'on' | 'sticky'`):** `THINKING_MODES`, `nextThinkingMode()` in `src/shared/types.ts`
 
 If your use case does NOT match an existing utility, prefer extending the canonical file over creating a new one. If you genuinely need something new, add the full entry to [CANONICAL-UTILITIES.md](docs/agent-guides/CANONICAL-UTILITIES.md) and a one-line index entry above so the next person can find it.

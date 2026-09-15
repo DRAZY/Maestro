@@ -1327,14 +1327,10 @@ export interface LeaderboardSubmitResponse {
 	};
 }
 
-// Encore Features - optional features that are disabled by default
-// Each key is a feature ID, value indicates whether it's enabled
-export interface EncoreFeatureFlags {
-	directorNotes: boolean;
-	usageStats: boolean;
-	symphony: boolean;
-	maestroCue: boolean;
-}
+// Encore Features - capabilities that graduated out of opt-in gating and now
+// ship on by default. Defined in src/shared/encoreFeatures.ts alongside
+// DEFAULT_ENCORE_FEATURES so the main process and CLI resolve the same shape.
+export type { EncoreFeatureFlags } from '../../shared/encoreFeatures';
 
 // Director's Notes settings for synopsis generation
 export interface DirectorNotesSettings {

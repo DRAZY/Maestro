@@ -60,6 +60,7 @@ import {
 	DEFAULT_CUE_HISTORY_RETENTION_DAYS,
 	resolveCueHistoryRetentionDays,
 } from '../../shared/cue/retention';
+import { DEFAULT_ENCORE_FEATURES, resolveEncoreFeatures } from '../../shared/encoreFeatures';
 import {
 	collectBoundShortcuts,
 	countUsedBoundShortcuts,
@@ -254,13 +255,6 @@ const DEFAULT_ONBOARDING_STATS: OnboardingStats = {
 	averagePhasesPerWizard: 0,
 	totalTasksGenerated: 0,
 	averageTasksPerPhase: 0,
-};
-
-const DEFAULT_ENCORE_FEATURES: EncoreFeatureFlags = {
-	directorNotes: false,
-	usageStats: true,
-	symphony: true,
-	maestroCue: false,
 };
 
 // File Preview / Edit toolbar buttons. Each key maps to a visibility toggle in
@@ -3272,12 +3266,10 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['userMessageAlignment'] !== undefined)
 			patch.userMessageAlignment = allSettings['userMessageAlignment'] as 'left' | 'right';
 
-		// Encore Features (merge with defaults to preserve new flags)
+		// Encore Features (merge with defaults so a flag the stored object predates
+		// keeps its default instead of reading as off)
 		if (allSettings['encoreFeatures'] !== undefined) {
-			patch.encoreFeatures = {
-				...DEFAULT_ENCORE_FEATURES,
-				...(allSettings['encoreFeatures'] as Partial<EncoreFeatureFlags>),
-			};
+			patch.encoreFeatures = resolveEncoreFeatures(allSettings['encoreFeatures']);
 		}
 
 		// Symphony registry URLs (additional user-configured registries)

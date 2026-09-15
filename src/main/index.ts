@@ -42,6 +42,7 @@ import { powerManager } from './power-manager';
 import { getHistoryManager } from './history-manager';
 import { MAX_ENTRIES_PER_SESSION, resolveHistoryEntryLimit } from '../shared/history';
 import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../shared/cue/retention';
+import { resolveEncoreFeatures } from '../shared/encoreFeatures';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -1201,10 +1202,7 @@ app
 			// Phase 01 - gate cue_events stats lineage writes on the
 			// `encoreFeatures.usageStats` flag. Read on every record so toggling
 			// the Encore flag at runtime takes effect without an app restart.
-			getUsageStatsEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.usageStats === true;
-			},
+			getUsageStatsEnabled: () => resolveEncoreFeatures(store.get('encoreFeatures')).usageStats,
 			// How far back the engine-start prune keeps cue_events. Read on every
 			// start (not captured once) so changing the setting takes effect the
 			// next time Cue is enabled, without an app restart.
@@ -1221,8 +1219,8 @@ app
 			getAppVersion: () => app.getVersion(),
 			getPlatform: () => process.platform,
 			isEncoreEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.maestroCue === true && ef.usageStats === true;
+				const ef = resolveEncoreFeatures(store.get('encoreFeatures'));
+				return ef.maestroCue && ef.usageStats;
 			},
 		});
 

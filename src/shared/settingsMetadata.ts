@@ -14,6 +14,7 @@
 
 import path from 'path';
 import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from './cue/retention';
+import { DEFAULT_ENCORE_FEATURES } from './encoreFeatures';
 import { isWindows } from './platformDetection';
 import { APPEARANCE_SETTINGS_METADATA } from './settingsMetadataAppearance';
 
@@ -717,9 +718,10 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 
 	// --- Encore Features (experimental) ---
 	encoreFeatures: {
-		description: 'Feature flags for experimental/encore features. Object with boolean flags.',
+		description:
+			'Feature flags for Encore Features. Object with boolean flags; see DEFAULT_ENCORE_FEATURES.',
 		type: 'object',
-		default: { directorNotes: false, usageStats: true, symphony: true, maestroCue: false },
+		default: DEFAULT_ENCORE_FEATURES,
 		category: 'advanced',
 	},
 	directorNotesSettings: {
