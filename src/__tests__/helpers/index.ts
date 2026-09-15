@@ -9,3 +9,4 @@ export { isolateAgentEnv, SHELL_OVERRIDABLE_AGENT_ENV_KEYS } from './agentEnvIso
 export { createMockAITab, createMockFileTab } from './mockTab';
 export { createMockSession } from './mockSession';
 export { installLocalStorageMock } from './mockLocalStorage';
+export { markdownEditorModuleMock } from './mockMarkdownEditor';

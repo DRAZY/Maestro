@@ -141,6 +141,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Opening the expanded staged-image organizer:** `requestOpenStagedImagesOrganizer()`, `OPEN_STAGED_IMAGES_ORGANIZER_EVENT` in `src/renderer/services/stagedImagesOrganizer.ts`
 - **A text box that narrows a list:** `resultLabel`, `AutoRunSearchBar` in `src/renderer/components/ui/FilterInput.tsx`
 - **A pane that reads and edits a markdown document:** `generateProseStyles({ theme, scopeSelector })`, `focus` in `src/renderer/components/FilePreview/markdownEditor`
+- **Rendering a surface containing `<MarkdownEditor>` in a test:** `markdownEditorModuleMock()` in `src/__tests__/helpers/mockMarkdownEditor.tsx` (CM6 cannot lay itself out in jsdom)
 - **`{{template}}` variable autocomplete:** `useTemplateAutocompleteEngine()`, `useTemplateAutocomplete()` in `src/renderer/hooks/input/useTemplateAutocompleteEngine.ts`
 - **Keyboard navigation in a `<DualPaneFileEditor>` list:** built in; `onDeleteItem`, `autoFocusList`, `listFocusToken` props
 - **Segmented toolbar (sort/filter pill bar):** `borderLeft`, `variant` in `src/renderer/components/ui/SegmentedControl.tsx`
