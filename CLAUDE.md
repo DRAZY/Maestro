@@ -103,6 +103,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Moving an agent to another directory:** `withWorkingDirectory(session, dir)`, `workingDirectoryChangeBlocker(session)`, `isSameDirectory(a, b)`, `rebasePathOntoRoot()` in `src/renderer/utils/agentWorkingDirectory.ts`
 - **Per-agent git actions:** `useGitAgentActions(session)`, `buildGitWorktreeCommands` in `src/renderer/hooks/git/useGitAgentActions.ts`
 - **Whether a PR is being opened right now:** `usePRCreationActive(worktreePath)`, `startPRCreation()` in `src/renderer/stores/prCreationStore.ts`
+- **Taking the user to an agent:** `jumpToAgent(sessionId, { tabId? })`, `revealAgentInSidebar(session)`, `openAgentSettings(session)` in `src/renderer/services/agentNavigation.ts`
 - **Focus an AI tab:** `aiTabFocusFields(tabId?)`, `activeFileTabId` in `src/renderer/utils/tabHelpers.ts`
 - **Focus a file tab:** `fileTabFocusFields(tabId)` in `src/renderer/utils/tabHelpers.ts`
 - **Ending a turn with no process exit:** `settleTabThinkingState(session, tabId)` in `src/renderer/utils/tabHelpers.ts`
