@@ -98,6 +98,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	themePromptSeen: false,
 	updatesPromptSeen: false,
 	agentPowersPromptSeen: false,
+	hasPriorInstallation: false,
 	customFonts: [],
 	mediaPlaybackRate: 1,
 	mediaPlayerFloatRect: null,

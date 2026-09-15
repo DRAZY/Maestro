@@ -2597,12 +2597,13 @@ export const FilePreview = React.memo(
 							style={{ color: theme.colors.textMain }}
 						>
 							{/* Scoped prose styles to avoid CSS conflicts with other prose
-							    containers. The base size reads the font-zoom variable set on the
-							    scroll container - Tailwind's `prose-sm` pins it in absolute rem
-							    otherwise and swallows the zoom. Everything below is in `em`, so
-							    it follows. */}
+							    containers. The base size is `1em`, i.e. the File Preview size
+							    the scroll container set inline, times the font-zoom variable
+							    set on that same container - Tailwind's `prose-sm` pins it to a
+							    fixed rem otherwise and swallows both the setting and the zoom.
+							    Everything below is in `em`, so it follows. */}
 							<style>{`
-              .file-preview-content.prose { font-size: calc(0.875rem * var(--fp-font-scale, 1)); }
+              .file-preview-content.prose { font-size: calc(1em * var(--fp-font-scale, 1)); }
             .file-preview-content.prose h1 { color: ${theme.colors.accent}; font-size: 2em; font-weight: bold; margin: 0.67em 0; }
               .file-preview-content.prose h2 { color: ${theme.colors.success}; font-size: 1.5em; font-weight: bold; margin: 0.75em 0; }
               .file-preview-content.prose h3 { color: ${theme.colors.warning}; font-size: 1.17em; font-weight: bold; margin: 0.83em 0; }
@@ -2696,7 +2697,10 @@ export const FilePreview = React.memo(
 								className="prose prose-sm max-w-none whitespace-pre-wrap break-words"
 								style={{
 									color: theme.colors.textMain,
-									fontSize: `calc(0.875rem * ${fontScale})`,
+									// 1em, not a fixed rem: inherits the File Preview size the
+									// scroll container set inline, so the setting actually
+									// changes what renders here instead of only the reading zoom.
+									fontSize: `calc(1em * ${fontScale})`,
 								}}
 								enabled={effectiveBionifyReadingMode}
 								intensity={bionifyIntensity}

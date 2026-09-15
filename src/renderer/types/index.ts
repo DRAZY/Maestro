@@ -1704,7 +1704,9 @@ export interface LeaderboardSubmitResponse {
 	};
 }
 
-// Encore Features - optional features that are disabled by default
+// Encore Features - capabilities behind a single toggle. The four graduated
+// ones ship ON by default (see ENCORE_FEATURE_DEFAULTS in
+// src/shared/encoreFeatureDefaults.ts); the rest start off.
 // Each key is a feature ID, value indicates whether it's enabled
 export interface EncoreFeatureFlags {
 	directorNotes: boolean;

@@ -1206,6 +1206,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1232,6 +1233,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1252,6 +1254,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1272,6 +1275,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1290,11 +1294,45 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
 			useSettingsStore.getState().updateUsageStats({});
 			expect(useSettingsStore.getState().usageStats.maxAgents).toBe(5);
+		});
+
+		// Regression: peaks are lifetime high-water marks, but before
+		// loadAllSettings resolves the store still holds the zeroed defaults.
+		// The sampling effect in useAutoRunAchievements fires on the first
+		// `sessions` ref flip, which routinely beats the settings load, so an
+		// unguarded write persisted a live snapshot AS the all-time peak. A real
+		// install lost maxSimultaneousQueries 6 -> 3 and maxQueueDepth 16 -> 10
+		// this way. Nothing may be written until the baseline is real.
+		it('updateUsageStats writes nothing before settings have loaded', () => {
+			useSettingsStore.setState({
+				usageStats: {
+					maxAgents: 0,
+					maxDefinedAgents: 0,
+					maxSimultaneousAutoRuns: 0,
+					maxSimultaneousQueries: 0,
+					maxQueueDepth: 0,
+				},
+				settingsLoaded: false,
+			});
+			vi.clearAllMocks();
+
+			// A live snapshot that would look like a new record for every counter.
+			useSettingsStore.getState().updateUsageStats({
+				maxAgents: 88,
+				maxDefinedAgents: 88,
+				maxSimultaneousAutoRuns: 1,
+				maxSimultaneousQueries: 2,
+				maxQueueDepth: 1,
+			});
+
+			expect(window.maestro.settings.set).not.toHaveBeenCalled();
+			expect(useSettingsStore.getState().usageStats.maxAgents).toBe(0);
 		});
 	});
 

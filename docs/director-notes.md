@@ -183,7 +183,7 @@ A built-in reference guide explaining all Director's Notes features, entry types
 
 ## Settings
 
-Access Director's Notes settings via **Settings > Encore Features** (enable Director's Notes first):
+Access Director's Notes settings via **Settings > Encore Features**:
 
 | Setting              | Description                                                                                        |
 | -------------------- | -------------------------------------------------------------------------------------------------- |

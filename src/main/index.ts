@@ -110,6 +110,7 @@ import { getHistoryManager } from './history-manager';
 import { initDispatchCallbacks } from './dispatch-callbacks';
 import { MAX_ENTRIES_PER_SESSION } from '../shared/history';
 import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../shared/cue/retention';
+import { resolveEncoreFeatures } from '../shared/encoreFeatureDefaults';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -308,6 +309,13 @@ if (disableGpuAcceleration) {
 // This creates a unique identifier per Maestro installation for telemetry differentiation
 const store = getSettingsStore();
 let installationId = store.get('installationId');
+// An installationId already on disk means this settings store existed before
+// this boot, i.e. the app has launched before. Record that once, permanently -
+// it is how the renderer tells a returning user who deleted every agent from a
+// genuinely new install (sessions.length alone reads both as "new").
+if (installationId && !store.get('hasPriorInstallation')) {
+	store.set('hasPriorInstallation', true);
+}
 if (!installationId) {
 	installationId = crypto.randomUUID();
 	store.set('installationId', installationId);
@@ -1404,10 +1412,6 @@ app
 			// Phase 01 - gate cue_events stats lineage writes on the
 			// `encoreFeatures.usageStats` flag. Read on every record so toggling
 			// the Encore flag at runtime takes effect without an app restart.
-			getUsageStatsEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.usageStats === true;
-			},
 			// Surface `cue.fired` to subscribed plugins (events:subscribe). Type
 			// only - NEVER prompt text. Null-safe; no-op when plugins are disabled.
 			onTriggerFired: (cueType) =>
@@ -1419,6 +1423,7 @@ app
 			// Surface Cue run lifecycle (`cue.runStarted` / `cue.runFinished`) to
 			// subscribed plugins (events:subscribe). Metadata-only; null-safe.
 			emitPluginEvent: (event) => pluginEventBus?.emit(event),
+			getUsageStatsEnabled: () => resolveEncoreFeatures(store.get('encoreFeatures')).usageStats,
 			// How far back the engine-start prune keeps cue_events. Read on every
 			// start (not captured once) so changing the setting takes effect the
 			// next time Cue is enabled, without an app restart.
@@ -1435,8 +1440,8 @@ app
 			getAppVersion: () => app.getVersion(),
 			getPlatform: () => process.platform,
 			isEncoreEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.maestroCue === true && ef.usageStats === true;
+				const ef = resolveEncoreFeatures(store.get('encoreFeatures'));
+				return ef.maestroCue && ef.usageStats;
 			},
 		});
 

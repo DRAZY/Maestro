@@ -70,7 +70,8 @@ export const FEATURES_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 
 	// --- Encore Features (experimental) ---
 	encoreFeatures: {
-		description: 'Feature flags for experimental/encore features. Object with boolean flags.',
+		description:
+			'Feature flags for Encore Features. Object with boolean flags; see ENCORE_FEATURE_DEFAULTS.',
 		type: 'object',
 		default: { ...ENCORE_FEATURE_DEFAULTS },
 		category: 'advanced',
