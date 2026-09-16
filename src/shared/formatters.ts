@@ -609,6 +609,7 @@ export {
 	formatDurationWords,
 	formatActiveTime,
 	formatElapsedTime,
+	formatTurnDuration,
 	DURATION_MS,
 	DURATION_LADDER_FULL,
 	DURATION_LADDER_DAYS,

@@ -60,6 +60,7 @@ import { SaveMarkdownModal } from './SaveMarkdownModal';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
 import { linkifyNode } from '../utils/linkify';
 import { safeClipboardWrite } from '../utils/clipboard';
+import { formatDurationWords, formatTurnDuration } from '../../shared/duration';
 import { sessionImageThumbnailSrc } from '../../shared/sessionImageRefs';
 import { flashCopiedToClipboard } from '../utils/flashCopiedToClipboard';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -341,6 +342,13 @@ interface LogItemProps {
 	bionifyAlgorithm: string;
 	// Message alignment
 	userMessageAlignment: 'left' | 'right';
+	/**
+	 * How long the agent took on this turn, in ms - user message to the last
+	 * thing the agent emitted before the next one. Set only on the final reply
+	 * of a turn (see the turn clock in TerminalOutput); undefined everywhere
+	 * else, including on every user message.
+	 */
+	responseDurationMs?: number;
 	// Claude mode pill - all passed as primitives so LogItem memo equality stays cheap.
 	isClaudeCode: boolean;
 	isAdaptiveMode: boolean;
@@ -403,6 +411,7 @@ const LogItemComponent = memo(
 		bionifyIntensity,
 		bionifyAlgorithm,
 		userMessageAlignment,
+		responseDurationMs,
 		isClaudeCode,
 		isAdaptiveMode,
 		showProviderModePill,
@@ -659,6 +668,21 @@ const LogItemComponent = memo(
 							</>
 						);
 					})()}
+					{/*
+						Turn time, under the clock. Only ever on an agent reply: a user
+						message is instantaneous, so the same line under it would be
+						meaningless. Minutes are the finest rung on purpose - see
+						formatTurnDuration.
+					*/}
+					{responseDurationMs !== undefined && !isUserMessage && (
+						<div
+							className="mt-0.5 tabular-nums"
+							style={{ opacity: 0.7 }}
+							title={`Agent took ${formatDurationWords(responseDurationMs)} to answer`}
+						>
+							{formatTurnDuration(responseDurationMs)}
+						</div>
+					)}
 				</div>
 				<div
 					className={`flex-1 min-w-0 p-4 pb-10 rounded-xl border ${isReversed ? 'rounded-tr-none' : 'rounded-tl-none'} relative overflow-hidden`}
@@ -1451,6 +1475,7 @@ const LogItemComponent = memo(
 			prevProps.bionifyAlgorithm === nextProps.bionifyAlgorithm &&
 			prevProps.fontFamily === nextProps.fontFamily &&
 			prevProps.userMessageAlignment === nextProps.userMessageAlignment &&
+			prevProps.responseDurationMs === nextProps.responseDurationMs &&
 			prevProps.showProviderModePill === nextProps.showProviderModePill &&
 			prevProps.ghCliAvailable === nextProps.ghCliAvailable &&
 			prevProps.onForkConversation === nextProps.onForkConversation &&
@@ -1849,10 +1874,43 @@ export const TerminalOutput = memo(
 		// carrying the first entry's id, anything that wants to scroll to a raw log
 		// entry (cross-tab search jumps) has to resolve it to the row that actually
 		// exists in the DOM.
-		const { logs: collapsedLogs, renderedIdByLogId } = useMemo(() => {
+		const {
+			logs: collapsedLogs,
+			renderedIdByLogId,
+			responseDurationByLogId,
+		} = useMemo(() => {
 			const result: LogEntry[] = [];
 			const renderedIds = new Map<string, string>();
 			let currentResponseGroup: LogEntry[] = [];
+
+			// ── Turn clock ────────────────────────────────────────────────────────
+			// "How long did the agent take on that?" is a property of a TURN, not of
+			// any one entry: it runs from the user's message to the last thing the
+			// agent emitted before the next one. Nothing on disk records it - the
+			// live `thinkingStartTime` is cleared the moment a turn ends and never
+			// survives a reload - so it is derived here from the timestamps the
+			// transcript already carries.
+			//
+			// The end mark is the last NON-user entry of the turn rather than the
+			// reply's own timestamp: a response group keeps its FIRST entry's
+			// timestamp (see flushResponseGroup), and tool and thinking entries land
+			// between the send and the answer. Taking the latest of them all is the
+			// closest the transcript gets to "when the agent stopped working".
+			//
+			// The badge hangs on the LAST agent reply of the turn, so a turn broken
+			// up by tool cards reports one elapsed time at the bottom instead of a
+			// climbing count on every fragment.
+			const responseDurations = new Map<string, number>();
+			let turnStartedAt: number | null = null;
+			let turnEndedAt = 0;
+			let turnReplyId: string | null = null;
+
+			const closeTurn = () => {
+				if (turnReplyId !== null && turnStartedAt !== null && turnEndedAt >= turnStartedAt) {
+					responseDurations.set(turnReplyId, turnEndedAt - turnStartedAt);
+				}
+				turnReplyId = null;
+			};
 
 			// Helper to flush accumulated response group
 			const flushResponseGroup = () => {
@@ -1875,6 +1933,7 @@ export const TerminalOutput = memo(
 					for (const grouped of currentResponseGroup) {
 						renderedIds.set(grouped.id, groupId);
 					}
+					turnReplyId = groupId;
 					result.push({
 						...currentResponseGroup[0],
 						text: combinedText,
@@ -1891,6 +1950,9 @@ export const TerminalOutput = memo(
 				if (log.source === 'user') {
 					// Flush any accumulated response group before user message
 					flushResponseGroup();
+					closeTurn();
+					turnStartedAt = log.timestamp;
+					turnEndedAt = log.timestamp;
 					renderedIds.set(log.id, log.id);
 					result.push(log);
 				} else if (
@@ -1914,18 +1976,25 @@ export const TerminalOutput = memo(
 					// the shared rule (see utils/logEntries.ts), so new kinds are
 					// standalone by construction.
 					flushResponseGroup();
+					turnEndedAt = Math.max(turnEndedAt, log.timestamp);
 					renderedIds.set(log.id, log.id);
 					result.push(log);
 				} else {
 					// Accumulate non-user entries (AI responses)
+					turnEndedAt = Math.max(turnEndedAt, log.timestamp);
 					currentResponseGroup.push(log);
 				}
 			}
 
 			// Flush final response group
 			flushResponseGroup();
+			closeTurn();
 
-			return { logs: result, renderedIdByLogId: renderedIds };
+			return {
+				logs: result,
+				renderedIdByLogId: renderedIds,
+				responseDurationByLogId: responseDurations,
+			};
 		}, [activeLogs]);
 
 		// PERF: Debounce search query so the highlight pass doesn't run on every keystroke
@@ -3044,6 +3113,7 @@ export const TerminalOutput = memo(
 								bionifyIntensity={globalBionifyIntensity}
 								bionifyAlgorithm={globalBionifyAlgorithm}
 								userMessageAlignment={userMessageAlignment}
+								responseDurationMs={responseDurationByLogId.get(log.id)}
 								isClaudeCode={session.toolType === 'claude-code'}
 								isAdaptiveMode={getClaudeTokenMode(session) === 'dynamic'}
 								showProviderModePill={showProviderModePill}
