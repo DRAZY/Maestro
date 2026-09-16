@@ -333,40 +333,54 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 				return;
 			}
 
-			if (atMentionOpen && e.key === 'Escape') {
-				// Gated on atMentionOpen alone (not atMentionItems.length > 0) so this
-				// still fires when the popover is showing "No other agents available" -
-				// AtMentionPopover renders that empty state rather than staying hidden.
-				e.preventDefault();
-				e.stopPropagation();
-				setAtMentionOpen(false);
-				setAtMentionFilter('');
-				setAtMentionStartIndex(-1);
-				return;
-			}
-
-			if (atMentionOpen && atMentionItems.length > 0) {
+			// Mirrors AI Chat's useInputKeyDown shape: gated on atMentionOpen alone
+			// (not atMentionItems.length > 0), so Escape and Tab/Enter still fire
+			// when the popover is showing an empty state - AtMentionPopover stays
+			// mounted and renders "No agents available" rather than unmounting.
+			if (atMentionOpen) {
 				if (e.key === 'ArrowDown') {
 					e.preventDefault();
 					e.stopPropagation();
-					setSelectedAtMentionIndex((prev) => Math.min(prev + 1, atMentionItems.length - 1));
+					if (atMentionItems.length > 0) {
+						setSelectedAtMentionIndex((prev) => Math.min(prev + 1, atMentionItems.length - 1));
+					}
 					return;
 				}
 				if (e.key === 'ArrowUp') {
 					e.preventDefault();
 					e.stopPropagation();
-					setSelectedAtMentionIndex((prev) => Math.max(prev - 1, 0));
+					if (atMentionItems.length > 0) {
+						setSelectedAtMentionIndex((prev) => Math.max(prev - 1, 0));
+					}
 					return;
 				}
 				if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
 					e.preventDefault();
 					e.stopPropagation();
 					// atMentionItems can shrink for reasons other than an Arrow keypress
-					// (the session/group list changing, or the filter narrowing results
-					// while the popover is open), so the index isn't guaranteed to still
-					// be in range - clamp it rather than risk an out-of-bounds `undefined`.
-					const clampedIndex = Math.min(selectedAtMentionIndex, atMentionItems.length - 1);
-					acceptAtMention(atMentionItems[clampedIndex]);
+					// (the session/group list changing, or the filter narrowing results)
+					// while the popover is open, so the index isn't guaranteed to still
+					// be in range. Look the item up rather than assume it's there - a
+					// stale, out-of-range index falls through to closing the popover
+					// with nothing inserted, same as AI Chat, instead of either
+					// crashing or silently auto-accepting an item the user never
+					// highlighted.
+					const selected = atMentionItems[selectedAtMentionIndex];
+					if (selected) {
+						acceptAtMention(selected);
+					} else {
+						setAtMentionOpen(false);
+						setAtMentionFilter('');
+						setAtMentionStartIndex(-1);
+					}
+					return;
+				}
+				if (e.key === 'Escape') {
+					e.preventDefault();
+					e.stopPropagation();
+					setAtMentionOpen(false);
+					setAtMentionFilter('');
+					setAtMentionStartIndex(-1);
 					return;
 				}
 			}

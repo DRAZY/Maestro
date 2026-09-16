@@ -17,7 +17,7 @@ import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnota
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import type { Session, Group, GroupChatParticipant } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
-import { resetStore } from '../../helpers/resetStores';
+import { resetStores } from '../../helpers/resetStores';
 
 import { createMockTheme } from '../../helpers/mockTheme';
 
@@ -87,8 +87,7 @@ function typeInTextarea(textarea: HTMLTextAreaElement, value: string) {
 
 describe('GroupChatInput', () => {
 	beforeEach(() => {
-		useSessionStore.setState({ sessions: [] });
-		resetStore(useImageAnnotatorStore);
+		resetStores(useSessionStore, useImageAnnotatorStore);
 	});
 
 	afterEach(() => {
@@ -363,12 +362,39 @@ describe('GroupChatInput', () => {
 			expect(screen.queryByText('No agents available')).not.toBeInTheDocument();
 		});
 
+		it('closes the empty popover on Enter instead of falling through to Enter-to-send', () => {
+			// Regression test: gating Tab/Enter handling on atMentionItems.length
+			// > 0 meant an empty-filtered popover let the keypress fall through
+			// to the plain-Enter-sends handler, sending the message with the raw
+			// "@zzz" text still in it instead of just closing the popover.
+			const onSend = vi.fn();
+			const sessions = [createMockSession('session-1', 'Maestro', 'claude-code')];
+
+			render(
+				<GroupChatInput
+					{...createDefaultProps({ sessions, onSend, enterToSendAI: true })}
+				/>
+			);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@zzz');
+			expect(screen.getByText('No agents available')).toBeInTheDocument();
+
+			fireEvent.keyDown(textarea, { key: 'Enter' });
+
+			expect(onSend).not.toHaveBeenCalled();
+			expect(screen.queryByText('No agents available')).not.toBeInTheDocument();
+		});
+
 		it('does not crash when the agent list shrinks out from under a stale selection', () => {
 			// Regression test: atMentionItems can shrink for reasons other than an
 			// Arrow keypress (here, the session store changing while the popover
 			// is open), so selectedAtMentionIndex isn't guaranteed to stay in
-			// range - accepting via Tab/Enter must clamp rather than index past
-			// the end of the array and dereference undefined.
+			// range. Accepting via Tab/Enter must look the item up rather than
+			// index straight into the array - a stale index closes the popover
+			// with nothing inserted (matching AI Chat's useInputKeyDown), rather
+			// than crashing or silently accepting whatever item that index now
+			// happens to point at.
 			const sessions = [
 				createMockSession('session-1', 'Agent1', 'claude-code'),
 				createMockSession('session-2', 'Agent2', 'claude-code'),
@@ -393,7 +419,10 @@ describe('GroupChatInput', () => {
 			expect(() => {
 				fireEvent.keyDown(textarea, { key: 'Tab' });
 			}).not.toThrow();
-			expect(textarea.value).toBe('@Agent1 ');
+			// Nothing was inserted (index 2 no longer resolves to a real item) and
+			// the popover closed rather than falling through to Enter-to-send.
+			expect(textarea.value).toBe('@');
+			expect(screen.queryByText('Agent1')).not.toBeInTheDocument();
 		});
 
 		it('closes dropdown when typing space after @mention trigger', () => {
