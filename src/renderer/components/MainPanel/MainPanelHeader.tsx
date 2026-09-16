@@ -19,6 +19,7 @@ import { GitPillMenu } from '../GitPillMenu';
 import { useHoverTooltip } from '../../hooks';
 import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { NowPlayingIndicator } from '../MediaPlayback/NowPlayingIndicator';
 import { useUIStore } from '../../stores/uiStore';
 import { getModalActions } from '../../stores/modalStore';
 import { useViewportBreakpoint } from '../../hooks/ui/useViewportBreakpoint';
@@ -343,6 +344,15 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 						<Menu className="w-4 h-4" />
 					</button>
 				)}
+				{/* The minimized player's last resort.
+				    With the Left Bar hidden there is no header to park it in, so
+				    minimizing took the widget off screen and left nothing behind -
+				    the same stranding the collapsed rail had, one state further on.
+				    This is the established spot for a control whose home is off
+				    screen: the sidebar opener beside it exists for the same reason.
+				    Self-gating (it draws nothing unless the player is minimized) and
+				    compact, since the header has no room for a filename. */}
+				{showSidebarOpener && <NowPlayingIndicator theme={theme} compact />}
 				<div className="flex items-center gap-2 text-sm font-medium min-w-0 overflow-hidden">
 					{/* Session name - hidden at narrow widths via CSS container query */}
 					{showAgentName && (
