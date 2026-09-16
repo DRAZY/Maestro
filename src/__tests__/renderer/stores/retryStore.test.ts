@@ -233,6 +233,42 @@ describe('firing the retry', () => {
 		expect(processQueuedItem).toHaveBeenCalledTimes(1);
 	});
 
+	// The reported sequence, in order, because this was found by READING and then
+	// hit again in a shipping build: out of tokens, swap the provider, click Try
+	// now. The swap is what makes the click reachable - `startProviderWatch` fires
+	// the resend immediately and nothing moves `nextRetryAt`, so the record the
+	// card draws from still describes a countdown that is no longer running.
+	it('quota outage, provider swap, then Try now dispatches exactly once', () => {
+		setupSession('s9d', 't1', { toolType: 'claude-code' });
+		seedSnapshot('s9d', 't1');
+		scheduleRetryForError('s9d', 't1', quota());
+
+		const scheduled = getRetryEntry('s9d', 't1')!;
+		expect(scheduled.status).toBe('scheduled');
+		expect(scheduled.nextRetryAt).toBeGreaterThan(NOW);
+
+		// He re-points the agent at a provider that still has credit.
+		useSessionStore.setState((state: any) => ({
+			sessions: state.sessions.map((session: any) =>
+				session.id === 's9d' ? { ...session, toolType: 'codex' } : session
+			),
+		}));
+
+		const fired = getRetryEntry('s9d', 't1')!;
+		expect(fired.status).toBe('in-flight');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+
+		// The outage record is unchanged, which is exactly why the card kept
+		// drawing a live countdown over a resend already on the wire.
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBe(scheduled.nextRetryAt);
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBeGreaterThan(Date.now());
+
+		// He clicks Try now anyway. The second dispatch is what sent his message
+		// twice.
+		retryNow('s9d', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
 	// `processQueuedItem` RESOLVES without dispatching when the item's tab is
 	// gone - ordinary on a wait measured in tens of minutes. The prompt is out of
 	// the queue by then, so reading that as a send destroys it silently and
@@ -251,6 +287,9 @@ describe('firing the retry', () => {
 		// queue holds on the entry existing.
 		expect(getRetryEntry('s9c', 't1')).toBeUndefined();
 		expect(getOutage(outageId)?.status).toBe('stopped');
+		// And the tab's queue is released rather than held shut behind an entry
+		// nothing would ever settle.
+		expect(hasPendingRetry('s9c', 't1')).toBe(false);
 
 		// And the user is told which message was not sent.
 		const toast = useNotificationStore.getState().toasts.at(-1);

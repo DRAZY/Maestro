@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { RetryStatusCard } from '../../../renderer/components/RetryStatusCard';
 import { useRetryStore } from '../../../renderer/stores/retryStore';
 import { mockTheme } from '../../helpers/mockTheme';
@@ -100,7 +100,17 @@ describe('RetryStatusCard', () => {
 		render(<RetryStatusCard outageId="o1" theme={mockTheme} />);
 
 		expect(screen.getByText('now…')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /Try now/ })).toBeDisabled();
+
+		// Genuinely inert, not merely dimmed: `disabled:opacity-50` styles a button
+		// that a real `disabled` attribute is already keeping clicks away from. A
+		// dim-looking control that still fires is the failure this has to exclude,
+		// since the guard in `retryNow` would then be the only thing between a
+		// click and a second dispatch.
+		const tryNow = screen.getByRole('button', { name: /Try now/ });
+		expect(tryNow).toBeDisabled();
+		expect(tryNow).toHaveAttribute('disabled');
+		fireEvent.click(tryNow);
+		expect(tryNow).toBeDisabled();
 	});
 
 	it('freezes into a recovered summary with a pluralized retry count', () => {
