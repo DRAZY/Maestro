@@ -26,6 +26,7 @@ import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { REMARK_GFM_PLUGINS } from '../../shared/markdownPlugins';
 import { extractHexColor } from '../../shared/hexColor';
 import { remarkPromoteDisplayMath } from '../../shared/remarkPromoteDisplayMath';
+import { remarkStripHtmlComments } from '../../shared/remarkStripHtmlComments';
 import { normalizeChatDisplayMath } from '../../shared/normalizeChatDisplayMath';
 import { BionifyText, getBionifyReadingModeStyles } from '../../renderer/utils/bionifyReadingMode';
 import {
@@ -50,6 +51,10 @@ const MOBILE_CHAT_REMARK_PLUGINS: any[] = [
 	remarkBreaks,
 	[remarkMath, { singleDollarTextMath: false }],
 	remarkPromoteDisplayMath,
+	// Mobile has no rehype-raw, so react-markdown would render an HTML comment as
+	// visible body text. Desktop chat already drops comments via rehype-raw; this
+	// keeps the two surfaces showing the same thing.
+	remarkStripHtmlComments,
 ];
 const MOBILE_CHAT_REHYPE_PLUGINS = [rehypeKatex];
 

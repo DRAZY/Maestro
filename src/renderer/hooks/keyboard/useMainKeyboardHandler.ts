@@ -945,14 +945,28 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// Note: FilePreview handles its own Cmd+E with stopPropagation when focused,
 				// so if the event reaches here, the user isn't interacting with a file tab.
 				// Check both state-based detection AND DOM-based detection for robustness
-				const isInAutoRunPanel = ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
-				// Also check if the focused element is within an autorun panel (handles edge cases where activeFocus state may be stale)
+				// Who actually holds focus decides this, not the panel-selection state.
+				//
+				// Two defects lived in these three lines. `?.closest(...) !== null`
+				// evaluated to `undefined !== null`, i.e. TRUE, whenever nothing was
+				// focused - so a moment with no `document.activeElement` silently
+				// claimed the caret was in Auto Run and swallowed the toggle. And
+				// `activeFocus`/`activeRightTab` are a proxy: they describe which
+				// panel was last selected, not where the caret is, so they can still
+				// read 'right'/'autorun' while the user is reading the chat.
+				//
+				// DOM containment answers the real question, so it wins whenever
+				// there is a genuine focus target. The state pair is consulted only
+				// when nothing meaningful is focused and it is the sole signal left.
 				const activeElement = document.activeElement;
-				const isInAutoRunDOM = activeElement?.closest('[data-tour="autorun-panel"]') !== null;
+				const hasRealFocus = activeElement instanceof Element && activeElement !== document.body;
+				const isInAutoRunPanel = hasRealFocus
+					? activeElement.closest('[data-tour="autorun-panel"]') !== null
+					: ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
 				// Check if Auto Run is running and editing is locked (running without worktree)
 				const isAutoRunLocked =
 					ctx.activeBatchRunState?.isRunning && !ctx.activeBatchRunState?.worktreeActive;
-				if (!isInAutoRunPanel && !isInAutoRunDOM && !isAutoRunLocked) {
+				if (!isInAutoRunPanel && !isAutoRunLocked) {
 					e.preventDefault();
 					// Toggle chat raw text mode (not file preview edit mode)
 					ctx.setChatRawTextMode(!ctx.chatRawTextMode);

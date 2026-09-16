@@ -39,10 +39,11 @@ interface AgentDetailModalProps {
 	allSessions: Session[];
 	onClose: () => void;
 	/**
-	 * Closes the whole Usage Dashboard, not just this sub-modal. The jump and
-	 * settings actions leave the dashboard behind: the dashboard is a
-	 * full-window modal, so landing on the agent (or on the Edit Agent modal)
-	 * underneath it would look like the click did nothing.
+	 * Closes the whole Usage Dashboard, not just this sub-modal. Only the jump
+	 * uses it: the dashboard is a full-window modal, so an agent it is sitting
+	 * on top of is an agent the user cannot see. Agent Settings deliberately
+	 * does NOT call it - that modal stacks above the dashboard so Escape puts
+	 * the user back where they were reading stats.
 	 */
 	onCloseDashboard: () => void;
 }
@@ -159,8 +160,8 @@ export const AgentDetailModal = memo(function AgentDetailModal({
 	const isWorktree = Boolean(session.parentSessionId);
 	const headerLabel = `${session.name}${isWorktree ? ' (worktree)' : ''}`;
 
-	// Both actions dismiss the dashboard: one lands on the agent, the other on
-	// the Edit Agent modal, and neither is visible under a full-window modal.
+	// A jump leaves the dashboard behind - the agent it would land on is under a
+	// full-window modal otherwise.
 	const handleJump = useCallback(() => {
 		if (!jumpToAgent(session.id)) {
 			notifyToast({
@@ -174,11 +175,13 @@ export const AgentDetailModal = memo(function AgentDetailModal({
 		onCloseDashboard();
 	}, [session.id, session.name, onClose, onCloseDashboard]);
 
+	// Settings STACKS instead. Edit Agent outranks this modal in the layer stack
+	// (MODAL_PRIORITIES.NEW_INSTANCE, 750, against 543 here), so it takes the
+	// Escape key and, on close, hands the user back the stats they were reading
+	// rather than an empty workspace.
 	const handleOpenSettings = useCallback(() => {
 		openAgentSettings(session);
-		onClose();
-		onCloseDashboard();
-	}, [session, onClose, onCloseDashboard]);
+	}, [session]);
 
 	return (
 		<Modal

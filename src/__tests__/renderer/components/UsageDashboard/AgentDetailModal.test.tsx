@@ -151,9 +151,9 @@ describe('AgentDetailModal frame', () => {
 	});
 });
 
-// The dashboard is a full-window modal, so both header actions have to take it
-// down with them - otherwise the agent (or the Edit Agent modal) lands behind
-// it and the click reads as a no-op.
+// The two header actions deliberately differ. A jump has nowhere to land while
+// the full-window dashboard is up, so it dismisses it. Agent Settings stacks on
+// top instead, so Escape returns the user to the stats they were reading.
 describe('AgentDetailModal header actions', () => {
 	it('jumps to the agent and closes the dashboard', async () => {
 		renderModal();
@@ -178,14 +178,16 @@ describe('AgentDetailModal header actions', () => {
 		expect(onCloseDashboard).not.toHaveBeenCalled();
 	});
 
-	it('opens the Edit Agent modal and closes the dashboard', async () => {
+	it('stacks the Edit Agent modal over the dashboard instead of closing it', async () => {
 		renderModal();
 		await waitFor(() => expect(screen.getByTestId('agent-detail-settings')).toBeInTheDocument());
 
 		fireEvent.click(screen.getByTestId('agent-detail-settings'));
 
 		expect(openAgentSettings).toHaveBeenCalledWith(session);
-		expect(onClose).toHaveBeenCalled();
-		expect(onCloseDashboard).toHaveBeenCalled();
+		// Neither this modal nor the dashboard closes: Edit Agent outranks both in
+		// the layer stack, so Escape dismisses it and uncovers the stats again.
+		expect(onClose).not.toHaveBeenCalled();
+		expect(onCloseDashboard).not.toHaveBeenCalled();
 	});
 });
