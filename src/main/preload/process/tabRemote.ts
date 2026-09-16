@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron';
 import type { AITabData } from '../../web-server/types';
+import type { SnoozeCommandRequest, SnoozeCommandResult } from '../../../shared/snoozeCommands';
 
 export function createTabRemoteApi() {
 	return {
@@ -91,6 +92,29 @@ export function createTabRemoteApi() {
 				callback(sessionId, tabId, starred);
 			ipcRenderer.on('remote:starTab', handler);
 			return () => ipcRenderer.removeListener('remote:starTab', handler);
+		},
+
+		/**
+		 * Subscribe to a remote snooze verb (`maestro-cli snooze`).
+		 *
+		 * A round trip rather than a fire-and-forget send: every verb answers the
+		 * caller with what it parked, woke, or listed, so the response channel is
+		 * part of the contract rather than an optimization.
+		 */
+		onRemoteSnoozeCommand: (
+			callback: (request: SnoozeCommandRequest, responseChannel: string) => void
+		): (() => void) => {
+			const handler = (_: unknown, request: SnoozeCommandRequest, responseChannel: string) =>
+				callback(request, responseChannel);
+			ipcRenderer.on('remote:snoozeCommand', handler);
+			return () => ipcRenderer.removeListener('remote:snoozeCommand', handler);
+		},
+
+		sendRemoteSnoozeCommandResponse: (
+			responseChannel: string,
+			result: SnoozeCommandResult
+		): void => {
+			ipcRenderer.send(responseChannel, result);
 		},
 
 		/**

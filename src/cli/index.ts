@@ -15,6 +15,14 @@ import { send } from './commands/send';
 import { dispatch } from './commands/dispatch';
 import { ask } from './commands/ask';
 import { queueList, queueRemove } from './commands/queue';
+import {
+	snoozeDismiss,
+	snoozeHistory,
+	snoozeList,
+	snoozeReschedule,
+	snoozeTabCommand,
+	snoozeWake,
+} from './commands/snooze';
 import { sessionList, sessionShow } from './commands/session';
 import { listSessions } from './commands/list-sessions';
 import { openFile } from './commands/open-file';
@@ -507,6 +515,79 @@ queue
 	.description('Remove a queued item by its id (from dispatch --queue output or queue list)')
 	.option('-a, --agent <id>', 'Agent whose queue the item belongs to (required)')
 	.action(queueRemove);
+
+// Snooze commands - the CLI half of the Snooze dialog (Opt+Cmd+S), the Snoozed
+// Tabs list, and its history log. `<when>` takes the same expressions the dialog
+// does ("2h", "tomorrow", "next fri 3pm", "aug 5"), parsed locally so a typo
+// fails before a round trip.
+const snooze = program
+	.command('snooze')
+	.description('Park a tab until later, and manage what is parked');
+
+snooze
+	.command('tab <tab-id> <when>')
+	.description('Snooze a tab or tiled group until <when> (e.g. 2h, tomorrow, "next fri 3pm")')
+	.option(
+		'-a, --agent <id>',
+		'Agent that owns the tab. Required for a file, terminal, browser, or group tab, which are not in the AI tab list'
+	)
+	.option('-n, --note <text>', 'Note-to-self surfaced in the wake notification')
+	.option(
+		'-p, --wake-prompt <text>',
+		'Prompt sent to the agent the moment the tab comes back (AI tabs and groups only)'
+	)
+	.option('--background', 'Park it without flashing the "Snoozed until ..." confirmation')
+	.option('--focus', 'Show the confirmation flash (the default)')
+	.option('--json', 'Output the stored snooze as JSON')
+	.action(snoozeTabCommand);
+
+snooze
+	.command('list')
+	.description('List snoozed tabs across every agent, soonest wake first')
+	.option('-a, --agent <id>', 'Only list snoozes held by this agent')
+	.option('--json', 'Output as JSON')
+	.action(snoozeList);
+
+snooze
+	.command('wake <snooze-id>')
+	.description('Bring a snoozed tab back right now (accepts a unique id prefix)')
+	.option('--background', 'Accepted and ignored: a wake restores the tab without focusing it')
+	.option('--focus', 'Accepted and ignored: a wake restores the tab without focusing it')
+	.option('--json', 'Output as JSON')
+	.action(snoozeWake);
+
+snooze
+	.command('dismiss <snooze-id>')
+	.description("Drop a snooze and its tab - it won't come back")
+	.option('--background', 'Dismiss it without raising the "Snooze dismissed" toast')
+	.option('--focus', 'Raise the toast (the default)')
+	.option('--json', 'Output as JSON')
+	.action(snoozeDismiss);
+
+snooze
+	.command('reschedule <snooze-id> <when>')
+	.description('Move a snooze to a new time, optionally rewriting its note or wake prompt')
+	.option('-n, --note <text>', 'Replace the note (pass an empty string to clear it)')
+	.option('-p, --wake-prompt <text>', 'Replace the wake prompt (empty string clears it)')
+	.option('--json', 'Output as JSON')
+	.action(snoozeReschedule);
+
+snooze
+	.command('history')
+	.description('Snoozes that have already resolved - woken, unsnoozed, or dismissed')
+	.option('--limit <n>', 'Only show the newest <n> entries')
+	.option('--json', 'Output as JSON')
+	.action(snoozeHistory);
+
+// `unsnooze` is the verb people reach for, and it is what the Snoozed Tabs list
+// calls the button, so it is spelled out here rather than left as `snooze wake`.
+program
+	.command('unsnooze <snooze-id>')
+	.description('Bring a snoozed tab back right now (alias for "snooze wake")')
+	.option('--background', 'Accepted and ignored: a wake restores the tab without focusing it')
+	.option('--focus', 'Accepted and ignored: a wake restores the tab without focusing it')
+	.option('--json', 'Output as JSON')
+	.action(snoozeWake);
 
 // Session inspection commands - read-only access to desktop conversation state.
 // Lets external pollers (Maestro-Discord, Cue follow-ups) pick up where Maestro

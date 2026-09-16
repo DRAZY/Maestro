@@ -91,6 +91,7 @@ import {
 	handleSkipAutoRunDocument,
 	handleAbortAutoRunError,
 } from './autoRun';
+import { handleSnoozeCommand } from './snooze';
 import {
 	handleSelectTab,
 	handleNewTab,
@@ -289,6 +290,10 @@ export class WebSocketMessageHandler {
 
 			case 'star_tab':
 				handleStarTab(this.ctx, client, message);
+				break;
+
+			case 'snooze_command':
+				handleSnoozeCommand(this.ctx, client, message);
 				break;
 
 			case 'reorder_tab':

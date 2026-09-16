@@ -1053,6 +1053,22 @@ The log keeps the most recent 100 entries; older ones drop off as new ones arriv
 Dismissing only discards Maestro's tab. The underlying conversation is still on disk and can be reopened from the Session Explorer.
 </Note>
 
+**From the command line**
+
+Everything above is scriptable through `maestro-cli snooze`, which drives the running app - so a snooze made from a terminal shows up in the Snoozed Tabs list, and one made by clicking can be woken from a script. `<when>` takes the same expressions the dialog does, resolved against your own clock, so a typo is reported before anything is parked.
+
+```bash
+maestro-cli snooze tab <tab-id> "next fri 3pm" --note "review before standup" \
+  --wake-prompt "summarize what changed"
+maestro-cli snooze list                 # everything parked, soonest first
+maestro-cli unsnooze <snooze-id>        # bring it back now (id prefixes work)
+maestro-cli snooze reschedule <snooze-id> "tomorrow 9am"
+maestro-cli snooze dismiss <snooze-id>
+maestro-cli snooze history --limit 20
+```
+
+Find a tab id with `maestro-cli session list`, or pass `active` for the tab on screen. A file, terminal, browser, or group tab is not in that list, so name its owner with `--agent <id>`. Add `--json` to any verb for a machine-readable answer, and `--background` to park or dismiss without the on-screen confirmation.
+
 ## Session Management
 
 Browse, star, rename, and resume past sessions. The Session Explorer (`Cmd+Shift+L` / `Ctrl+Shift+L`) shows all conversations for an agent with search, filtering, and quick actions.

@@ -15,6 +15,8 @@ import {
 import { logger } from '../../utils/logger';
 import { buildQueuedMessageItem } from '../../services/queuedPrompt';
 import { runCrossAgentAsk } from '../../services/crossAgentAsk';
+import { runRemoteSnoozeCommand } from '../../services/snoozeActions';
+import type { SnoozeCommandResult } from '../../../shared/snoozeCommands';
 import { recordAgentDelegation } from '../../services/agentDelegation';
 import { requestFileTreeRefresh } from '../../utils/fileTreeRefresh';
 import { persistTabStarred } from '../../utils/starredSessions';
@@ -944,6 +946,26 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 			}
 		);
 
+		// Handle a remote snooze verb (`maestro-cli snooze`). The renderer owns the
+		// authoritative snooze state - the parked tabs themselves live in
+		// `session.snoozedTabs` - so every verb is answered here, through the same
+		// service the Snooze dialog and the Snoozed Tabs list call.
+		const unsubscribeSnoozeCommand = window.maestro.process.onRemoteSnoozeCommand(
+			(request, responseChannel) => {
+				const reply = (result: SnoozeCommandResult) =>
+					window.maestro.process.sendRemoteSnoozeCommandResponse(responseChannel, result);
+				try {
+					reply(runRemoteSnoozeCommand(request));
+				} catch (error) {
+					logger.error('[useRemoteIntegration] Snooze command failed', undefined, error);
+					reply({
+						success: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+		);
+
 		// Handle remote reorder tab from web interface
 		const unsubscribeReorderTab = window.maestro.process.onRemoteReorderTab(
 			(sessionId: string, fromIndex: number, toIndex: number) => {
@@ -1158,6 +1180,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 			unsubscribeCloseTab();
 			unsubscribeRenameTab();
 			unsubscribeStarTab();
+			unsubscribeSnoozeCommand();
 			unsubscribeReorderTab();
 			unsubscribeToggleBookmark();
 			unsubscribeEnqueueCommand();

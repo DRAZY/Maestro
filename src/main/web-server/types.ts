@@ -5,6 +5,7 @@
 
 import type { AutoRunBroadcastState } from '../../shared/autoRunBroadcast';
 import type { DesktopTabEntry } from '../../shared/desktopTabs';
+import type { SnoozeCommandRequest, SnoozeCommandResult } from '../../shared/snoozeCommands';
 import type { UsageStats } from '../../shared/types';
 import type { ToastClickAction } from '../../shared/toastClickAction';
 import type { GroupAppearance, GroupUpdateRequest } from '../../shared/groupAppearance';
@@ -358,6 +359,13 @@ export type StarTabCallback = (
 	tabId: string,
 	starred: boolean
 ) => Promise<boolean>;
+/**
+ * One snooze verb, forwarded to the renderer - which owns the authoritative
+ * snooze state - and answered with whatever it did. Resolves rather than
+ * rejects on a miss: the caller is a CLI process reporting to a human, and a
+ * thrown error there reads as a broken command instead of "no such snooze".
+ */
+export type SnoozeCommandCallback = (request: SnoozeCommandRequest) => Promise<SnoozeCommandResult>;
 export type ReorderTabCallback = (
 	sessionId: string,
 	fromIndex: number,

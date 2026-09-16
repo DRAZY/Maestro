@@ -20,6 +20,7 @@ import type {
 	RenameTabCallback,
 	RenameTabResult,
 	StarTabCallback,
+	SnoozeCommandCallback,
 	ReorderTabCallback,
 	ToggleBookmarkCallback,
 	OpenFileTabCallback,
@@ -146,6 +147,7 @@ import type {
 	DesktopSessionEntry,
 	SessionHistoryResult,
 } from '../types';
+import type { SnoozeCommandRequest, SnoozeCommandResult } from '../../../shared/snoozeCommands';
 import type { GroupAppearance, GroupUpdateRequest } from '../../../shared/groupAppearance';
 import type { CadenzaPayload } from '../../../shared/cadenza-types';
 import type { MovementPayload, MovementStateSnapshot } from '../../../shared/movement-types';
@@ -171,6 +173,7 @@ export interface WebServerCallbacks {
 	closeTab: CloseTabCallback | null;
 	renameTab: RenameTabCallback | null;
 	starTab: StarTabCallback | null;
+	snoozeCommand: SnoozeCommandCallback | null;
 	reorderTab: ReorderTabCallback | null;
 	toggleBookmark: ToggleBookmarkCallback | null;
 	openFileTab: OpenFileTabCallback | null;
@@ -273,6 +276,7 @@ export class CallbackRegistry {
 		closeTab: null,
 		renameTab: null,
 		starTab: null,
+		snoozeCommand: null,
 		reorderTab: null,
 		toggleBookmark: null,
 		openFileTab: null,
@@ -450,6 +454,13 @@ export class CallbackRegistry {
 	async starTab(sessionId: string, tabId: string, starred: boolean): Promise<boolean> {
 		if (!this.callbacks.starTab) return false;
 		return this.callbacks.starTab(sessionId, tabId, starred);
+	}
+
+	async snoozeCommand(request: SnoozeCommandRequest): Promise<SnoozeCommandResult> {
+		if (!this.callbacks.snoozeCommand) {
+			return { success: false, error: 'Snooze is not configured' };
+		}
+		return this.callbacks.snoozeCommand(request);
 	}
 
 	async reorderTab(sessionId: string, fromIndex: number, toIndex: number): Promise<boolean> {
@@ -1116,6 +1127,10 @@ export class CallbackRegistry {
 
 	setStarTabCallback(callback: StarTabCallback): void {
 		this.callbacks.starTab = callback;
+	}
+
+	setSnoozeCommandCallback(callback: SnoozeCommandCallback): void {
+		this.callbacks.snoozeCommand = callback;
 	}
 
 	setReorderTabCallback(callback: ReorderTabCallback): void {
