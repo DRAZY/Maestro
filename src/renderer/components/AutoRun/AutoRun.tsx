@@ -63,13 +63,13 @@ import { TemplateAutocompleteDropdown } from '../TemplateAutocompleteDropdown';
 import type { AutoRunProps, AutoRunHandle } from './types';
 import { FontScaleControl } from '../ui/FontScaleControl';
 import { useFontScale } from '../../hooks/ui/useFontScale';
+import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { findHumanOnlyTasks } from '../../hooks/batch/batchUtils';
 import { toggleTaskCheckboxAtLine } from '../../utils/markdownTasks';
 import { useAutoRunContentSync } from '../../hooks/batch/useAutoRunContentSync';
 import { useAutoRunSearch } from '../../hooks/batch/useAutoRunSearch';
 import { useAutoRunKeyboard } from '../../hooks/batch/useAutoRunKeyboard';
 import { useAutoRunMarkdown } from '../../hooks/batch/useAutoRunMarkdown';
-import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { useAutoRunScrollSync } from '../../hooks/batch/useAutoRunScrollSync';
 import { Maximize2, Edit as EditIcon, Eye, Search, Brain } from 'lucide-react';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
@@ -632,16 +632,16 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// restores the size that mode was left at.
 	const previewFontScale = useFontScale('autoRun.previewFontScale');
 	const editFontScale = useFontScale('autoRun.editFontScale');
+	// The panel reads and edits a Markdown document, so it is the File Preview /
+	// File Editor surfaces - not a font size of its own. The zoom controls above
+	// multiply on top, the same two-knob split FilePreview uses.
+	const previewTypography = useSurfaceTypography('filePreview');
+	const editorTypography = useSurfaceTypography('fileEditor');
 	const activeFontScale = mode === 'edit' ? editFontScale : previewFontScale;
 
 	// Disable Bionify while search is active so search highlights remain visible
 	const hasActivePreviewSearch = searchOpen && searchQuery.trim().length > 0;
 	const effectivePreviewBionifyReadingMode = bionifyReadingMode && !hasActivePreviewSearch;
-
-	// Auto Run is a markdown document viewer/editor, so it rides the same two
-	// surfaces the File Preview tab does rather than carrying fonts of its own.
-	const previewTypography = useSurfaceTypography('filePreview');
-	const editorTypography = useSurfaceTypography('fileEditor');
 
 	// Markdown rendering: prose styles, task counts, token count, remark plugins, components
 	const { proseStyles, taskCounts, tokenCount, remarkPlugins, markdownComponents } =
@@ -909,9 +909,10 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								// `prose-sm` pins an absolute rem size, so the explicit size
 								// here is what actually wins; everything inside is in `em` and
 								// follows, so the pane's zoom carries headings, code, and lists
-								// with it.
+								// with it. Rounded to a tenth of a px so a scaled size does not
+								// carry float noise into the style string.
 								fontFamily: previewTypography.fontFamily,
-								fontSize: `${previewTypography.fontSize * previewFontScale.fontScale}px`,
+								fontSize: `${Math.round(previewTypography.fontSize * previewFontScale.fontScale * 10) / 10}px`,
 							}}
 						>
 							<style>{proseStyles}</style>

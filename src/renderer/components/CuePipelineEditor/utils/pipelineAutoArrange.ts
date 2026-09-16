@@ -23,11 +23,18 @@
  *     the column count whose overall aspect ratio best matches the viewport, so
  *     the whole graph fits on screen without scrolling or zooming way out.
  *
- *  3. arrangePipelineGroups(pipelines, currentOffsets)
+ *  3. arrangePipelineGroups(pipelines, currentOffsets, widths)
  *     All-Pipelines view. Packs each pipeline's group card into a balanced
  *     grid by returning a `viewOffset` per pipeline. Internal node positions
  *     are left untouched - only the cards move. There are no edges between
  *     cards to cross, so Tidy and Arrange both route here.
+ *
+ *  4. separateOverlappingNodes(pipeline, widths) - the collision guard
+ *     Not a layout: a repair. Every pass above has to GUESS how wide a node
+ *     renders (they are `width: max-content`), and a guess that comes in short
+ *     draws one node on top of another. This one runs on the widths ReactFlow
+ *     measured and pushes apart only the nodes that actually collide, so an
+ *     overlap cannot survive a single frame.
  *
  * Both single-pipeline layouts snap nodes onto one orthogonal grid: columns keep
  * a uniform NODE_GAP (25px) of clear space between every stacked node, and each
@@ -111,8 +118,55 @@ const CHAR_EM = 0.66;
 // padding + trailing icon column (gear / play / handles) + borders.
 const NODE_CHROME = 110;
 
-function textPx(text: string | undefined, fontSize: number): number {
-	return (text ?? '').length * fontSize * CHAR_EM;
+// CHAR_EM alone is a guess about a font the USER chooses. Pick a wide UI face in
+// Typography settings and every label renders wider than the guess, which the
+// load heal (the one pass that has no measurements to fall back on) turns into
+// nodes drawn on top of each other on the very first paint. When a DOM is around
+// we can do better than guess: measure the real advance width with a canvas
+// context in the app's own font. Falls back to CHAR_EM outside the browser
+// (unit tests, jsdom without canvas), and the two are unioned so the estimate
+// can only ever get WIDER - an overestimate costs a few px of gutter, an
+// underestimate stacks one node on another.
+let textCtx: CanvasRenderingContext2D | null | undefined;
+let cachedFontFamily = '';
+let cachedFontFamilyAt = 0;
+/** Re-read the app font this often; it changes only when the user edits
+ *  Typography settings, and getComputedStyle forces a style recalc. */
+const FONT_FAMILY_TTL_MS = 2000;
+
+function measuringContext(): CanvasRenderingContext2D | null {
+	if (textCtx !== undefined) return textCtx;
+	textCtx = null;
+	try {
+		if (typeof document !== 'undefined') {
+			textCtx = document.createElement('canvas').getContext('2d');
+		}
+	} catch {
+		// jsdom without a canvas backend: stay on the CHAR_EM approximation.
+		textCtx = null;
+	}
+	return textCtx;
+}
+
+function appFontFamily(): string {
+	const now = Date.now();
+	if (cachedFontFamily && now - cachedFontFamilyAt < FONT_FAMILY_TTL_MS) return cachedFontFamily;
+	try {
+		cachedFontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
+	} catch {
+		cachedFontFamily = 'sans-serif';
+	}
+	cachedFontFamilyAt = now;
+	return cachedFontFamily;
+}
+
+function textPx(text: string | undefined, fontSize: number, fontWeight = 400): number {
+	const approx = (text ?? '').length * fontSize * CHAR_EM;
+	if (!text) return approx;
+	const ctx = measuringContext();
+	if (!ctx) return approx;
+	ctx.font = `${fontWeight} ${fontSize}px ${appFontFamily()}`;
+	return Math.max(approx, ctx.measureText(text).width);
 }
 
 /**
@@ -127,20 +181,26 @@ export function estimateNodeWidth(node: PipelineNode): number {
 		case 'trigger': {
 			const data = node.data as TriggerNodeData;
 			// 14px icon + 6px gap beside the 12px label; 10px config summary below.
-			content = Math.max(20 + textPx(data.label, 12), textPx(getTriggerConfigSummary(data), 10));
+			content = Math.max(
+				20 + textPx(data.label, 12, 600),
+				textPx(getTriggerConfigSummary(data), 10)
+			);
 			break;
 		}
 		case 'agent': {
 			const data = node.data as AgentNodeData;
 			// 13px semibold title; "(N)" instance suffix adds up to ~4 chars.
-			content = Math.max(textPx(`${data.sessionName} (0)`, 13), textPx(data.toolType, 11));
+			content = Math.max(textPx(`${data.sessionName} (0)`, 13, 600), textPx(data.toolType, 11));
 			break;
 		}
 		case 'command': {
 			const data = node.data as CommandNodeData;
 			// 12px icon + gap + 13px name + mode badge (~5 chars at 9px + padding);
 			// 11px monospace summary below (summarizeCommandNode caps it at 38 chars).
-			content = Math.max(24 + textPx(data.name, 13) + 46, textPx(summarizeCommandNode(data), 11));
+			content = Math.max(
+				24 + textPx(data.name, 13, 600) + 46,
+				textPx(summarizeCommandNode(data), 11)
+			);
 			break;
 		}
 		case 'error':
@@ -774,6 +834,89 @@ export function untanglePipelineNodes(
 	return arrangeByColumns(pipeline, true, nodeWidths, viewport);
 }
 
+// ─── Collision guard ────────────────────────────────────────────────────────
+// Every layout pass above spaces columns from `max(measured width, estimate)`.
+// Both inputs go stale in ways those passes never observe, and each one draws
+// one node ON TOP of another:
+//
+//   - The estimate assumes an average character advance (CHAR_EM). The user
+//     picks the UI font, so a wide face renders the same label wider than the
+//     estimate predicted. The load heal runs BEFORE ReactFlow has measured
+//     anything, so an underestimate there ships straight to the screen.
+//   - A pure DATA edit - renaming a subscription, editing a cron expression,
+//     switching an event type - grows a `width: max-content` node without
+//     changing the topology, and the structural heal deliberately does not
+//     fire on data edits (healing on keystrokes makes the config drawer
+//     unusable).
+//
+// Overlap is never an acceptable rendering, so this pass is the backstop: it
+// runs on the widths ReactFlow actually measured and pushes colliding nodes
+// apart horizontally, keeping their rows. It moves nothing that does not
+// genuinely collide, which is what lets it run on every measurement without
+// fighting the user's drags.
+
+/** Handles (16px, centered on the node edge) and the fan-out badge are drawn
+ *  8px OUTSIDE the node box, so two boxes closer than this already touch. */
+const MIN_NODE_CLEARANCE = 16;
+
+/**
+ * Push apart any nodes that overlap on screen. Nodes whose vertical spans do
+ * not intersect share no pixels however wide either grows, so only same-row
+ * neighbours are ever moved, and only to the right: the leftmost node of a
+ * collision keeps its place and the one after it clears to `NODE_GAP`. Because
+ * a node is only ever pushed past a node whose own x is already final, one
+ * left-to-right sweep resolves chains of collisions.
+ *
+ * Returns the ORIGINAL nodes array (same reference) when nothing overlaps, so
+ * callers can skip the state write with a cheap identity check.
+ *
+ * @param nodeWidths measured widths (canonical node id → px). Unioned with
+ *   `estimateNodeWidth` exactly like the layout passes, so the guard still
+ *   does something useful before ReactFlow has measured a node.
+ */
+export function separateOverlappingNodes(
+	pipeline: CuePipeline,
+	nodeWidths?: Map<string, number>
+): PipelineNode[] {
+	if (pipeline.nodes.length < 2) return pipeline.nodes;
+
+	const widthOf = (node: PipelineNode): number =>
+		Math.max(nodeWidths?.get(node.id) ?? 0, estimateNodeWidth(node));
+
+	// X-major: the sweep always keeps the LEFT node of a collision and moves the
+	// right one, and it relies on every node's x being final by the time it is
+	// the outer element (a node can only be pushed by one that precedes it).
+	const order = [...pipeline.nodes].sort(
+		(a, b) => a.position.x - b.position.x || a.position.y - b.position.y || (a.id < b.id ? -1 : 1)
+	);
+	const xs = new Map(order.map((n) => [n.id, n.position.x]));
+
+	for (let i = 0; i < order.length; i++) {
+		const a = order[i];
+		const aRight = xs.get(a.id)! + widthOf(a);
+		const aTop = a.position.y;
+		const aBottom = aTop + nodeHeight(a);
+		for (let j = i + 1; j < order.length; j++) {
+			const b = order[j];
+			const bTop = b.position.y;
+			if (bTop >= aBottom || bTop + nodeHeight(b) <= aTop) continue;
+			if (xs.get(b.id)! >= aRight + MIN_NODE_CLEARANCE) continue;
+			// Collision: clear to the same gutter the layout passes use, so a
+			// repaired row is indistinguishable from a freshly arranged one.
+			xs.set(b.id, aRight + NODE_GAP);
+		}
+	}
+
+	// Compare final POSITIONS, not "did the sweep write something": a rewrite
+	// that lands a node back on its own x must report no change, or the caller
+	// commits a fresh array on every render and the guard drives a state loop.
+	if (pipeline.nodes.every((n) => xs.get(n.id) === n.position.x)) return pipeline.nodes;
+	return pipeline.nodes.map((node) => {
+		const x = xs.get(node.id)!;
+		return x === node.position.x ? node : { ...node, position: { ...node.position, x } };
+	});
+}
+
 interface GroupInfo {
 	id: string;
 	/** Min node position in canonical space (pre-offset). */
@@ -789,7 +932,8 @@ interface GroupInfo {
 
 function groupInfo(
 	pipeline: CuePipeline,
-	currentOffset: { x: number; y: number }
+	currentOffset: { x: number; y: number },
+	nodeWidths?: Map<string, number>
 ): GroupInfo | null {
 	if (pipeline.nodes.length === 0) return null;
 	let minX = Infinity;
@@ -797,9 +941,14 @@ function groupInfo(
 	let maxX = -Infinity;
 	let maxY = -Infinity;
 	for (const node of pipeline.nodes) {
+		// A `max-content` node wider than the canonical footprint must still be
+		// INSIDE its card, and the card must still clear its neighbour: sizing
+		// every card at NODE_BG_WIDTH lets a long label spill over the card
+		// border and into the card packed beside it.
+		const width = Math.max(NODE_BG_WIDTH, nodeWidths?.get(node.id) ?? 0, estimateNodeWidth(node));
 		minX = Math.min(minX, node.position.x);
 		minY = Math.min(minY, node.position.y);
-		maxX = Math.max(maxX, node.position.x + NODE_BG_WIDTH);
+		maxX = Math.max(maxX, node.position.x + width);
 		maxY = Math.max(maxY, node.position.y + NODE_BG_HEIGHT);
 	}
 	return {
@@ -836,14 +985,18 @@ function groupInfo(
  * @param currentOffsets auto-stack Y-offsets (from computePipelineYOffsets) so
  *   pipelines that have never been dragged still report a sensible current
  *   position for the ordering sort.
+ * @param nodeWidths optional measured widths (canonical node id → px). Card
+ *   footprints are sized from these so a wide node cannot spill out of its own
+ *   card and into the one packed beside it.
  */
 export function arrangePipelineGroups(
 	pipelines: CuePipeline[],
-	currentOffsets: Map<string, number>
+	currentOffsets: Map<string, number>,
+	nodeWidths?: Map<string, number>
 ): Map<string, { x: number; y: number }> {
 	const infos: GroupInfo[] = [];
 	for (const pipeline of pipelines) {
-		const info = groupInfo(pipeline, resolvePipelineOffset(pipeline, currentOffsets));
+		const info = groupInfo(pipeline, resolvePipelineOffset(pipeline, currentOffsets), nodeWidths);
 		if (info) infos.push(info);
 	}
 
@@ -928,7 +1081,11 @@ export function beautifyPipelineLayouts(
 	// Card packing reads each pipeline's CURRENT resolved offset only to keep
 	// reading order, so feed it the same auto-stack offsets the renderer uses
 	// for never-dragged pipelines.
-	const offsets = arrangePipelineGroups(untangled, computePipelineYOffsets(untangled, null));
+	const offsets = arrangePipelineGroups(
+		untangled,
+		computePipelineYOffsets(untangled, null),
+		nodeWidths
+	);
 	if (offsets.size === 0) return untangled;
 	return untangled.map((p) => {
 		const next = offsets.get(p.id);

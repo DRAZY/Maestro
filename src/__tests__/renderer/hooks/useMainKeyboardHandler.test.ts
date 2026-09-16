@@ -3005,6 +3005,103 @@ describe('useMainKeyboardHandler', () => {
 
 			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(false);
 		});
+
+		// The old guard read `activeElement?.closest(...) !== null`, which is
+		// `undefined !== null` when nothing is focused. That is TRUE, so an unfocused
+		// document claimed the caret was in Auto Run and swallowed the toggle.
+		it('toggles when nothing at all is focused', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const activeElement = vi
+				.spyOn(document, 'activeElement', 'get')
+				.mockReturnValue(null as unknown as Element);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				activeFocus: 'main',
+				activeRightTab: 'files',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(true);
+			activeElement.mockRestore();
+		});
+
+		// `activeFocus`/`activeRightTab` say which panel was last SELECTED, not where
+		// the caret is. Reading the chat with the right panel parked on Auto Run must
+		// not disable the toggle.
+		it('toggles when the caret is in the chat but the right panel is parked on Auto Run', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const composer = document.createElement('textarea');
+			document.body.appendChild(composer);
+			const activeElement = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(composer);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				activeFocus: 'right',
+				activeRightTab: 'autorun',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(true);
+			activeElement.mockRestore();
+			composer.remove();
+		});
+
+		// The guard still has to do its job: the Auto Run editor owns Cmd+E.
+		it('does not toggle when the caret really is inside the Auto Run panel', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const panel = document.createElement('div');
+			panel.setAttribute('data-tour', 'autorun-panel');
+			const editor = document.createElement('textarea');
+			panel.appendChild(editor);
+			document.body.appendChild(panel);
+			const activeElement = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(editor);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				// Deliberately the opposite of the DOM, to prove the DOM decides.
+				activeFocus: 'main',
+				activeRightTab: 'files',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).not.toHaveBeenCalled();
+			activeElement.mockRestore();
+			panel.remove();
+		});
 	});
 
 	describe('font zoom shortcuts', () => {

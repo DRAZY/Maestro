@@ -283,6 +283,7 @@ works. `duration.ts` is canonical and is where new duration work belongs.
 | `formatElapsedTime(ms)`              | `(number) => string`          | `formatDurationHuman` plus sub-second precision: `"500ms"`, `"5m 12s"`.                                                                                                                            |
 | `formatElapsedTicker(ms)`            | `(number) => string`          | Live ticker with a leading `0m` below an hour: `"0m 3s"`, `"1h 0m 5s"`. ThinkingStatusPill and Auto Run elapsed on that pill use this, not `formatElapsedTime`.                                    |
 | `formatElapsedTickerCompact(ms)`     | `(number) => string`          | Same ladder without the padded lead: `"3s"`, `"20m 4s"`, `"1h 2m 5s"`. For a counter inside a chip or sentence, where a bare seconds count reads fine below a minute but `1203s` does not past it. |
+| `formatTurnDuration(ms)`             | `(number) => string`          | Transcript turn time, day-capped and second-free: `"<1m"`, `"25m"`, `"5d 6h 25m"`.                                                                                                                 |
 
 `DURATION_MS` gives each unit's size in ms - use it instead of redeclaring
 `const DAY = 86400000`. `DURATION_LADDER_FULL` / `_DAYS` / `_HOURS` are the prebuilt

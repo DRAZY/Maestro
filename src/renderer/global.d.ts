@@ -2898,6 +2898,10 @@ interface MaestroAPI {
 			startedAt: number;
 			elapsedMs: number;
 			categories: string[];
+			bufferPercent: number;
+			peakBufferPercent: number;
+			bufferSizeKb: number;
+			autoStopRequested: boolean;
 			error?: string;
 		}>;
 		startProfiling: () => Promise<{
@@ -2906,6 +2910,10 @@ interface MaestroAPI {
 			startedAt: number;
 			elapsedMs: number;
 			categories: string[];
+			bufferPercent: number;
+			peakBufferPercent: number;
+			bufferSizeKb: number;
+			autoStopRequested: boolean;
 			error?: string;
 		}>;
 		stopProfiling: () => Promise<{
@@ -2915,6 +2923,9 @@ interface MaestroAPI {
 			bundleSizeBytes: number;
 			traceSizeBytes: number;
 			durationMs: number;
+			peakBufferPercent?: number;
+			autoStopped?: boolean;
+			bufferExhausted?: boolean;
 			error?: string;
 		}>;
 		// Stop + bundle to a temp .zip without a save dialog (for feedback attach)
@@ -2937,6 +2948,19 @@ interface MaestroAPI {
 				path?: string | null;
 				bundleSizeBytes?: number;
 				error?: string;
+			}) => void
+		) => () => void;
+		onProfilingAutoStopped: (
+			handler: (event: {
+				reason: 'buffer-full';
+				active: boolean;
+				startedAt: number;
+				elapsedMs: number;
+				categories: string[];
+				bufferPercent: number;
+				peakBufferPercent: number;
+				bufferSizeKb: number;
+				autoStopRequested: boolean;
 			}) => void
 		) => () => void;
 		simulateAuthExpiry: (payload: {

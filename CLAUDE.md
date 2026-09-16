@@ -239,6 +239,8 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Rendering a surface containing `<MarkdownEditor>` in a test:** `markdownEditorModuleMock()` in `src/__tests__/helpers/mockMarkdownEditor.tsx` (CM6 cannot lay itself out in jsdom)
 - **Sizing a virtualized row the user's font decides:** `virtualizer.measureElement` + `data-index` and NO inline `height`; `HistoryPanel`, `FileSearchModal`
 - **Diagram content clipped at the SVG edge:** `expandSvgViewBoxToContent(svg, padding?)` in `src/renderer/utils/svgViewBox.ts`
+- **Sizing a surface to its longest label:** `widestLabelWidth(labels, opts)`, `estimateLabelWidth()` in `src/renderer/utils/labelWidth.ts`
+- **Ordering the Auto Run run list from the picker:** `applySelectionOrder()`, `selectFolderFiles()` in `src/renderer/utils/documentSelectionOrder.ts`
 
 If your use case does NOT match an existing utility, prefer extending the canonical file over creating a new one. If you genuinely need something new, add the full entry to [CANONICAL-UTILITIES.md](docs/agent-guides/CANONICAL-UTILITIES.md) and a one-line index entry above so the next person can find it.
 

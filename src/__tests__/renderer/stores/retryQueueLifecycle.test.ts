@@ -28,10 +28,10 @@ import {
 	chooseNextQueuedItem,
 	queueIsHeldByRetry,
 } from '../../../renderer/hooks/agent/internal/helpers/exitDequeue';
+import { TOKEN_EXHAUSTION_POLL_BASE_MS } from '../../../shared/retryClassification';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from '../../../renderer/stores/agentStore';
 import { takeNextRunnableQueueItem } from '../../../renderer/utils/executionQueue';
-import { TOKEN_EXHAUSTION_POLL_MAX_MS } from '../../../shared/retryClassification';
 import { createMockSession } from '../../helpers/mockSession';
 import { createMockAITab } from '../../helpers/mockTab';
 import type { AgentError, QueuedItem, Session } from '../../../renderer/types';
@@ -143,13 +143,12 @@ describe('queued messages across a quota outage', () => {
 		// be overtaken, and it survives a quit the way the others do.
 		expect(session().executionQueue.map((i) => i.id)).toEqual(['q0', 'q1', 'q2', 'q3']);
 
-		// The retry POLLS. It does not park on the parsed reset and go quiet for
-		// hours - the wait can end for reasons the provider's notice cannot know
-		// about, so the first probe is seconds away, not the whole window.
+		// The retry POLLS rather than sleeping to the parsed reset: the first probe
+		// is quick, because the seconds right after a limit fires are when a stale
+		// notice or an already-switched account is most likely.
 		const entry = getRetryEntry(SESSION, TAB)!;
 		expect(entry.strategy).toBe('token-exhaustion');
-		expect(entry.nextRetryAt).toBeLessThanOrEqual(NOW + TOKEN_EXHAUSTION_POLL_MAX_MS);
-		expect(entry.nextRetryAt).toBeGreaterThan(NOW);
+		expect(entry.nextRetryAt).toBe(NOW + TOKEN_EXHAUSTION_POLL_BASE_MS);
 
 		// Quota is back by the time that probe lands. It fires and replays the
 		// ORIGINAL failed prompt.
