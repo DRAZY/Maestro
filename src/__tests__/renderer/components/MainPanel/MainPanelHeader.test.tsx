@@ -341,6 +341,49 @@ describe('MainPanelHeader', () => {
 		expect(onStop).toHaveBeenCalledWith('session-1');
 	});
 
+	it('draws the AUTO pill as a bare wand on a phone, with the detail in its tooltip', () => {
+		runtimeMocks.isWebDesktop.mockReturnValue(true);
+		setViewportWidth(390);
+		render(
+			<MainPanelHeader
+				{...defaultProps}
+				isCurrentSessionAutoMode={true}
+				currentSessionBatchState={
+					{
+						isRunning: true,
+						isStopping: false,
+						completedTasks: 2,
+						totalTasks: 5,
+						worktreeActive: true,
+						worktreeBranch: 'feature-x',
+					} as any
+				}
+			/>
+		);
+		expect(screen.queryByText('Auto')).not.toBeInTheDocument();
+		expect(screen.queryByText('2/5')).not.toBeInTheDocument();
+		const pill = screen.getByLabelText('Stop auto-run');
+		expect(pill).toHaveAttribute('title', 'Click to stop auto-run - 2/5 - Worktree: feature-x');
+	});
+
+	it('still stops the run when the phone wand is clicked', () => {
+		runtimeMocks.isWebDesktop.mockReturnValue(true);
+		setViewportWidth(390);
+		const onStop = vi.fn();
+		render(
+			<MainPanelHeader
+				{...defaultProps}
+				isCurrentSessionAutoMode={true}
+				currentSessionBatchState={
+					{ isRunning: true, isStopping: false, completedTasks: 0, totalTasks: 1 } as any
+				}
+				onStopBatchRun={onStop}
+			/>
+		);
+		fireEvent.click(screen.getByLabelText('Stop auto-run'));
+		expect(onStop).toHaveBeenCalledWith('session-1');
+	});
+
 	describe('sidebar opener (hamburger)', () => {
 		it('shows the opener when the left sidebar is fully hidden', () => {
 			uiMocks.state.leftSidebarHidden = true;

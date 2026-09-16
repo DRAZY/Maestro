@@ -22,7 +22,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { NowPlayingIndicator } from '../MediaPlayback/NowPlayingIndicator';
 import { useUIStore } from '../../stores/uiStore';
 import { getModalActions } from '../../stores/modalStore';
-import { useViewportBreakpoint } from '../../hooks/ui/useViewportBreakpoint';
+import { useViewportBreakpoint, usePhoneLayout } from '../../hooks/ui/useViewportBreakpoint';
 import { isWebDesktop } from '../../utils/runtimeContext';
 import {
 	useContextTimelineStore,
@@ -141,6 +141,7 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 	const leftSidebarHidden = useUIStore((s) => s.leftSidebarHidden);
 	const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
 	const { isXs, isNarrow } = useViewportBreakpoint();
+	const isPhone = usePhoneLayout();
 	// On web-desktop phones the collapsed 64px strip is hidden entirely (see
 	// index.css), so the collapsed sidebar has no visible affordance to reopen
 	// it. Surface the inline hamburger in that case too - not just when the
@@ -313,6 +314,29 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 		/>
 	) : null;
 
+	// Goal-Driven runs have no task list, so they report a self-reported percent
+	// instead of an X/Y task count.
+	const autoRunProgressLabel = currentSessionBatchState
+		? currentSessionBatchState.goalMode
+			? `${currentSessionBatchState.goalProgress ?? 0}%`
+			: `${currentSessionBatchState.completedTasks}/${currentSessionBatchState.totalTasks}`
+		: null;
+	// The phone pill is a bare glyph, so everything it drops has to survive
+	// somewhere the user can still reach - the tooltip is that somewhere. On a
+	// desktop the count and the branch icon are ON the pill, so repeating them
+	// here would only restate what the user is already looking at.
+	const autoRunPillTitle = isCurrentSessionStopping
+		? 'Stopping after current task...'
+		: [
+				'Click to stop auto-run',
+				isPhone ? autoRunProgressLabel : null,
+				isPhone && currentSessionBatchState?.worktreeActive
+					? `Worktree: ${currentSessionBatchState.worktreeBranch || 'active'}`
+					: null,
+			]
+				.filter(Boolean)
+				.join(' - ');
+
 	return (
 		<div
 			ref={headerRef}
@@ -463,34 +487,36 @@ export const MainPanelHeader = React.memo(function MainPanelHeader({
 						onStopBatchRun?.(activeSession.id);
 					}}
 					disabled={isCurrentSessionStopping}
-					className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold text-xs transition-all shrink-0 ${isCurrentSessionStopping ? 'cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}
+					className={`flex items-center rounded-lg font-bold text-xs transition-all shrink-0 ${isPhone ? 'justify-center px-2 py-1.5' : 'gap-1.5 px-3.5 py-1.5'} ${isCurrentSessionStopping ? 'cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}
 					style={{
 						backgroundColor: isCurrentSessionStopping ? theme.colors.warning : theme.colors.error,
 						color: isCurrentSessionStopping ? theme.colors.bgMain : 'white',
 						pointerEvents: isCurrentSessionStopping ? 'none' : 'auto',
 					}}
-					title={
-						isCurrentSessionStopping ? 'Stopping after current task...' : 'Click to stop auto-run'
-					}
+					aria-label={isCurrentSessionStopping ? 'Stopping auto-run' : 'Stop auto-run'}
+					title={autoRunPillTitle}
 				>
 					{isCurrentSessionStopping ? <Spinner size={16} /> : <Wand2 className="w-4 h-4" />}
-					<span className="uppercase tracking-wider">
-						{isCurrentSessionStopping ? 'Stopping' : 'Auto'}
-					</span>
-					{/* Hide progress count when stopping - spinner is sufficient.
+					{/* On a phone the header has room for the glyph and nothing
+					    else - the label, the progress count and the worktree
+					    icon all move into the tooltip above. */}
+					{!isPhone && (
+						<>
+							<span className="uppercase tracking-wider">
+								{isCurrentSessionStopping ? 'Stopping' : 'Auto'}
+							</span>
+							{/* Hide progress count when stopping - spinner is sufficient.
 					    Goal-Driven runs have no task list, so show the self-reported
 					    percent instead of an X/Y task count. */}
-					{currentSessionBatchState && !isCurrentSessionStopping && (
-						<span className="text-2xs opacity-80">
-							{currentSessionBatchState.goalMode
-								? `${currentSessionBatchState.goalProgress ?? 0}%`
-								: `${currentSessionBatchState.completedTasks}/${currentSessionBatchState.totalTasks}`}
-						</span>
-					)}
-					{currentSessionBatchState?.worktreeActive && (
-						<span title={`Worktree: ${currentSessionBatchState.worktreeBranch || 'active'}`}>
-							<GitBranch className="w-3.5 h-3.5 ml-0.5" />
-						</span>
+							{currentSessionBatchState && !isCurrentSessionStopping && (
+								<span className="text-2xs opacity-80">{autoRunProgressLabel}</span>
+							)}
+							{currentSessionBatchState?.worktreeActive && (
+								<span title={`Worktree: ${currentSessionBatchState.worktreeBranch || 'active'}`}>
+									<GitBranch className="w-3.5 h-3.5 ml-0.5" />
+								</span>
+							)}
+						</>
 					)}
 				</button>
 			)}
