@@ -370,11 +370,7 @@ describe('GroupChatInput', () => {
 			const onSend = vi.fn();
 			const sessions = [createMockSession('session-1', 'Maestro', 'claude-code')];
 
-			render(
-				<GroupChatInput
-					{...createDefaultProps({ sessions, onSend, enterToSendAI: true })}
-				/>
-			);
+			render(<GroupChatInput {...createDefaultProps({ sessions, onSend, enterToSendAI: true })} />);
 
 			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
 			typeInTextarea(textarea, '@zzz');
