@@ -173,6 +173,41 @@ describe('FloatingMediaPlayer', () => {
 			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
 		});
 
+		it('answers from inside the list, which is what holds focus', () => {
+			// The list takes the caret on open, so in practice the key lands there
+			// rather than on the frame. It is portaled to the body, so the frame's
+			// own handler cannot be relied on to see it.
+			const a = item();
+			const b = item({ id: 's1::/files/talk.mp4', path: '/files/talk.mp4', name: 'talk.mp4' });
+			useMediaPlaybackStore.setState({ items: [a, b], activeItemId: b.id });
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 1 item'));
+			const menu = screen.getByTestId('media-queue-menu');
+			expect(document.activeElement).toBe(menu);
+
+			fireEvent.keyDown(menu, { key: 'Escape' });
+
+			expect(screen.queryByTestId('media-queue-menu')).toBeNull();
+			// One press does one thing: closing the list must not also minimize the
+			// player the user was heading back to.
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
+			// And the caret comes back, so the NEXT Escape is not swallowed.
+			expect(document.activeElement).toBe(frame());
+		});
+
+		it('minimizes on the press after the list closes', () => {
+			const a = item();
+			const b = item({ id: 's1::/files/talk.mp4', path: '/files/talk.mp4', name: 'talk.mp4' });
+			useMediaPlaybackStore.setState({ items: [a, b], activeItemId: b.id });
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 1 item'));
+			fireEvent.keyDown(screen.getByTestId('media-queue-menu'), { key: 'Escape' });
+
+			fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(true);
+		});
+
 		it('leaves a fullscreen video alone', () => {
 			// Escape is already spoken for: it is how the user gets back OUT of
 			// fullscreen. Minimizing on the way would hide the player they were only
@@ -460,6 +495,33 @@ describe('FloatingMediaPlayer', () => {
 			useMediaPlaybackStore.setState({ items: [a], activeItemId: a.id });
 			renderPlayer();
 			expect(screen.queryByLabelText(/Play queue/)).toBeNull();
+		});
+
+		it('offers a close control, since a touch surface has no Escape key', () => {
+			// The list covers the player it came from, so without a control here a
+			// phone or tablet driving the web interface has no way back to the
+			// transport at all.
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Play queue, 1 item'));
+
+			fireEvent.click(screen.getByTestId('media-queue-menu-close'));
+
+			expect(screen.queryByTestId('media-queue-menu')).toBeNull();
+			// Same outcome as Escape, down to where the caret lands.
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
+			expect(document.activeElement).toBe(frame());
+		});
+
+		it('offers the same close control on the history list', () => {
+			seedQueue();
+			renderPlayer();
+			fireEvent.click(screen.getByLabelText('Recently played'));
+
+			fireEvent.click(screen.getByTestId('media-history-menu-close'));
+
+			expect(screen.queryByTestId('media-history-menu')).toBeNull();
+			expect(useMediaPlaybackStore.getState().dismissed).toBe(false);
 		});
 
 		it('leaves the playing track out of the queue list', () => {

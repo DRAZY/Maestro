@@ -207,6 +207,22 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	);
 
 	/**
+	 * Dismisses the open queue / history list and puts the caret back on the
+	 * player frame.
+	 *
+	 * Handing focus back is the whole point: the list takes it on open (see
+	 * `MediaListMenu`), so closing without returning it leaves focus on `<body>`
+	 * and the NEXT Escape does nothing - the player is on screen, apparently
+	 * ready, and swallowing the key. Deliberately not wired to the outside-click
+	 * path, which closes the list precisely because the user went to click
+	 * something else.
+	 */
+	const closeList = useCallback(() => {
+		setOpenList(null);
+		frameRef.current?.focus();
+	}, []);
+
+	/**
 	 * Escape minimizes, matching every other dismissible surface in the app -
 	 * except that for this one "dismiss" has to mean MINIMIZE, never close. The
 	 * player is the one surface whose close button stops something the user is
@@ -224,15 +240,18 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 			// only trying to un-maximize.
 			if (document.fullscreenElement) return;
 			// An open list is the innermost thing Escape can close, so it goes first.
+			// It normally answers the key itself (it holds focus); this branch is
+			// the fallback for a press that landed on the frame instead - the queue
+			// button keeps focus after the click that opened the list.
 			if (openList) {
-				setOpenList(null);
+				closeList();
 			} else {
 				dismiss();
 			}
 			e.preventDefault();
 			e.stopPropagation();
 		},
-		[openList, dismiss]
+		[openList, closeList, dismiss]
 	);
 
 	const beginResize = useCallback(
@@ -474,13 +493,14 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					resumeTimes={resumeTimes}
 					onSelect={(item) => {
 						setActiveItem(item.id, { autoplay: true });
-						setOpenList(null);
+						closeList();
 					}}
 					onRemove={closeItem}
 					onClear={() => {
 						clearQueue();
-						setOpenList(null);
+						closeList();
 					}}
+					onClose={closeList}
 					testId="media-queue-menu"
 					theme={theme}
 				/>
@@ -500,13 +520,14 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 					// than activating a queue slot that may not exist.
 					onSelect={(item) => {
 						openMedia(item);
-						setOpenList(null);
+						closeList();
 					}}
 					onRemove={removeHistoryItem}
 					onClear={() => {
 						clearHistory();
-						setOpenList(null);
+						closeList();
 					}}
+					onClose={closeList}
 					testId="media-history-menu"
 					theme={theme}
 				/>
