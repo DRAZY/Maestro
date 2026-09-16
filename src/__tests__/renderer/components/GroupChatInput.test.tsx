@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { GroupChatInput } from '../../../renderer/components/GroupChatInput';
 import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnotator/imageAnnotatorStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
@@ -341,6 +341,59 @@ describe('GroupChatInput', () => {
 
 			// Dropdown should be hidden
 			expect(screen.queryByText('Maestro')).not.toBeInTheDocument();
+		});
+
+		it('closes the popover on Escape even when the filter matches no agents', () => {
+			// Regression test: AtMentionPopover stays mounted and renders a
+			// "No agents available" row instead of disappearing when the filter
+			// narrows to zero matches, so Escape must not be gated on
+			// atMentionItems.length > 0 or it becomes stuck open with no
+			// keyboard way to dismiss it.
+			const sessions = [createMockSession('session-1', 'Maestro', 'claude-code')];
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@zzz');
+
+			expect(screen.getByText('No agents available')).toBeInTheDocument();
+
+			fireEvent.keyDown(textarea, { key: 'Escape' });
+
+			expect(screen.queryByText('No agents available')).not.toBeInTheDocument();
+		});
+
+		it('does not crash when the agent list shrinks out from under a stale selection', () => {
+			// Regression test: atMentionItems can shrink for reasons other than an
+			// Arrow keypress (here, the session store changing while the popover
+			// is open), so selectedAtMentionIndex isn't guaranteed to stay in
+			// range - accepting via Tab/Enter must clamp rather than index past
+			// the end of the array and dereference undefined.
+			const sessions = [
+				createMockSession('session-1', 'Agent1', 'claude-code'),
+				createMockSession('session-2', 'Agent2', 'claude-code'),
+				createMockSession('session-3', 'Agent3', 'claude-code'),
+			];
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Select the last item (index 2 of 3).
+			fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+			fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+
+			// The session list shrinks to one entry without any Arrow keypress to
+			// re-clamp selectedAtMentionIndex first.
+			act(() => {
+				useSessionStore.setState({ sessions: [sessions[0]] });
+			});
+
+			expect(() => {
+				fireEvent.keyDown(textarea, { key: 'Tab' });
+			}).not.toThrow();
+			expect(textarea.value).toBe('@Agent1 ');
 		});
 
 		it('closes dropdown when typing space after @mention trigger', () => {
