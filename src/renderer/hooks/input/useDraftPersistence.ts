@@ -55,7 +55,7 @@ export function useDraftPersistence<V>(
 				flushPending();
 			}
 			pendingRef.current = { key, value };
-			if (timerRef.current) return;
+			if (timerRef.current) clearTimeout(timerRef.current);
 			timerRef.current = setTimeout(() => {
 				timerRef.current = null;
 				const next = pendingRef.current;

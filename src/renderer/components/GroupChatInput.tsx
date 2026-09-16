@@ -333,6 +333,18 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 				return;
 			}
 
+			if (atMentionOpen && e.key === 'Escape') {
+				// Gated on atMentionOpen alone (not atMentionItems.length > 0) so this
+				// still fires when the popover is showing "No other agents available" -
+				// AtMentionPopover renders that empty state rather than staying hidden.
+				e.preventDefault();
+				e.stopPropagation();
+				setAtMentionOpen(false);
+				setAtMentionFilter('');
+				setAtMentionStartIndex(-1);
+				return;
+			}
+
 			if (atMentionOpen && atMentionItems.length > 0) {
 				if (e.key === 'ArrowDown') {
 					e.preventDefault();
@@ -349,15 +361,12 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 				if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
 					e.preventDefault();
 					e.stopPropagation();
-					acceptAtMention(atMentionItems[selectedAtMentionIndex]);
-					return;
-				}
-				if (e.key === 'Escape') {
-					e.preventDefault();
-					e.stopPropagation();
-					setAtMentionOpen(false);
-					setAtMentionFilter('');
-					setAtMentionStartIndex(-1);
+					// atMentionItems can shrink for reasons other than an Arrow keypress
+					// (the session/group list changing, or the filter narrowing results
+					// while the popover is open), so the index isn't guaranteed to still
+					// be in range - clamp it rather than risk an out-of-bounds `undefined`.
+					const clampedIndex = Math.min(selectedAtMentionIndex, atMentionItems.length - 1);
+					acceptAtMention(atMentionItems[clampedIndex]);
 					return;
 				}
 			}

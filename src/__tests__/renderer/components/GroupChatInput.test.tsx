@@ -17,6 +17,7 @@ import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnota
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import type { Session, Group, GroupChatParticipant } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
+import { resetStore } from '../../helpers/resetStores';
 
 import { createMockTheme } from '../../helpers/mockTheme';
 
@@ -87,7 +88,7 @@ function typeInTextarea(textarea: HTMLTextAreaElement, value: string) {
 describe('GroupChatInput', () => {
 	beforeEach(() => {
 		useSessionStore.setState({ sessions: [] });
-		useImageAnnotatorStore.setState({ isOpen: false, imageDataUrl: null, onSave: null });
+		resetStore(useImageAnnotatorStore);
 	});
 
 	afterEach(() => {

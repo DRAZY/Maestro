@@ -41,6 +41,32 @@ describe('useDraftPersistence - queueFlush', () => {
 		expect(onPersist).toHaveBeenCalledWith('key-1', 'never');
 	});
 
+	it('resets the delay on continued typing, writing once after typing actually stops', () => {
+		// A burst of calls all fired at t=0 (the test above) can't tell a true
+		// trailing-edge debounce from a naive "arm one timer and let it fire on
+		// schedule" bug: both write once. Spacing the calls out is what catches
+		// it - a timer that isn't reset on every keystroke fires partway through
+		// continuous typing instead of once after it stops.
+		const onPersist = vi.fn();
+		const { result } = renderHook(() => useDraftPersistence<string>(onPersist, 300));
+
+		result.current.queueFlush('key-1', 'n');
+		vi.advanceTimersByTime(200);
+		expect(onPersist).not.toHaveBeenCalled();
+
+		result.current.queueFlush('key-1', 'ne');
+		vi.advanceTimersByTime(200);
+		expect(onPersist).not.toHaveBeenCalled();
+
+		result.current.queueFlush('key-1', 'nev');
+		vi.advanceTimersByTime(200);
+		expect(onPersist).not.toHaveBeenCalled();
+
+		// Typing has now stopped; only after a full 300ms of silence does it write.
+		vi.advanceTimersByTime(100);
+		expect(onPersist).toHaveBeenCalledExactlyOnceWith('key-1', 'nev');
+	});
+
 	it('flushes the previous key immediately when a different key is queued', () => {
 		// The guarantee this exists for: switching drafting targets mid-debounce
 		// (a tab, a chat) must not drop what was typed for the one being left.
