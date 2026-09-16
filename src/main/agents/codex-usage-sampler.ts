@@ -10,12 +10,23 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { CodexUsageSnapshot } from '../stores/codexUsageStore';
+import type { CodexUsageSnapshot, CodexUsageWindow } from '../stores/codexUsageStore';
 import { resolveCodexHomeKey } from '../stores/codexUsageStore';
 import { captureMessage } from '../utils/sentry';
+import { DURATION_LADDER_DAYS, humanizeDuration } from '../../shared/duration';
 
 const CODEX_USAGE_ENDPOINT = 'https://chatgpt.com/backend-api/wham/usage';
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Longest `limit_window_seconds` still filed as the short "session" bucket.
+ *
+ * ChatGPT's session window is 5h today and its long window is 7d, so the
+ * boundary sits well clear of both. The ceiling rather than an equality test
+ * means a plan that reports a slightly different short window (3h, 6h) is still
+ * a session rather than silently becoming a weekly.
+ */
+const SESSION_WINDOW_MAX_SECONDS = 6 * 60 * 60;
 
 /**
  * HTTP statuses from the Codex quota endpoint that say nothing about Maestro.
@@ -49,6 +60,13 @@ interface CodexAuthFile {
 interface WhamUsageWindow {
 	used_percent?: unknown;
 	reset_at?: unknown;
+	/**
+	 * How long the window the percentage is measured over runs for. This is the
+	 * only field that tells a 5h session bucket apart from a weekly one - the
+	 * slot a window arrives in does not, because plans order them differently.
+	 * Older responses omit it, so every consumer treats it as optional.
+	 */
+	limit_window_seconds?: unknown;
 }
 
 interface WhamUsageResponse {
@@ -64,6 +82,7 @@ interface WhamUsageResponse {
 		metered_feature?: unknown;
 		rate_limit?: {
 			primary_window?: WhamUsageWindow;
+			secondary_window?: WhamUsageWindow;
 		};
 	}>;
 }
@@ -166,8 +185,10 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 	}
 
 	const rateLimit = body.rate_limit ?? {};
-	const session = parseWindow(rateLimit.primary_window);
-	const weekly = parseWindow(rateLimit.secondary_window);
+	const { session, weekly } = classifyUsageWindows(
+		rateLimit.primary_window,
+		rateLimit.secondary_window
+	);
 
 	return {
 		sampledAt,
@@ -178,23 +199,83 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 				? body.email
 				: extractEmailFromJwt(auth.tokens?.id_token),
 		planType: typeof body.plan_type === 'string' ? body.plan_type : undefined,
-		session: session ?? undefined,
-		weekly: weekly ?? undefined,
+		session,
+		weekly,
 		additionalLimits: parseAdditionalLimits(body.additional_rate_limits),
 	};
 }
 
-function parseWindow(window: WhamUsageWindow | undefined): CodexUsageSnapshot['session'] | null {
+function parseWindow(window: WhamUsageWindow | undefined): CodexUsageWindow | null {
 	if (!window) return null;
 	if (typeof window.used_percent !== 'number' || !Number.isFinite(window.used_percent)) {
 		return null;
 	}
 	const resetsAt = parseResetAt(window.reset_at);
 	if (!resetsAt) return null;
+	const windowSeconds =
+		typeof window.limit_window_seconds === 'number' &&
+		Number.isFinite(window.limit_window_seconds) &&
+		window.limit_window_seconds > 0
+			? window.limit_window_seconds
+			: undefined;
 	return {
 		percent: window.used_percent,
 		resetsAt,
+		...(windowSeconds === undefined ? {} : { windowSeconds }),
 	};
+}
+
+/**
+ * File the account's two rate-limit windows into the session and weekly
+ * buckets, by DURATION rather than by which slot they arrived in.
+ *
+ * Slot position is not the answer: a `team` plan reports
+ * `primary_window` = 5h and `secondary_window` = 7d, while a `prolite` plan
+ * reports `primary_window` = 7d and no secondary at all. Mapping by position
+ * therefore filed a weekly window as a five-hour session on every plan of the
+ * second shape, and left `weekly` empty on an account whose only limit is
+ * weekly - so a consumer waiting on a "session" reset waited up to a week
+ * (#1596).
+ *
+ * A window that does not declare `limit_window_seconds` keeps the old
+ * positional meaning, since that is all older responses give us to go on.
+ * Nothing that parsed is ever dropped while a bucket is still free: a window
+ * whose preferred bucket is taken spills into the other one rather than
+ * vanishing from the dashboard.
+ */
+function classifyUsageWindows(
+	primaryRaw: WhamUsageWindow | undefined,
+	secondaryRaw: WhamUsageWindow | undefined
+): { session?: CodexUsageWindow; weekly?: CodexUsageWindow } {
+	const slots: Array<{ window: CodexUsageWindow; slotBucket: 'session' | 'weekly' }> = [];
+	const primary = parseWindow(primaryRaw);
+	if (primary) slots.push({ window: primary, slotBucket: 'session' });
+	const secondary = parseWindow(secondaryRaw);
+	if (secondary) slots.push({ window: secondary, slotBucket: 'weekly' });
+
+	const out: { session?: CodexUsageWindow; weekly?: CodexUsageWindow } = {};
+	const place = (window: CodexUsageWindow, preferred: 'session' | 'weekly'): void => {
+		const other = preferred === 'session' ? 'weekly' : 'session';
+		if (!out[preferred]) out[preferred] = window;
+		else if (!out[other]) out[other] = window;
+	};
+
+	// Declared durations win, shortest first, so the shorter of a pair takes the
+	// session bucket even if both land on the same side of the boundary.
+	const declared = slots
+		.filter((slot) => slot.window.windowSeconds !== undefined)
+		.sort((a, b) => (a.window.windowSeconds ?? 0) - (b.window.windowSeconds ?? 0));
+	for (const slot of declared) {
+		const seconds = slot.window.windowSeconds ?? 0;
+		place(slot.window, seconds <= SESSION_WINDOW_MAX_SECONDS ? 'session' : 'weekly');
+	}
+
+	for (const slot of slots) {
+		if (slot.window.windowSeconds !== undefined) continue;
+		place(slot.window, slot.slotBucket);
+	}
+
+	return out;
 }
 
 function parseAdditionalLimits(
@@ -209,11 +290,39 @@ function parseAdditionalLimits(
 				: typeof limit.metered_feature === 'string'
 					? limit.metered_feature
 					: null;
-		const window = parseWindow(limit.rate_limit?.primary_window);
-		if (!name || !window) continue;
-		parsed.push({ name, percent: window.percent, resetsAt: window.resetsAt });
+		if (!name) continue;
+		// A sublimit can carry both windows too, and the second one used to be
+		// discarded outright. Each renders as its own row, so when a sublimit
+		// yields two they are suffixed to keep the names distinct - the rows are
+		// keyed by name, and two identical labels collapse into one.
+		const windows = [
+			{ window: parseWindow(limit.rate_limit?.primary_window), slot: 'session' as const },
+			{ window: parseWindow(limit.rate_limit?.secondary_window), slot: 'weekly' as const },
+		].filter((entry): entry is { window: CodexUsageWindow; slot: 'session' | 'weekly' } => {
+			return entry.window !== null;
+		});
+		for (const { window, slot } of windows) {
+			parsed.push({
+				name: windows.length > 1 ? `${name} (${describeWindowLength(window, slot)})` : name,
+				percent: window.percent,
+				resetsAt: window.resetsAt,
+				...(window.windowSeconds === undefined ? {} : { windowSeconds: window.windowSeconds }),
+			});
+		}
 	}
 	return parsed;
+}
+
+/**
+ * Short label for a window's length, used only to keep two rows of the same
+ * sublimit apart. A window that never declared its length falls back to the
+ * slot word, so the two suffixes can never come out identical and silently
+ * collapse the pair into one row.
+ */
+function describeWindowLength(window: CodexUsageWindow, slot: 'session' | 'weekly'): string {
+	const seconds = window.windowSeconds;
+	if (seconds === undefined) return slot;
+	return humanizeDuration(seconds * 1000, { units: DURATION_LADDER_DAYS });
 }
 
 function parseResetAt(value: unknown): string | null {
