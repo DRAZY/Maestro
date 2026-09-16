@@ -146,6 +146,15 @@ async function walkDirectory(
 		return aPriority - bPriority;
 	});
 
+	// Child paths are built by concatenation rather than `path.join`. join()
+	// re-normalizes the whole string on every call, and a field trace measured
+	// that normalization at ~650ms of main-process CPU across a single 58-second
+	// window, purely from this loop. `dirPath` is already a real path and a
+	// dirent name can never contain a separator, so there is nothing left for
+	// join to fix - only the trailing-separator seam, handled once per directory
+	// here instead of once per entry.
+	const childPrefix = dirPath.endsWith(path.sep) ? dirPath : dirPath + path.sep;
+
 	// Guards against an OS or filesystem edge case handing back the same entry twice.
 	const seen = new Set<string>();
 	const tree: LocalTreeNode[] = [];
@@ -162,7 +171,7 @@ async function walkDirectory(
 			continue;
 		}
 
-		const fullPath = path.join(dirPath, entry.name);
+		const fullPath = childPrefix + entry.name;
 		// Symlinks are classified by their target, so a linked directory is walked
 		// rather than dropped.
 		const resolved = await resolveDirentType(entry, fullPath);
