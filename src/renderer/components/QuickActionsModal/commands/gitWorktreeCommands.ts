@@ -56,10 +56,16 @@ export function buildGitWorktreeCommands({
 	const commands: QuickAction[] = [];
 
 	if (activeSession.isGitRepo) {
+		// Every entry below carries the `Git:` prefix. The palette filters on the
+		// label alone, so without it `git` found four of these nine and missed
+		// Change Branch, Create Pull Request, and the worktree pair. The palette
+		// also SORTS by label, so the prefix is what keeps them drawn as one block
+		// rather than scattered between unrelated commands.
+		//
 		// Mirrors the git menu order so the palette reads the same as the menus.
 		commands.push({
 			id: 'gitLog',
-			label: 'View Git Log',
+			label: 'Git: View Log',
 			shortcut: shortcuts.viewGitLog,
 			action: () => {
 				gitActions.viewLog();
@@ -69,7 +75,7 @@ export function buildGitWorktreeCommands({
 
 		commands.push({
 			id: 'gitDiff',
-			label: 'View Git Diff',
+			label: 'Git: View Diff',
 			// Says up front whether the diff has anything in it, the same thing the
 			// badge on the menu rows says.
 			subtext: formatGitChangeSummary(gitActions.changes),
@@ -84,7 +90,7 @@ export function buildGitWorktreeCommands({
 
 		commands.push({
 			id: 'gitPull',
-			label: 'Git Pull',
+			label: 'Git: Pull',
 			// A run already in flight (its console may have been dismissed with Run
 			// in Background) is worth more than the behind count, which is stale
 			// until that run finishes.
@@ -102,7 +108,7 @@ export function buildGitWorktreeCommands({
 
 		commands.push({
 			id: 'gitPush',
-			label: 'Git Push',
+			label: 'Git: Push',
 			subtext: gitActions.pushRunning
 				? 'Running - open to watch it'
 				: gitActions.ahead > 0
@@ -117,7 +123,7 @@ export function buildGitWorktreeCommands({
 
 		commands.push({
 			id: 'changeBranch',
-			label: 'Change Branch',
+			label: 'Git: Change Branch',
 			subtext: gitActions.branch ? `Currently on ${gitActions.branch}` : 'Switch to another branch',
 			shortcut: shortcuts.gitChangeBranch,
 			action: () => {
@@ -128,7 +134,7 @@ export function buildGitWorktreeCommands({
 
 		commands.push({
 			id: 'openRepo',
-			label: 'Open Repository in Browser',
+			label: 'Git: Open Repository in Browser',
 			action: async () => {
 				try {
 					const browserUrl = await gitService.getRemoteBrowserUrl(resolveGitCwd(activeSession));
@@ -160,7 +166,7 @@ export function buildGitWorktreeCommands({
 	if (activeSession.isGitRepo && onQuickCreateWorktree) {
 		commands.push({
 			id: 'createWorktree',
-			label: 'Create Worktree',
+			label: 'Git: Create Worktree',
 			subtext: activeSession.parentSessionId
 				? `New worktree under ${sessions.find((session) => session.id === activeSession.parentSessionId)?.name || 'parent'}`
 				: 'Create a new git worktree branch',
@@ -183,8 +189,8 @@ export function buildGitWorktreeCommands({
 		commands.push({
 			id: 'createPR',
 			label: gitActions.branch
-				? `Create Pull Request: ${gitActions.branch}`
-				: 'Create Pull Request',
+				? `Git: Create Pull Request (${gitActions.branch})`
+				: 'Git: Create Pull Request',
 			subtext: gitActions.prRunning
 				? 'Creating - open to see how it went'
 				: isWorktreeChild
@@ -205,7 +211,7 @@ export function buildGitWorktreeCommands({
 	if (gitActions.canConfigureWorktrees) {
 		commands.push({
 			id: 'configureWorktrees',
-			label: 'Configure Worktrees',
+			label: 'Git: Configure Worktrees',
 			subtext: 'Set the worktree directory and watch options',
 			action: () => {
 				gitActions.configureWorktrees();
