@@ -104,6 +104,9 @@ describe('useRemoteIntegration', () => {
 	let onRemoteReorderTabHandler:
 		| ((sessionId: string, fromIndex: number, toIndex: number) => void)
 		| undefined;
+	let onRemoteSnoozeCommandHandler:
+		| ((request: Record<string, unknown>, responseChannel: string) => void)
+		| undefined;
 	let onRemoteToggleBookmarkHandler: ((sessionId: string) => void) | undefined;
 	let onRequestMovementDesignerInspectionHandler:
 		| ((id: string, expectedRevision: number, responseChannel: string) => void)
@@ -203,6 +206,11 @@ describe('useRemoteIntegration', () => {
 			onRemoteReorderTabHandler = handler;
 			return () => {};
 		}),
+		onRemoteSnoozeCommand: vi.fn().mockImplementation((handler) => {
+			onRemoteSnoozeCommandHandler = handler;
+			return () => {};
+		}),
+		sendRemoteSnoozeCommandResponse: vi.fn(),
 		onRemoteToggleBookmark: vi.fn().mockImplementation((handler) => {
 			onRemoteToggleBookmarkHandler = handler;
 			return () => {};
@@ -1732,6 +1740,49 @@ describe('useRemoteIntegration', () => {
 
 			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'session-1');
 			expect(updated?.aiTabs.some((t) => t.id === 'tab-1')).toBe(false);
+		});
+	});
+
+	describe('remote snooze command', () => {
+		// The CLI process on the far end blocks on this reply, so the listener has
+		// to answer on the response channel for every outcome - a verb that throws
+		// inside the service is still a command that must come back.
+		it('answers a snooze verb on its response channel', () => {
+			const session = createMockSession({ id: 'session-1', aiTabs: [createMockTab()] });
+			const deps = createDeps({ sessions: [session] });
+
+			renderHook(() => useRemoteIntegration(deps));
+
+			act(() => {
+				onRemoteSnoozeCommandHandler?.({ action: 'list' }, 'snooze-response');
+			});
+
+			const send = window.maestro.process.sendRemoteSnoozeCommandResponse as ReturnType<
+				typeof vi.fn
+			>;
+			expect(send).toHaveBeenCalledWith(
+				'snooze-response',
+				expect.objectContaining({ success: true })
+			);
+		});
+
+		it('reports a failure rather than leaving the caller waiting', () => {
+			const deps = createDeps({ sessions: [] });
+
+			renderHook(() => useRemoteIntegration(deps));
+
+			act(() => {
+				// An id that names nothing: an answer, not a thrown error and not silence.
+				onRemoteSnoozeCommandHandler?.({ action: 'wake', snoozeId: 'nope' }, 'snooze-response');
+			});
+
+			const send = window.maestro.process.sendRemoteSnoozeCommandResponse as ReturnType<
+				typeof vi.fn
+			>;
+			expect(send).toHaveBeenCalledWith(
+				'snooze-response',
+				expect.objectContaining({ success: false })
+			);
 		});
 	});
 

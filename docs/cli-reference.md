@@ -304,6 +304,81 @@ Remove a queued item by its id (from dispatch --queue output or queue list)
 | ------------------ | ------------------------------------------------ | ------- |
 | `-a, --agent <id>` | Agent whose queue the item belongs to (required) | -       |
 
+## `maestro-cli snooze`
+
+Park a tab until later, and manage what is parked
+
+## `maestro-cli snooze tab <tab-id> <when>`
+
+Snooze a tab or tiled group until &lt;when&gt; (e.g. 2h, tomorrow, "next fri 3pm")
+
+| Option                     | Description                                                                                                     | Default |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
+| `-a, --agent <id>`         | Agent that owns the tab. Required for a file, terminal, browser, or group tab, which are not in the AI tab list | -       |
+| `-n, --note <text>`        | Note-to-self surfaced in the wake notification                                                                  | -       |
+| `-p, --wake-prompt <text>` | Prompt sent to the agent the moment the tab comes back (AI tabs and groups only)                                | -       |
+| `--background`             | Park it without flashing the "Snoozed until ..." confirmation                                                   | -       |
+| `--focus`                  | Show the confirmation flash (the default)                                                                       | -       |
+| `--json`                   | Output the stored snooze as JSON                                                                                | -       |
+
+## `maestro-cli snooze list`
+
+List snoozed tabs across every agent, soonest wake first
+
+| Option             | Description                          | Default |
+| ------------------ | ------------------------------------ | ------- |
+| `-a, --agent <id>` | Only list snoozes held by this agent | -       |
+| `--json`           | Output as JSON                       | -       |
+
+## `maestro-cli snooze wake <snooze-id>`
+
+Bring a snoozed tab back right now (accepts a unique id prefix)
+
+| Option         | Description                                                       | Default |
+| -------------- | ----------------------------------------------------------------- | ------- |
+| `--background` | Accepted and ignored: a wake restores the tab without focusing it | -       |
+| `--focus`      | Accepted and ignored: a wake restores the tab without focusing it | -       |
+| `--json`       | Output as JSON                                                    | -       |
+
+## `maestro-cli snooze dismiss <snooze-id>`
+
+Drop a snooze and its tab - it won't come back
+
+| Option         | Description                                             | Default |
+| -------------- | ------------------------------------------------------- | ------- |
+| `--background` | Dismiss it without raising the "Snooze dismissed" toast | -       |
+| `--focus`      | Raise the toast (the default)                           | -       |
+| `--json`       | Output as JSON                                          | -       |
+
+## `maestro-cli snooze reschedule <snooze-id> <when>`
+
+Move a snooze to a new time, optionally rewriting its note or wake prompt
+
+| Option                     | Description                                         | Default |
+| -------------------------- | --------------------------------------------------- | ------- |
+| `-n, --note <text>`        | Replace the note (pass an empty string to clear it) | -       |
+| `-p, --wake-prompt <text>` | Replace the wake prompt (empty string clears it)    | -       |
+| `--json`                   | Output as JSON                                      | -       |
+
+## `maestro-cli snooze history`
+
+Snoozes that have already resolved - woken, unsnoozed, or dismissed
+
+| Option        | Description                            | Default |
+| ------------- | -------------------------------------- | ------- |
+| `--limit <n>` | Only show the newest &lt;n&gt; entries | -       |
+| `--json`      | Output as JSON                         | -       |
+
+## `maestro-cli unsnooze <snooze-id>`
+
+Bring a snoozed tab back right now (alias for "snooze wake")
+
+| Option         | Description                                                       | Default |
+| -------------- | ----------------------------------------------------------------- | ------- |
+| `--background` | Accepted and ignored: a wake restores the tab without focusing it | -       |
+| `--focus`      | Accepted and ignored: a wake restores the tab without focusing it | -       |
+| `--json`       | Output as JSON                                                    | -       |
+
 ## `maestro-cli session`
 
 Inspect open desktop tabs and their conversation history

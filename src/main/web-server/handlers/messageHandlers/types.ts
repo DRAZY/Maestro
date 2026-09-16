@@ -37,6 +37,7 @@ import type {
 	ConsultAgentParams,
 	ConsultAgentResult,
 	RenameTabResult,
+	SnoozeCommandCallback,
 } from '../../types';
 import type { AgentDelegationNotice } from '../../../../shared/agentDelegation';
 import type { GroupAppearance, GroupUpdateRequest } from '../../../../shared/groupAppearance';
@@ -128,6 +129,8 @@ export interface MessageHandlerCallbacks {
 		newName: string
 	) => Promise<boolean | RenameTabResult>;
 	starTab: (sessionId: string, tabId: string, starred: boolean) => Promise<boolean>;
+	/** `maestro-cli snooze` - park, list, wake, dismiss, reschedule, history. */
+	snoozeCommand: SnoozeCommandCallback;
 	reorderTab: (sessionId: string, fromIndex: number, toIndex: number) => Promise<boolean>;
 	toggleBookmark: (sessionId: string) => Promise<boolean>;
 	openFileTab: (

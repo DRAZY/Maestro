@@ -77,6 +77,7 @@ import type {
 	CloseTabCallback,
 	RenameTabCallback,
 	StarTabCallback,
+	SnoozeCommandCallback,
 	ReorderTabCallback,
 	ToggleBookmarkCallback,
 	OpenFileTabCallback,
@@ -174,6 +175,7 @@ import type {
 	ListDesktopSessionsCallback,
 	GetSessionHistoryCallback,
 } from './types';
+import type { SnoozeCommandRequest } from '../../shared/snoozeCommands';
 
 // Logger context for all web server logs
 const LOG_CONTEXT = 'WebServer';
@@ -487,6 +489,10 @@ export class WebServer {
 
 	setStarTabCallback(callback: StarTabCallback): void {
 		this.callbackRegistry.setStarTabCallback(callback);
+	}
+
+	setSnoozeCommandCallback(callback: SnoozeCommandCallback): void {
+		this.callbackRegistry.setSnoozeCommandCallback(callback);
 	}
 
 	setReorderTabCallback(callback: ReorderTabCallback): void {
@@ -1060,6 +1066,8 @@ export class WebServer {
 				this.callbackRegistry.renameTab(sessionId, tabId, newName),
 			starTab: async (sessionId: string, tabId: string, starred: boolean) =>
 				this.callbackRegistry.starTab(sessionId, tabId, starred),
+			snoozeCommand: async (request: SnoozeCommandRequest) =>
+				this.callbackRegistry.snoozeCommand(request),
 			reorderTab: async (sessionId: string, fromIndex: number, toIndex: number) =>
 				this.callbackRegistry.reorderTab(sessionId, fromIndex, toIndex),
 			toggleBookmark: async (sessionId: string) => this.callbackRegistry.toggleBookmark(sessionId),

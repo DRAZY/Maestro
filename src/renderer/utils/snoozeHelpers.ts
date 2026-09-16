@@ -24,6 +24,7 @@ import {
 	TabGroup,
 	UnifiedTabRef,
 } from '../types';
+import type { SnoozedTabSummary } from '../../shared/snoozeCommands';
 import { generateId } from './ids';
 import {
 	closeTab,
@@ -739,6 +740,39 @@ export function getSnoozedTabLabel(entry: SnoozedTabEntry): string {
 		case 'group':
 			return clampLabel(entry.group.name) || 'Tab group';
 	}
+}
+
+/**
+ * Flatten a snooze for anything outside the renderer - today, the
+ * `snooze_command` wire and so `maestro-cli snooze list`.
+ *
+ * Flat by necessity: the stored entry carries the whole parked tab, transcript
+ * included, so handing five of them to a socket would put megabytes on the wire
+ * to answer "what is parked?". The label comes from
+ * {@link getSnoozedTabLabel} rather than being re-derived, so a snooze reads
+ * identically in the CLI and in the Snoozed Tabs list.
+ */
+export function toSnoozedTabSummary(
+	entry: SnoozedTabEntry,
+	sessionId: string,
+	sessionName: string
+): SnoozedTabSummary {
+	const group = isSnoozedGroup(entry);
+	return {
+		snoozeId: entry.id,
+		agentId: sessionId,
+		agentName: sessionName,
+		type: entry.type,
+		label: getSnoozedTabLabel(entry),
+		// A group has no single tab id; its own id is the stable handle, the same
+		// one `buildSnoozeHistoryRecord` falls back to.
+		tabId: group ? entry.group.id : entry.tab.id,
+		snoozedAt: entry.snoozedAt,
+		wakeAt: entry.wakeAt,
+		...(entry.note ? { note: entry.note } : {}),
+		...(entry.wakePrompt ? { wakePrompt: entry.wakePrompt } : {}),
+		...(group ? { memberCount: entry.members.length } : {}),
+	};
 }
 
 // ---------------------------------------------------------------------------
