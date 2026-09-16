@@ -2580,17 +2580,15 @@ describe('SessionList', () => {
 
 			expect(screen.getByText('Move to Group')).toBeInTheDocument();
 
-			// Hover over Move to Group - find the parent div
+			// Hover the row that owns the submenu
 			const moveToGroupButton = screen.getByText('Move to Group');
-			const parentDiv = moveToGroupButton.closest('.relative');
-			fireEvent.mouseEnter(parentDiv!);
+			fireEvent.mouseEnter(moveToGroupButton.closest('div')!);
 
-			// Submenu should show group name - there may be multiple since it appears in groups section too
-			const submenuTargets = screen.getAllByText('Submenu Target');
-			expect(submenuTargets.length).toBeGreaterThan(0);
-			// The "Ungrouped" option in the submenu should be visible (may appear multiple times)
-			const ungroupedElements = screen.getAllByText('Ungrouped');
-			expect(ungroupedElements.length).toBeGreaterThan(0);
+			// The flyout is portaled out of the menu (the menu scrolls, which would
+			// otherwise clip it away), so assert against the flyout itself.
+			const flyout = within(screen.getByTestId('session-context-flyout'));
+			expect(flyout.getByText('Submenu Target')).toBeInTheDocument();
+			expect(flyout.getByText('Ungrouped')).toBeInTheDocument();
 		});
 
 		it('moves session to group when submenu item clicked', () => {
@@ -2613,16 +2611,14 @@ describe('SessionList', () => {
 
 			expect(screen.getByText('Move to Group')).toBeInTheDocument();
 
-			// Hover and click group - find within context menu
+			// Hover the row that owns the submenu
 			const moveToGroupButton = screen.getByText('Move to Group');
-			const parentDiv = moveToGroupButton.closest('.relative');
-			fireEvent.mouseEnter(parentDiv!);
+			fireEvent.mouseEnter(moveToGroupButton.closest('div')!);
 
-			// Get all elements with the group name, click the one in the submenu (inside fixed positioned menu)
-			const groupButtons = screen.getAllByText('Click Target');
-			// The submenu item should be in a button within the fixed positioned context menu
-			const submenuButton = groupButtons.find((el) => el.closest('button')?.closest('.absolute'));
-			fireEvent.click(submenuButton || groupButtons[groupButtons.length - 1]);
+			// The group name also appears in the Left Bar, so scope the click to the
+			// portaled flyout rather than guessing which copy is the menu item.
+			const flyout = within(screen.getByTestId('session-context-flyout'));
+			fireEvent.click(flyout.getByText('Click Target'));
 
 			expect(setSessions).toHaveBeenCalled();
 		});
