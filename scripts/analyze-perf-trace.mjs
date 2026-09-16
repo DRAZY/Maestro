@@ -211,10 +211,37 @@ async function collectThreads(trace) {
 // Pass 2: keep the spans for the two threads a user actually feels, plus the
 // V8 sampling profiler's chunks. Everything else is dropped as it streams by,
 // which is what keeps a multi-gigabyte trace inside a normal heap.
+// Style/layout invalidation events are instantaneous (ph:'I'), so they never
+// land in the span tables, and each one carries the JS stack that dirtied the
+// node. Aggregating them by (reason, stack) is what turns "the renderer painted
+// 5,470 frames while idle" into "this function did it" - the step a Sep 2026
+// field analysis could not take, because the category emitting the reasons was
+// not being recorded at all.
+const INVALIDATION_EVENTS = new Set([
+	'StyleRecalcInvalidationTracking',
+	'LayoutInvalidationTracking',
+	'ScheduleStyleRecalculation',
+	'InvalidateLayout',
+]);
+const MAX_INVALIDATION_ROWS = 15;
+
+/** `fn @ file:line:col` for the frame that scheduled an invalidation. */
+function invalidationOrigin(data) {
+	const top = data?.stackTrace?.[0];
+	if (!top) return '(no JS stack)';
+	const file =
+		String(top.url ?? '')
+			.split('/')
+			.pop() || '(inline)';
+	return `${top.functionName || '(anonymous)'} @ ${file}:${top.lineNumber}:${top.columnNumber}`;
+}
+
 async function collectSpans(trace, wantedKeys) {
 	const perThread = new Map([...wantedKeys].map((k) => [k, []]));
 	const beStacks = new Map();
 	const profiles = new Map();
+	// key `pid:tid` -> Map(`event|reason|origin` -> { event, reason, origin, count })
+	const invalidations = new Map();
 	// The window is taken from the threads being reported on, not from every
 	// event in the file. Metadata is stamped ts:0, and a background renderer's
 	// compositor can carry events from minutes before the capture started -
@@ -235,6 +262,18 @@ async function collectSpans(trace, wantedKeys) {
 			return;
 		}
 		if (!perThread.has(key)) return;
+		if (e.ph === 'I' && INVALIDATION_EVENTS.has(e.name)) {
+			const data = e.args?.data;
+			const reason = data?.reason ?? '-';
+			const origin = invalidationOrigin(data);
+			let byKey = invalidations.get(key);
+			if (!byKey) invalidations.set(key, (byKey = new Map()));
+			const rowKey = `${e.name}|${reason}|${origin}`;
+			const row = byKey.get(rowKey);
+			if (row) row.count++;
+			else byKey.set(rowKey, { event: e.name, reason, origin, count: 1 });
+			return;
+		}
 		switch (e.ph) {
 			case 'X':
 				if (typeof e.ts === 'number') {
@@ -270,7 +309,7 @@ async function collectSpans(trace, wantedKeys) {
 	const seen = await forEachEvent(trace, onEvent);
 	if (seen === 0) await forEachEventWhole(trace, onEvent);
 
-	return { perThread, profiles, minTs, maxTs };
+	return { perThread, profiles, minTs, maxTs, invalidations };
 }
 
 // The v8.cpu_profiler category carries the only usable JS attribution in an
@@ -362,7 +401,7 @@ async function analyzeTrace(trace) {
 	const wanted = new Set([rendererKey, browserKey].filter(Boolean));
 	if (wanted.size === 0) throw new Error('Trace has no CrRendererMain or CrBrowserMain thread.');
 
-	const { perThread, profiles, minTs, maxTs } = await collectSpans(trace, wanted);
+	const { perThread, profiles, minTs, maxTs, invalidations } = await collectSpans(trace, wanted);
 
 	const traceDurationSec =
 		Number.isFinite(minTs) && maxTs > minTs ? us2ms(maxTs - minTs) / 1000 : 0;
@@ -420,6 +459,11 @@ async function analyzeTrace(trace) {
 		longTasks,
 		costByName: (renderer?.costByName ?? browser?.costByName ?? []).slice(0, MAX_COST_ROWS),
 		hotFunctions,
+		// Renderer only: style and layout invalidation is a renderer-main concern,
+		// and the browser process has no document to dirty.
+		invalidations: [...(invalidations.get(rendererKey)?.values() ?? [])]
+			.sort((a, b) => b.count - a.count)
+			.slice(0, MAX_INVALIDATION_ROWS),
 		jank: { longTaskCount: longTasks.length, worstMs, estimatedDroppedFrames },
 	};
 }
@@ -593,20 +637,48 @@ function render(analysis, meta) {
 		out.push('');
 	}
 
-	// A trace buffer that fills stops recording, so the file can cover a small
-	// tail of what the user asked for. Saying so up front stops the next reader
-	// from concluding the app was quiet during the minutes that were discarded.
-	if (meta?.profilingDurationMs && analysis.traceDurationSec > 0) {
-		const requestedSec = meta.profilingDurationMs / 1000;
-		if (analysis.traceDurationSec < requestedSec * 0.9) {
+	// Whether the file is whole changes how every number below should be read, so
+	// it is stated before any of them. Captures from Sep 2026 onward record their
+	// own buffer usage and can answer this outright; older ones are judged by
+	// comparing the covered window against the requested duration, which only
+	// ever produced a suspicion.
+	const requestedSec = meta?.profilingDurationMs ? meta.profilingDurationMs / 1000 : 0;
+	const coveredPct =
+		requestedSec > 0 && analysis.traceDurationSec > 0
+			? (analysis.traceDurationSec / requestedSec) * 100
+			: null;
+
+	if (typeof meta?.bufferExhausted === 'boolean') {
+		const peakPct = Math.round((meta.peakBufferPercent ?? 0) * 100);
+		const bufferMb = meta.traceBufferSizeKb ? Math.round(meta.traceBufferSizeKb / 1000) : null;
+		if (meta.bufferExhausted) {
 			out.push(
 				`> [!WARNING]` +
-					`\n> The trace buffer filled. This file covers ${analysis.traceDurationSec.toFixed(1)}s of the ` +
-					`${requestedSec.toFixed(0)}s recording (${((analysis.traceDurationSec / requestedSec) * 100).toFixed(0)}%); ` +
-					`the rest was discarded. Capture a shorter window, or drop the noisiest categories, to see it all.`
+					`\n> INCOMPLETE CAPTURE. Trace buffer peaked at ${peakPct}%` +
+					`${bufferMb ? ` of ${bufferMb}MB per process` : ''}, so Chromium dropped events. ` +
+					`This file covers ${analysis.traceDurationSec.toFixed(1)}s of a ${requestedSec.toFixed(0)}s ` +
+					`recording${coveredPct !== null ? ` (${coveredPct.toFixed(0)}%)` : ''}. ` +
+					`Every total below is a LOWER BOUND, and anything absent may simply not have been recorded.`
 			);
-			out.push('');
+		} else {
+			out.push(
+				`> [!NOTE]` +
+					`\n> Complete capture: the recording ${meta.autoStopped ? 'was ended automatically' : 'ended'} ` +
+					`at ${peakPct}% trace-buffer usage, before any events were dropped. ` +
+					`Totals below cover the full ${requestedSec.toFixed(1)}s window.`
+			);
 		}
+		out.push('');
+	} else if (coveredPct !== null && coveredPct < 90) {
+		// Pre-watchdog bundle: infer truncation the old way.
+		out.push(
+			`> [!WARNING]` +
+				`\n> The trace buffer filled. This file covers ${analysis.traceDurationSec.toFixed(1)}s of the ` +
+				`${requestedSec.toFixed(0)}s recording (${coveredPct.toFixed(0)}%); the rest was discarded. ` +
+				`This bundle predates the capture-side buffer watchdog, so the loss can only be inferred, ` +
+				`not measured - re-capture on a current build to get a complete window.`
+		);
+		out.push('');
 	}
 
 	const j = analysis.jank;
@@ -719,6 +791,36 @@ function render(analysis, meta) {
 				`| \`${f.name}\` | ${sanitize(f.location) || '-'} | ${ms(f.selfMs)} | ${f.count || '-'} |`
 			);
 		}
+		out.push('');
+	}
+
+	if (analysis.invalidations?.length) {
+		out.push('## What dirties style and layout (renderer UI thread)');
+		out.push('');
+		out.push(
+			'Who scheduled the work, not how much it cost. A renderer that recalculates ' +
+				'style or layout on every frame while the user touches nothing is doing it at ' +
+				"somebody's request, and this is that request: the reason Blink recorded, and the " +
+				'JS frame that triggered it.'
+		);
+		out.push('');
+		out.push('| Count | Event | Reason | Scheduled by |');
+		out.push('| --- | --- | --- | --- |');
+		for (const row of analysis.invalidations) {
+			out.push(
+				`| ${row.count.toLocaleString()} | ${row.event} | ${sanitize(row.reason)} | ${sanitize(row.origin)} |`
+			);
+		}
+		out.push('');
+	} else {
+		out.push('## What dirties style and layout (renderer UI thread)');
+		out.push('');
+		out.push(
+			'No invalidation events in this capture. The ' +
+				'`disabled-by-default-devtools.timeline.invalidationTracking` category was not ' +
+				'recorded, so why a style recalc or layout happened cannot be answered from this ' +
+				'file - only that it did. Re-capture on a build that enables it.'
+		);
 		out.push('');
 	}
 

@@ -264,6 +264,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// uiStore so the Left Bar wand can animate, and reconcile on palette open.
 	const profilingActive = useUIStore((s) => s.profilingActive);
 	const setProfilingActive = useUIStore((s) => s.setProfilingActive);
+	const profilingBufferPercent = useUIStore((s) => s.profilingBufferPercent);
+	const setProfilingBufferPercent = useUIStore((s) => s.setProfilingBufferPercent);
 	useEffect(() => {
 		let cancelled = false;
 		// Optional-chained: this runs on every palette open, so tolerate a bridge
@@ -272,22 +274,32 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		if (!statusPromise) return;
 		statusPromise
 			.then((res) => {
-				if (!cancelled && res?.success) setProfilingActive(res.active);
+				if (cancelled || !res?.success) return;
+				setProfilingActive(res.active);
+				// Buffer usage is pulled on palette open rather than streamed. A
+				// per-second push would be renderer work during the exact window the
+				// capture is trying to measure, and this number is only ever read when
+				// the user comes here to end the recording anyway.
+				setProfilingBufferPercent(res.active ? (res.bufferPercent ?? 0) : 0);
 			})
 			.catch(() => {});
 		return () => {
 			cancelled = true;
 		};
-	}, [setProfilingActive]);
+	}, [setProfilingActive, setProfilingBufferPercent]);
 	const handleStartProfiling = useCallback(async () => {
 		try {
 			const res = await window.maestro.debug.startProfiling();
 			if (res?.success && res.active) {
 				setProfilingActive(true);
+				setProfilingBufferPercent(0);
 				notifyCenterFlash({
 					message: 'Performance profiling started',
 					color: 'green',
-					detail: 'Reproduce the lag, then run "End Performance Profiling"',
+					// No duration advice here on purpose. The limit is trace-buffer
+					// pressure, which nobody can estimate by watching the app, so the
+					// recording now ends itself before data is lost.
+					detail: 'Reproduce the lag. Ends automatically if the trace buffer fills.',
 				});
 			} else {
 				notifyToast({
@@ -300,7 +312,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			notifyToast({ color: 'red', title: 'Profiling', message: 'Failed to start profiling' });
 			captureException(err);
 		}
-	}, [setProfilingActive]);
+	}, [setProfilingActive, setProfilingBufferPercent]);
 	// Stopping is slow (flush + zip compression can take tens of seconds), so we
 	// hand off to the ProfilingCaptureModal, which owns the whole stop-and-bundle
 	// flow, shows live progress, and clears the wand indicator when it finishes.
@@ -735,6 +747,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setDebugAgentProbeOpen,
 			onDebugReleaseQueuedItem,
 			profilingActive,
+			profilingBufferPercent,
 			onStartProfiling: handleStartProfiling,
 			onStopProfiling: handleStopProfiling,
 			getInstallationId: () => window.maestro.leaderboard.getInstallationId(),
