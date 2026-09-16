@@ -83,6 +83,38 @@ export interface ClassifiableError {
 	recoverable: boolean;
 	/** Optional structured payload from the agent; may carry a reset/retry hint. */
 	parsedJson?: unknown;
+	/**
+	 * The provider's OWN error text, when the parser replaced `message` with a
+	 * curated one from the pattern bank.
+	 *
+	 * Classification has to read this, not just `message`. A pattern bank entry
+	 * is written for a human reading a dialog, so it is short and generic - and
+	 * the two things this module needs are exactly what that rewrite destroys:
+	 * the phrasing that separates a plan-quota outage from a transient throttle,
+	 * and any "resets in 4h 12m" hint. Codex hit both: a 429 that also said
+	 * "usage limit" came through as "Rate limited. Please wait and try again.",
+	 * which reads as `'availability'` and ran a 30s backoff against a multi-hour
+	 * quota outage.
+	 *
+	 * Display keeps using `message`, so populating this changes what Maestro
+	 * DECIDES without changing what the user reads.
+	 */
+	raw?: { errorLine?: string };
+}
+
+/**
+ * Every text this error carries, widest first.
+ *
+ * The provider's own line is checked BEFORE the curated message because it is
+ * strictly more informative; the curated one stays in the list so an error that
+ * only ever had a bank message still classifies exactly as it used to.
+ */
+function classifiableTexts(error: ClassifiableError): string[] {
+	const texts: string[] = [];
+	const rawLine = error.raw?.errorLine;
+	if (typeof rawLine === 'string' && rawLine.trim() !== '') texts.push(rawLine);
+	if (typeof error.message === 'string' && error.message !== '') texts.push(error.message);
+	return texts;
 }
 
 /**
@@ -95,9 +127,16 @@ export function classifyRetryableError(error: ClassifiableError): RetryStrategy 
 	if (!error.recoverable) return null;
 	if (NON_RETRYABLE_TYPES.has(error.type)) return null;
 
-	const message = error.message ?? '';
-	if (TOKEN_EXHAUSTION_RE.test(message)) return 'token-exhaustion';
-	if (AVAILABILITY_RE.test(message) || error.type === 'network_error') return 'availability';
+	// Exhaustion is decided across EVERY text before availability is considered
+	// for any of them, not per text in turn. A quota notice that also says "429"
+	// carries both signals, and the slow poll is the safe reading: treating a
+	// multi-hour outage as a transient throttle retries it every 30 seconds,
+	// while the reverse merely waits a little longer than it had to.
+	const texts = classifiableTexts(error);
+	if (texts.some((text) => TOKEN_EXHAUSTION_RE.test(text))) return 'token-exhaustion';
+	if (texts.some((text) => AVAILABILITY_RE.test(text)) || error.type === 'network_error') {
+		return 'availability';
+	}
 	return null;
 }
 
@@ -140,16 +179,19 @@ export function tokenExhaustionResetAt(error: ClassifiableError, now: number): n
 	const fromJson = parseResetFromJson(error.parsedJson, now);
 	if (fromJson !== undefined) return fromJson + RESET_TIME_BUFFER_MS;
 
-	const message = error.message ?? '';
+	// The provider's own line first: a curated bank message never carries a reset
+	// hint, so for any agent whose parser rewrites `message` this is the only
+	// place a "resets in 4h 12m" can still be read.
+	for (const text of classifiableTexts(error)) {
+		const fromMessage = parseRetryAfterFromMessage(text, now);
+		if (fromMessage !== undefined) return fromMessage + RESET_TIME_BUFFER_MS;
 
-	const fromMessage = parseRetryAfterFromMessage(message, now);
-	if (fromMessage !== undefined) return fromMessage + RESET_TIME_BUFFER_MS;
+		const fromEpochMarker = parseEpochMarkerFromMessage(text, now);
+		if (fromEpochMarker !== undefined) return fromEpochMarker + RESET_TIME_BUFFER_MS;
 
-	const fromEpochMarker = parseEpochMarkerFromMessage(message, now);
-	if (fromEpochMarker !== undefined) return fromEpochMarker + RESET_TIME_BUFFER_MS;
-
-	const fromClock = parseZonedResetFromMessage(message, now);
-	if (fromClock !== undefined) return fromClock + RESET_TIME_BUFFER_MS;
+		const fromClock = parseZonedResetFromMessage(text, now);
+		if (fromClock !== undefined) return fromClock + RESET_TIME_BUFFER_MS;
+	}
 
 	return undefined;
 }

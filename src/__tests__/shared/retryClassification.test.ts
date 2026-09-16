@@ -301,3 +301,83 @@ describe('tokenExhaustionDelayMs', () => {
 		}
 	});
 });
+
+/**
+ * The provider's own error text (`raw.errorLine`).
+ *
+ * Codex's parser replaces `message` with the pattern bank's curated wording, so
+ * before this the scheduler saw "Rate limited. Please wait and try again." for a
+ * multi-hour quota outage and ran the 30s availability backoff against it. These
+ * cover the decision being made off the real line while display keeps using
+ * `message`.
+ */
+describe('classifying off the provider raw line', () => {
+	it('reads exhaustion out of the raw line when the curated message hides it', () => {
+		const error = err({
+			// What the Codex bank rewrote it to.
+			message: 'Rate limited. Please wait and try again.',
+			// What Codex actually printed.
+			raw: { errorLine: "429 - you've hit your usage limit for this plan" },
+		});
+
+		expect(classifyRetryableError(error)).toBe('token-exhaustion');
+	});
+
+	it('prefers exhaustion when the raw line carries both signals', () => {
+		// A throttle read as a quota outage only waits too long; a quota outage
+		// read as a throttle hammers the provider for hours.
+		const error = err({
+			message: 'Rate limit exceeded. Please wait before trying again.',
+			raw: { errorLine: 'rate limit: usage limit reached for your plan' },
+		});
+
+		expect(classifyRetryableError(error)).toBe('token-exhaustion');
+	});
+
+	it('still classifies from message alone when there is no raw line', () => {
+		expect(classifyRetryableError(err({ message: '429 error' }))).toBe('availability');
+		expect(classifyRetryableError(err({ message: 'usage limit reached' }))).toBe(
+			'token-exhaustion'
+		);
+	});
+
+	it('ignores a blank raw line rather than treating it as a text', () => {
+		expect(classifyRetryableError(err({ message: 'usage limit reached', raw: {} }))).toBe(
+			'token-exhaustion'
+		);
+		expect(
+			classifyRetryableError(err({ message: 'usage limit reached', raw: { errorLine: '   ' } }))
+		).toBe('token-exhaustion');
+	});
+
+	it('recovers a reset time that only the raw line carries', () => {
+		const now = Date.UTC(2026, 8, 16, 12, 0, 0);
+		const error = err({
+			message: 'Usage limit reached. Please wait or check your plan quota.',
+			raw: { errorLine: 'You have hit your usage limit. Try again in 4h 12m.' },
+		});
+
+		const resetAt = tokenExhaustionResetAt(error, now);
+
+		// The point of this case is that a hint is recovered AT ALL: before the raw
+		// line was carried, `message` was the curated bank wording and this was
+		// `undefined`, so the scheduler had nothing but its fixed poll.
+		//
+		// The value is 4h, not 4h12m: `parseRetryAfterFromMessage` reads a single
+		// leading unit and ignores the trailing minutes. That is a pre-existing
+		// limit of the parser, unrelated to where the text came from, and it errs
+		// EARLY (probing 12 minutes before the quota is back costs one refused
+		// request), so it is pinned here rather than quietly fixed.
+		expect(resetAt).toBe(now + 4 * 60 * 60 * 1000 + RESET_TIME_BUFFER_MS);
+	});
+
+	it('leaves the reset undefined when neither text names one', () => {
+		const now = Date.UTC(2026, 8, 16, 12, 0, 0);
+		const error = err({
+			message: 'Usage limit reached. Please wait or check your plan quota.',
+			raw: { errorLine: 'stream error: usage limit reached' },
+		});
+
+		expect(tokenExhaustionResetAt(error, now)).toBeUndefined();
+	});
+});
