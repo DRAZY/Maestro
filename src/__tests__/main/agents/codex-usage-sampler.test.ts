@@ -280,6 +280,29 @@ describe('codex-usage-sampler', () => {
 		]);
 	});
 
+	it('never files a long window as a session, even when the weekly bucket is taken', async () => {
+		// Two declared windows on the same side of the boundary is not a shape
+		// any Codex plan reports, but if it ever appears the longer one must not
+		// spill into the session bucket and render as `Session (30d)` - that is
+		// the exact mislabel this classification exists to prevent.
+		await writeAuth();
+		respondWith({
+			rate_limit: {
+				primary_window: { used_percent: 40, reset_at: 1779900000, limit_window_seconds: 604800 },
+				secondary_window: {
+					used_percent: 70,
+					reset_at: 1779900000,
+					limit_window_seconds: 2592000,
+				},
+			},
+		});
+
+		const snapshot = await sampleCodexUsage({ codexHome: TEST_ROOT });
+
+		expect(snapshot.weekly?.percent).toBe(40);
+		expect(snapshot.session).toBeUndefined();
+	});
+
 	it('treats HTTP 401 as unauthenticated without reporting to Sentry (MAESTRO-RR)', async () => {
 		await fs.writeFile(
 			path.join(TEST_ROOT, 'auth.json'),

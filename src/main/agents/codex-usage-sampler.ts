@@ -238,10 +238,12 @@ function parseWindow(window: WhamUsageWindow | undefined): CodexUsageWindow | nu
  * (#1596).
  *
  * A window that does not declare `limit_window_seconds` keeps the old
- * positional meaning, since that is all older responses give us to go on.
- * Nothing that parsed is ever dropped while a bucket is still free: a window
- * whose preferred bucket is taken spills into the other one rather than
- * vanishing from the dashboard.
+ * positional meaning, since that is all older responses give us to go on. Only
+ * those may spill into the other bucket when their own is taken - a declared
+ * length is the one fact we have, and moving a 30d window into the session
+ * bucket to avoid losing it would render it as `Session (30d)`, which is the
+ * exact mislabel this function exists to prevent. Two declared windows on the
+ * same side of the boundary is not a shape any Codex plan reports today.
  */
 function classifyUsageWindows(
 	primaryRaw: WhamUsageWindow | undefined,
@@ -254,25 +256,26 @@ function classifyUsageWindows(
 	if (secondary) slots.push({ window: secondary, slotBucket: 'weekly' });
 
 	const out: { session?: CodexUsageWindow; weekly?: CodexUsageWindow } = {};
-	const place = (window: CodexUsageWindow, preferred: 'session' | 'weekly'): void => {
-		const other = preferred === 'session' ? 'weekly' : 'session';
-		if (!out[preferred]) out[preferred] = window;
-		else if (!out[other]) out[other] = window;
-	};
 
-	// Declared durations win, shortest first, so the shorter of a pair takes the
-	// session bucket even if both land on the same side of the boundary.
+	// A declared length decides its bucket outright, shortest first so the
+	// shorter of a pair takes the session bucket. It never spills: a window is
+	// filed where its length says it belongs, or not at all.
 	const declared = slots
 		.filter((slot) => slot.window.windowSeconds !== undefined)
 		.sort((a, b) => (a.window.windowSeconds ?? 0) - (b.window.windowSeconds ?? 0));
 	for (const slot of declared) {
 		const seconds = slot.window.windowSeconds ?? 0;
-		place(slot.window, seconds <= SESSION_WINDOW_MAX_SECONDS ? 'session' : 'weekly');
+		const bucket = seconds <= SESSION_WINDOW_MAX_SECONDS ? 'session' : 'weekly';
+		if (!out[bucket]) out[bucket] = slot.window;
 	}
 
+	// An undeclared window is a guess either way, so it prefers its slot's
+	// historical meaning and takes whichever bucket is still free otherwise.
 	for (const slot of slots) {
 		if (slot.window.windowSeconds !== undefined) continue;
-		place(slot.window, slot.slotBucket);
+		const other = slot.slotBucket === 'session' ? 'weekly' : 'session';
+		if (!out[slot.slotBucket]) out[slot.slotBucket] = slot.window;
+		else if (!out[other]) out[other] = slot.window;
 	}
 
 	return out;
