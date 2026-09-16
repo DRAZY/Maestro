@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { memo, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { QuickAction, QuickActionsModalProps } from './types';
 import { usePhoneLayout } from '../../hooks/ui/useViewportBreakpoint';
@@ -17,6 +17,7 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Z_LAYERS } from '../../constants/zLayers';
 import { gitService } from '../../services/git';
 import { useWindowContextOptional } from '../../contexts/WindowContext';
+import { filterSessionsVisibleInSidebar } from '../../utils/sessionVisibility';
 import { revealAgentInSidebar } from '../../services/agentNavigation';
 import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { safeClipboardWrite } from '../../utils/clipboard';
@@ -222,6 +223,17 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
 	const setShowStarredSessionsSection = useSettingsStore((s) => s.setShowStarredSessionsSection);
 	const enterToSendAI = useSettingsStore((s) => s.enterToSendAI);
+	// Agents the Left Bar does not render must not be jump targets either. Pianola
+	// persists in the session store once its Encore flag is off, and the palette's
+	// agent list is built from the raw `sessions` array - so a fuzzy match on its
+	// name handed the user an agent with no row to come back to (and, before the
+	// render gate in MainPanel, the whole Pianola Dashboard for a disabled
+	// feature). Same predicate the Left Bar and Cmd+[ / Cmd+] cycling use.
+	const pianolaEnabled = useSettingsStore((s) => s.encoreFeatures?.pianola);
+	const switchableSessions = useMemo(
+		() => filterSessionsVisibleInSidebar(sessions, { pianolaEnabled }),
+		[sessions, pianolaEnabled]
+	);
 	const storeSetHistorySearchFilterOpen = useUIStore((s) => s.setHistorySearchFilterOpen);
 	const setSuccessFlashNotification = useUIStore((s) => s.setSuccessFlashNotification);
 	const bookmarksCollapsed = useUIStore((s) => s.bookmarksCollapsed);
@@ -882,7 +894,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 
 	const agentActions = [
 		...buildAgentSwitcherCommands({
-			sessions,
+			sessions: switchableSessions,
 			activeBatchSessionIds,
 			setActiveSessionId,
 			revealJumpTarget,

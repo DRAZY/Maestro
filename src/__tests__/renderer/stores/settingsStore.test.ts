@@ -2180,6 +2180,35 @@ describe('settingsStore', () => {
 				expect(state.history).toEqual([]);
 			});
 
+			it('leaves a player the user is already using alone', async () => {
+				// `loadAllSettings` is not a startup-only call: it re-runs on system
+				// resume, on an external settings edit (maestro-cli, a peer window),
+				// and on a remote set-setting. Re-applying the on-disk snapshot there
+				// hid the widget AND suppressed the Left Bar pill, so a player that
+				// was mid-track simply vanished with no way back.
+				useMediaPlaybackStore.getState().openMedia({
+					path: '/files/live.mp3',
+					name: 'live.mp3',
+					sessionId: 's9',
+					sessionName: 'Agent Nine',
+					kind: 'audio',
+				});
+				useMediaPlaybackStore.setState({ playing: true, dismissed: false, dormant: false });
+
+				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+					mediaPlayerQueue: stored,
+				});
+				await loadAllSettings();
+
+				const state = useMediaPlaybackStore.getState();
+				// Still on screen, still playing, still the user's file.
+				expect(state.dismissed).toBe(false);
+				expect(state.dormant).toBe(false);
+				expect(state.playing).toBe(true);
+				expect(state.activeItemId).toBe('s9::/files/live.mp3');
+				expect(state.items.map((i) => i.name)).toContain('live.mp3');
+			});
+
 			it('ignores a stored queue with nothing usable left in it', async () => {
 				useMediaPlaybackStore.setState({ items: [], activeItemId: null });
 				vi.mocked(window.maestro.settings.getAll).mockResolvedValue({

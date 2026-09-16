@@ -2114,6 +2114,48 @@ describe('QuickActionsModal', () => {
 			expect(screen.queryByText('Open Settings')).not.toBeInTheDocument();
 		});
 
+		it('hides the Pianola agent while its Encore flag is off', async () => {
+			// Pianola persists in the session store after the flag is switched off, so
+			// the palette has to apply the same visibility predicate the Left Bar does -
+			// otherwise it hands the user an agent with no row to come back to.
+			const { useSettingsStore } = await import('../../../renderer/stores/settingsStore');
+			useSettingsStore.setState({
+				encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, pianola: false },
+			} as never);
+			const props = createDefaultProps({
+				initialMode: 'agents',
+				sessions: [
+					createMockSession({ id: 'session-1', name: 'Agent Alpha' }),
+					{ ...createMockSession({ id: 'pianola-1', name: 'Pianola' }), isPianola: true },
+				],
+			});
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText('Agent Alpha')).toBeInTheDocument();
+			expect(screen.queryByText('Pianola')).not.toBeInTheDocument();
+		});
+
+		it('lists the Pianola agent once its Encore flag is on', async () => {
+			const { useSettingsStore } = await import('../../../renderer/stores/settingsStore');
+			useSettingsStore.setState({
+				encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, pianola: true },
+			} as never);
+			const props = createDefaultProps({
+				initialMode: 'agents',
+				sessions: [
+					createMockSession({ id: 'session-1', name: 'Agent Alpha' }),
+					{ ...createMockSession({ id: 'pianola-1', name: 'Pianola' }), isPianola: true },
+				],
+			});
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText('Pianola')).toBeInTheDocument();
+
+			useSettingsStore.setState({
+				encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, pianola: false },
+			} as never);
+		});
+
 		it('filters agents by search text in agents mode', () => {
 			const props = createDefaultProps({
 				initialMode: 'agents',
