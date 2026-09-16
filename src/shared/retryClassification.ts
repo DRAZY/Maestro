@@ -96,9 +96,70 @@ const TOKEN_EXHAUSTION_RE =
  * `rate_limit` (Claude Code puts exactly that in the `error` field of its
  * plan-limit message), and a whitespace-only pattern classified it as `unknown`,
  * which is not retryable - so a real 429 got no retry at all.
+ *
+ * `try again` REQUIRES a temporal qualifier. A bare `try\s+again` is a catch-all
+ * for the closing words of an apology, and nearly every provider error ends with
+ * one: a hard HTTP 400 reading "requires a newer version of Codex. Please
+ * upgrade to the latest app or CLI and try again" matched on those two words
+ * alone, drew "Service overloaded", and probed every 30 minutes forever - there
+ * is no attempt cap - while the actionable message sat behind a banner. What a
+ * genuinely transient error says is "try again LATER", so that is what is
+ * matched.
  */
 const AVAILABILITY_RE =
-	/overloaded|\b529\b|\b503\b|\b502\b|\b500\b|service\s+(?:unavailable|overloaded)|temporarily\s+(?:unavailable|overloaded)|too\s+many\s+requests|rate[\s_-]?limit|\b429\b|try\s+again/i;
+	/overloaded|\b529\b|\b503\b|\b502\b|\b500\b|service\s+(?:unavailable|overloaded)|temporarily\s+(?:unavailable|overloaded)|too\s+many\s+requests|rate[\s_-]?limit|\b429\b|try\s+again\s+(?:later|shortly|in\s+(?:a\s+(?:few|moment|bit)|\d))/i;
+
+/**
+ * HTTP statuses that describe a request no repetition can fix. 408 and 429 are
+ * deliberately absent: a timeout and a throttle are the two 4xx that genuinely
+ * do clear on their own, and 429 in particular has to stay available to the
+ * token-exhaustion strategy.
+ */
+const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([
+	400, 401, 403, 404, 405, 409, 413, 422,
+]);
+
+/** Provider error types that name a permanent fault in the request itself. */
+const PERMANENT_ERROR_TYPES: ReadonlySet<string> = new Set([
+	'invalid_request_error',
+	'not_found_error',
+	'permission_error',
+	'authentication_error',
+]);
+
+/**
+ * Prose that names a permanent fault, for providers that hand us no structure.
+ * Deliberately narrow: each phrase describes something the user must change -
+ * the binary, the model name - rather than something that could clear on its own.
+ */
+const PERMANENT_FAILURE_RE =
+	/invalid_request_error|requires\s+a\s+newer\s+version|upgrade\s+to\s+the\s+latest|unsupported\s+model|(?:model|engine)\s+not\s+found|unknown\s+model|no\s+such\s+model/i;
+
+/**
+ * Whether this error is permanently fatal, read STRUCTURALLY where possible.
+ *
+ * The prose is the last resort, not the first: a provider that tells us
+ * `status: 400` and `invalid_request_error` has already answered the question,
+ * and deciding it from the sentence instead is how a substring of an apology
+ * came to schedule an unbounded retry loop.
+ *
+ * Pure and dependency-free, like the rest of this module, so both processes and
+ * the CLI bundle can call it.
+ */
+function isPermanentFailure(error: ClassifiableError): boolean {
+	const json = error.parsedJson;
+	if (json && typeof json === 'object') {
+		const obj = json as Record<string, unknown>;
+		if (typeof obj.status === 'number' && PERMANENT_HTTP_STATUSES.has(obj.status)) return true;
+		const inner = obj.error;
+		if (inner && typeof inner === 'object') {
+			const innerType = (inner as Record<string, unknown>).type;
+			if (typeof innerType === 'string' && PERMANENT_ERROR_TYPES.has(innerType)) return true;
+		}
+		if (typeof obj.type === 'string' && PERMANENT_ERROR_TYPES.has(obj.type)) return true;
+	}
+	return classifiableTexts(error).some((text) => PERMANENT_FAILURE_RE.test(text));
+}
 
 /** The minimal shape {@link classifyRetryableError} needs from an AgentError. */
 export interface ClassifiableError {
@@ -156,6 +217,11 @@ export function classifyRetryableError(error: ClassifiableError): RetryStrategy 
 	// carries both signals, and the slow poll is the safe reading: treating a
 	// multi-hour outage as a transient throttle retries it every 30 seconds,
 	// while the reverse merely waits a little longer than it had to.
+	// Before either regex: a permanently fatal request must not be retried even
+	// when its prose mentions a quota or ends in "try again". Excluding 429 from
+	// the status list is what keeps a real quota throttle routed below instead.
+	if (isPermanentFailure(error)) return null;
+
 	const texts = classifiableTexts(error);
 	if (texts.some((text) => TOKEN_EXHAUSTION_RE.test(text))) return 'token-exhaustion';
 	if (texts.some((text) => AVAILABILITY_RE.test(text)) || error.type === 'network_error') {
