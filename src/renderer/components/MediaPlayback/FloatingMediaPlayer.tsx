@@ -21,6 +21,7 @@ import {
 	fitMediaFloatRect,
 	initialMediaFloatRect,
 	mediaFloatChromeHeight,
+	mediaFloatFootprint,
 	mediaFloatResizeWidth,
 	mediaFloatWidthFor,
 	type MediaFloatFit,
@@ -126,6 +127,7 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	const resumeTimes = useMediaPlaybackStore((s) => s.resumeTimes);
 	const setActiveItem = useMediaPlaybackStore((s) => s.setActiveItem);
 	const closeItem = useMediaPlaybackStore((s) => s.closeItem);
+	const setFloatFootprint = useMediaPlaybackStore((s) => s.setFloatFootprint);
 
 	// The queue menu lists what is coming NEXT, so the loaded track is filtered
 	// out of it. It stays in `items` because that is how prev/next find their
@@ -328,6 +330,26 @@ export const FloatingMediaPlayer = memo(function FloatingMediaPlayer({
 	useEventListener('resize', () =>
 		setRect((prev) => fitMediaFloatRect(prev, fitRef.current, viewport()))
 	);
+
+	/**
+	 * Tell the bottom-right toast lane where the widget is.
+	 *
+	 * Toasts sit at z-index 100000 so they stay visible over modals, and they
+	 * stack up from the same corner the player opens in - so an arriving
+	 * notification painted straight over the widget and it read as the player
+	 * having closed itself. The lane lifts over the widget instead, and this is
+	 * where the measurement comes from: the widget clamps itself to the
+	 * viewport, so its real rect is not derivable from the persisted position.
+	 *
+	 * Null while minimized - a parked widget is not on screen to be covered.
+	 */
+	useEffect(() => {
+		setFloatFootprint(hidden ? null : mediaFloatFootprint(rect, viewport()));
+	}, [rect, hidden, setFloatFootprint]);
+
+	// The widget is unmounted when the last item closes, which no `hidden` change
+	// announces.
+	useEffect(() => () => setFloatFootprint(null), [setFloatFootprint]);
 
 	// Close the open list on any outside click. Both buttons and the portaled
 	// list count as inside - the list is not a DOM descendant.

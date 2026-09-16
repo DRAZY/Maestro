@@ -4,6 +4,7 @@ import { FloatingMediaPlayer } from '../../../../renderer/components/MediaPlayba
 import { useMediaPlaybackStore } from '../../../../renderer/stores/mediaPlaybackStore';
 import {
 	MEDIA_FLOAT_DEFAULT_WIDTH,
+	MEDIA_FLOAT_EDGE_MARGIN,
 	mediaFloatChromeHeight,
 } from '../../../../renderer/utils/mediaFloatGeometry';
 import type { MediaItem } from '../../../../renderer/utils/mediaItems';
@@ -65,6 +66,7 @@ describe('FloatingMediaPlayer', () => {
 			durations: {},
 			floatPosition: null,
 			floatWidths: {},
+			floatFootprint: null,
 			aspects: {},
 		});
 		(window as unknown as { maestro?: unknown }).maestro = { settings: { set: vi.fn() } };
@@ -699,5 +701,52 @@ describe('FloatingMediaPlayer', () => {
 			fireEvent.mouseDown(document.body);
 			expect(screen.queryByTestId('media-history-menu')).toBeNull();
 		});
+	});
+});
+
+describe('FloatingMediaPlayer footprint', () => {
+	beforeEach(() => {
+		useMediaPlaybackStore.setState({ floatFootprint: null });
+		(window as unknown as { maestro?: unknown }).maestro = { settings: { set: vi.fn() } };
+	});
+
+	it("publishes where it landed, in the toast lane's coordinates", () => {
+		// The toast stack is anchored bottom-right and sits far above the widget in
+		// z-order, so it needs this to step over the player instead of erasing it.
+		renderPlayer();
+		const footprint = useMediaPlaybackStore.getState().floatFootprint;
+		expect(footprint).toEqual({
+			fromBottom: MEDIA_FLOAT_EDGE_MARGIN + CHROME,
+			fromRight: MEDIA_FLOAT_EDGE_MARGIN,
+			width: MEDIA_FLOAT_DEFAULT_WIDTH.audio,
+			viewportHeight: window.innerHeight,
+		});
+	});
+
+	it('reports nothing while minimized', () => {
+		// A parked widget is not on screen, so there is nothing for toasts to
+		// avoid - and lifting them for it would look like a stray gap.
+		render(
+			<FloatingMediaPlayer
+				title="podcast.mp3"
+				subtitle="Agent One"
+				kind="audio"
+				transportHeight={null}
+				hidden
+				theme={mockTheme}
+			>
+				<div data-testid="player-body">player</div>
+			</FloatingMediaPlayer>
+		);
+		expect(useMediaPlaybackStore.getState().floatFootprint).toBeNull();
+	});
+
+	it('reports nothing once it is gone', () => {
+		// Closing the last item unmounts the widget, which no `hidden` change
+		// announces - a stale footprint would leave the toast stack lifted forever.
+		const { unmount } = renderPlayer();
+		expect(useMediaPlaybackStore.getState().floatFootprint).not.toBeNull();
+		unmount();
+		expect(useMediaPlaybackStore.getState().floatFootprint).toBeNull();
 	});
 });
