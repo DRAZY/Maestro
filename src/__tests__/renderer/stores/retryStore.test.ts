@@ -29,6 +29,7 @@ import {
 	useRetryStore,
 } from '../../../renderer/stores/retryStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
+import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from '../../../renderer/stores/agentStore';
 import { availabilityDelayMs, RESET_TIME_BUFFER_MS } from '../../../shared/retryClassification';
 import { createMockSession } from '../../helpers/mockSession';
@@ -91,7 +92,9 @@ beforeEach(() => {
 	vi.setSystemTime(NOW);
 	useRetryStore.setState({ retries: {}, outages: {} });
 	useSessionStore.setState({ sessions: [] } as any);
-	processQueuedItem = vi.fn().mockResolvedValue(undefined);
+	// `true` = "a dispatch went out". A mock resolving undefined states the
+	// opposite, and `fireRetry` reads that as a prompt that was never sent.
+	processQueuedItem = vi.fn().mockResolvedValue(true);
 	useAgentStore.setState({ processQueuedItem } as any);
 	registerBatchResumer(null);
 });
@@ -210,6 +213,49 @@ describe('firing the retry', () => {
 	it('retryNow is a no-op when there is no active retry', () => {
 		retryNow('nope', 't1');
 		expect(processQueuedItem).not.toHaveBeenCalled();
+	});
+
+	// `startProviderWatch` has always refused to fire an in-flight entry ("a
+	// resend is already on its way"). `retryNow` did not, and the card's Try Now
+	// button survives an early fire because nothing moves `nextRetryAt` - so
+	// re-pointing the provider and then clicking Try Now put the same prompt on
+	// the wire twice.
+	it('retryNow refuses to fire a resend that is already in flight', () => {
+		setupSession('s9b', 't1');
+		seedSnapshot('s9b', 't1');
+		scheduleRetryForError('s9b', 't1', overload());
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+		expect(getRetryEntry('s9b', 't1')?.status).toBe('in-flight');
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// `processQueuedItem` RESOLVES without dispatching when the item's tab is
+	// gone - ordinary on a wait measured in tens of minutes. The prompt is out of
+	// the queue by then, so reading that as a send destroys it silently and
+	// leaves the entry in-flight forever.
+	it('ends the outage and names the prompt when the dispatch never ran', async () => {
+		setupSession('s9c', 't1');
+		seedSnapshot('s9c', 't1');
+		scheduleRetryForError('s9c', 't1', overload());
+		const outageId = getRetryEntry('s9c', 't1')!.outageId;
+		processQueuedItem.mockResolvedValueOnce(false);
+
+		retryNow('s9c', 't1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Not stranded in-flight: nothing would ever have settled it, and the
+		// queue holds on the entry existing.
+		expect(getRetryEntry('s9c', 't1')).toBeUndefined();
+		expect(getOutage(outageId)?.status).toBe('stopped');
+
+		// And the user is told which message was not sent.
+		const toast = useNotificationStore.getState().toasts.at(-1);
+		expect(toast?.message).toContain('hi');
+		expect(toast?.sessionId).toBe('s9c');
 	});
 
 	// Codify-at-send freezes model/effort onto the QueuedItem so a queued turn

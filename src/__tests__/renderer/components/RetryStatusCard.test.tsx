@@ -74,6 +74,35 @@ describe('RetryStatusCard', () => {
 		expect(screen.getByRole('button', { name: /Try now/ })).toBeDisabled();
 	});
 
+	// An early fire - the user re-points the provider mid-outage - never moves
+	// `nextRetryAt`, so the countdown keeps running over a resend that is already
+	// on the wire. The button it used to leave enabled dispatched the same prompt
+	// a second time.
+	it('disables "Try now" while the resend is in flight, countdown or not', () => {
+		setOutage({ nextRetryAt: NOW + 90_000 });
+		useRetryStore.setState({
+			retries: {
+				's1:t1': {
+					sessionId: 's1',
+					tabId: 't1',
+					key: 's1:t1',
+					outageId: 'o1',
+					strategy: 'availability',
+					mode: 'resend',
+					status: 'in-flight',
+					attempt: 0,
+					startedAt: NOW,
+					nextRetryAt: NOW + 90_000,
+					lastMessage: 'API Error: 529 Overloaded',
+				},
+			},
+		});
+		render(<RetryStatusCard outageId="o1" theme={mockTheme} />);
+
+		expect(screen.getByText('now…')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Try now/ })).toBeDisabled();
+	});
+
 	it('freezes into a recovered summary with a pluralized retry count', () => {
 		setOutage({
 			status: 'recovered',

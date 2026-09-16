@@ -468,6 +468,21 @@ export function hasPendingRetry(sessionId: string, tabId: string): boolean {
 }
 
 /**
+ * The live status of this tab's retry, or `undefined` when nothing is pending.
+ *
+ * For UI that must not offer an action the machinery forbids. The persistent
+ * outage RECORD a transcript card renders carries `nextRetryAt` and nothing
+ * about what is happening right now, so a card deriving its state from that
+ * countdown alone cannot see a retry that fired EARLY - and every early fire
+ * (the user re-pointing the provider, a Try Now) leaves `nextRetryAt` where it
+ * was. The result was a live countdown, and an enabled Try Now, sitting over a
+ * resend already on the wire.
+ */
+export function useRetryStatus(sessionId: string, tabId: string): RetryStatus | undefined {
+	return useRetryStore((s) => s.retries[keyFor(sessionId, tabId)]?.status);
+}
+
+/**
  * Whether the given agent+error should be auto-retried, honoring the per-agent
  * resilience toggles. Returns the strategy, or null to fall back to the modal.
  */
@@ -716,6 +731,49 @@ function rescheduleAfterFailedDispatch(key: string, reason: string): void {
 	);
 }
 
+/**
+ * A resend resolved without ever reaching the provider.
+ *
+ * `processQueuedItem` aborts - and RESOLVES rather than throwing - when the tab
+ * an item names is gone, which a wait now measured in tens of minutes makes
+ * ordinary: the user closes the tab while the countdown runs. By then
+ * `fireRetry` has already taken the prompt out of the queue, so there is no copy
+ * of it left anywhere the user can see, no process whose exit would settle the
+ * entry, and no throw for the catch below to reschedule. The turn is destroyed
+ * silently and the entry holds that tab open in the store forever.
+ *
+ * So end the outage and SAY what was not sent. The prompt is deliberately not
+ * re-queued: the queue re-resolves a dead `tabId` onto the agent's ACTIVE tab,
+ * which would deliver the message into a conversation the user never addressed
+ * it to. Surfacing the text and letting the human press send is the answer the
+ * post-restart replay gives, for the same reason.
+ */
+function reportUndeliverableRetry(entry: RetryEntry, item: QueuedItem): void {
+	logger.warn('[retry] Resend dispatched nothing; ending outage', undefined, {
+		key: entry.key,
+		tabId: entry.tabId,
+	});
+
+	// Nothing is running behind this entry, so its busy state is ours to clear -
+	// the same call `cancelRetry` makes when it ends a retry with no live resend
+	// behind it.
+	updateSessionWith(entry.sessionId, (s) => settleTabThinkingState(s, entry.tabId));
+
+	resolveOutage(entry.outageId, 'stopped');
+	removeEntry(entry.key);
+
+	const text = item.type === 'command' ? item.command : item.text;
+	notifyToast({
+		color: 'yellow',
+		title: 'Message not re-sent',
+		message: text
+			? `The tab it was waiting for is gone, so it was never sent: "${truncateForToast(text)}"`
+			: 'The tab this message was waiting for is gone, so it was never sent.',
+		sessionId: entry.sessionId,
+		dismissible: true,
+	});
+}
+
 /** Fire a scheduled retry now: mark in-flight and re-run the failed work. */
 async function fireRetry(key: string): Promise<void> {
 	const entry = useRetryStore.getState().retries[key];
@@ -758,9 +816,10 @@ async function fireRetry(key: string): Promise<void> {
 		// the dispatch marks the tab busy, and a queue drain that read the item
 		// while it was in flight would send it twice.
 		releaseHeldItemFromQueue(entry.sessionId, snapshot.item.id);
-		await useAgentStore
+		const dispatched = await useAgentStore
 			.getState()
 			.processQueuedItem(entry.sessionId, replayItem(entry, snapshot.item), snapshot.deps);
+		if (!dispatched) reportUndeliverableRetry(entry, snapshot.item);
 	} catch (error) {
 		// The resend never reached the provider (a spawn refusal, a bad config, a
 		// thrown dep). That is not an outcome the agent-error path will ever
@@ -775,10 +834,21 @@ async function fireRetry(key: string): Promise<void> {
 	}
 }
 
-/** User asked to retry immediately: cancel the timer and fire now. */
+/**
+ * User asked to retry immediately: cancel the timer and fire now.
+ *
+ * Only a `'scheduled'` entry fires, the same rule `startProviderWatch` holds to:
+ * an `'in-flight'` entry is a resend already on the wire, and firing it again
+ * dispatches the SAME prompt a second time. The card is what made that
+ * reachable - it derives "firing" from the countdown arithmetic, and an early
+ * fire (re-pointing the provider mid-outage) never moves `nextRetryAt`, so Try
+ * Now stayed enabled while the resend was already running. The card reads the
+ * live status now; this is the half that cannot be bypassed by a stale render.
+ */
 export function retryNow(sessionId: string, tabId: string): void {
 	const key = keyFor(sessionId, tabId);
-	if (!useRetryStore.getState().retries[key]) return;
+	const entry = useRetryStore.getState().retries[key];
+	if (!entry || entry.status !== 'scheduled') return;
 	clearTimer(key);
 	void fireRetry(key);
 }
