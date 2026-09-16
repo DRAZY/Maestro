@@ -1,5 +1,5 @@
 ---
-title: Command Line Interface
+title: CLI
 description: Send messages to agents, list sessions, run playbooks, and manage Maestro settings from the command line.
 icon: square-terminal
 ---

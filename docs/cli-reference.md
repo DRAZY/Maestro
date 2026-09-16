@@ -1,3 +1,9 @@
+---
+title: CLI Reference
+description: Every maestro-cli command, argument, and option, generated from the live command tree.
+icon: book
+---
+
 # maestro-cli Command Reference
 
 > Generated from the CLI command tree by `maestro-cli reference`. Do not edit by hand - run `npm run gen:cli-reference` to refresh.
