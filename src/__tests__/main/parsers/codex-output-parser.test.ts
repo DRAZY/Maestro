@@ -582,6 +582,36 @@ describe('CodexOutputParser', () => {
 			expect(error?.agentId).toBe('codex');
 		});
 
+		// A hard 4xx is decided by the envelope, not by the sentence. Without this
+		// the fallback emitted `recoverable: true` and the retry scheduler read
+		// "try again" out of the message and probed forever.
+		it('marks a hard client error non-recoverable', () => {
+			const line = JSON.stringify({
+				type: 'error',
+				status: 400,
+				error: {
+					type: 'invalid_request_error',
+					message:
+						"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+				},
+			});
+			const error = parser.detectErrorFromLine(line);
+			expect(error).not.toBeNull();
+			expect(error?.recoverable).toBe(false);
+			expect(error?.message).toContain('gpt-6-astra');
+		});
+
+		it('leaves a 429 recoverable', () => {
+			const line = JSON.stringify({
+				type: 'error',
+				status: 429,
+				error: { type: 'rate_limit_error', message: 'usage limit reached' },
+			});
+			const error = parser.detectErrorFromLine(line);
+			expect(error).not.toBeNull();
+			expect(error?.recoverable).toBe(true);
+		});
+
 		it('should detect rate limit errors from JSON', () => {
 			const line = JSON.stringify({ error: 'rate limit exceeded' });
 			const error = parser.detectErrorFromLine(line);

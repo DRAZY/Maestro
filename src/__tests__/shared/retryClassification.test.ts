@@ -25,6 +25,107 @@ function err(partial: Partial<ClassifiableError> & { message: string }): Classif
 	};
 }
 
+/**
+ * The 2026-09-16 report: Codex refused a model with a hard HTTP 400 and Maestro
+ * drew "Service overloaded - auto-retrying" over it, probing every 30 minutes
+ * with no attempt cap while the one actionable instruction - upgrade the CLI -
+ * sat behind a dismissible banner. Nothing in the payload was ambiguous; the
+ * only thing that matched was the phrase "try again" at the end of an apology.
+ */
+describe('a permanently fatal request is never retried', () => {
+	const gpt6Astra = {
+		type: 'error',
+		status: 400,
+		error: {
+			type: 'invalid_request_error',
+			message:
+				"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+		},
+	};
+
+	it('does not retry the reported gpt-6-astra 400', () => {
+		expect(
+			classifyRetryableError(
+				err({
+					message:
+						"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+					parsedJson: gpt6Astra,
+				})
+			)
+		).toBeNull();
+	});
+
+	it('reads the status structurally, whatever the prose says', () => {
+		// The sentence names a quota, so without the structural gate this would
+		// route to the wait-for-reset strategy and wait out a limit that is not
+		// the reason the request failed.
+		expect(
+			classifyRetryableError(
+				err({ message: 'usage limit reached', parsedJson: { type: 'error', status: 400 } })
+			)
+		).toBeNull();
+	});
+
+	it('reads a provider error type when no status is given', () => {
+		expect(
+			classifyRetryableError(
+				err({
+					message: 'something went wrong, please try again later',
+					parsedJson: { error: { type: 'invalid_request_error' } },
+				})
+			)
+		).toBeNull();
+	});
+
+	it('falls back to prose for providers that send no structure', () => {
+		for (const message of [
+			'This model requires a newer version of Codex. Please try again later.',
+			'Unsupported model: gpt-6-astra',
+			'model not found',
+		]) {
+			expect(classifyRetryableError(err({ message }))).toBeNull();
+		}
+	});
+
+	// The two 4xx that DO clear on their own must be untouched, and 429 in
+	// particular has to stay available to the token-exhaustion strategy.
+	it('leaves 408 and 429 retryable', () => {
+		expect(
+			classifyRetryableError(
+				err({
+					message: 'Request timed out. Please try again later.',
+					parsedJson: { type: 'error', status: 408 },
+				})
+			)
+		).toBe('availability');
+		expect(
+			classifyRetryableError(
+				err({ message: 'usage limit reached', parsedJson: { type: 'error', status: 429 } })
+			)
+		).toBe('token-exhaustion');
+	});
+
+	// The tightened pattern must not cost us the errors it was written for.
+	it('still retries real transient failures', () => {
+		expect(classifyRetryableError(err({ message: 'Overloaded, please try again later' }))).toBe(
+			'availability'
+		);
+		expect(classifyRetryableError(err({ message: 'API Error: 529 Overloaded' }))).toBe(
+			'availability'
+		);
+		expect(
+			classifyRetryableError(err({ message: 'Service is busy. Try again in a few minutes.' }))
+		).toBe('availability');
+	});
+
+	// A bare "try again" is the closing words of an apology, not a signal.
+	it('does not read a bare "try again" as a retry signal', () => {
+		expect(
+			classifyRetryableError(err({ message: 'Something broke. Please fix it and try again.' }))
+		).toBeNull();
+	});
+});
+
 describe('classifyRetryableError', () => {
 	it('classifies overload/529/5xx/throttle messages as availability', () => {
 		for (const message of [
