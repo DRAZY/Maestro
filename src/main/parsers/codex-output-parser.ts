@@ -995,6 +995,12 @@ export class CodexOutputParser implements AgentOutputParser {
 				agentId: this.agentId,
 				timestamp: Date.now(),
 				parsedJson,
+				// `match.message` is the pattern bank's curated wording, which is what
+				// the user should read - but it is also all the retry scheduler used to
+				// get, and it carries neither the phrasing that tells a plan-quota
+				// outage from a throttle nor any "resets in 4h 12m". Codex says both of
+				// those in its own text and nowhere else, so keep the line itself here.
+				raw: { errorLine: errorText },
 			};
 		}
 
@@ -1037,6 +1043,10 @@ export class CodexOutputParser implements AgentOutputParser {
 					exitCode,
 					stderr,
 					stdout,
+					// Same reason as the event path above: `message` is the curated bank
+					// wording, so the text that actually names the limit and its reset
+					// has to travel separately or the retry scheduler never sees it.
+					errorLine: combined,
 				},
 			};
 		}

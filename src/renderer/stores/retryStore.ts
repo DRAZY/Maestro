@@ -29,6 +29,7 @@ import { create } from 'zustand';
 import {
 	classifyRetryableError,
 	availabilityDelayMs,
+	tokenExhaustionDelayMs,
 	tokenExhaustionResetAt,
 	type RetryStrategy,
 	type ClassifiableError,
@@ -407,10 +408,16 @@ export function scheduleRetryForError(
 	const outageId = existing?.outageId ?? generateId();
 	const startedAt = existing?.startedAt ?? now;
 
+	// Token exhaustion POLLS rather than sleeping to the parsed reset: the wait
+	// can end for reasons the provider's notice cannot know about (the user
+	// re-points the agent at another account, the plan rolls over early, the
+	// message named the wrong window). The parsed time still matters - it is what
+	// keeps us from arriving a poll interval late - it just is not the only
+	// moment we look. See tokenExhaustionDelayMs.
 	const nextRetryAt =
 		strategy === 'availability'
 			? now + availabilityDelayMs(attempt)
-			: tokenExhaustionResetAt(error, now);
+			: now + tokenExhaustionDelayMs(attempt, tokenExhaustionResetAt(error, now), now);
 
 	clearTimer(key);
 	const entry: RetryEntry = {

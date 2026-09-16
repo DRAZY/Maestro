@@ -11,9 +11,13 @@
  *    backoff: 30s, 1m, 2m, 4m, 8m, 16m, then 30m repeating forever.
  *
  *  - `'token-exhaustion'` - the account's plan quota is depleted ("usage limit
- *    reached", "quota exceeded", "resets at …"). Backing off in seconds is
- *    pointless; the quota resets on a clock. If we can parse a reset time from
- *    the error we wait until then; otherwise we wait 1h and retry every hour.
+ *    reached", "quota exceeded", "resets at …"). We POLL until it comes back:
+ *    at 15s, then 60s, then once every 15 minutes for as long as the outage
+ *    lasts, and exactly on the reset time when the error named one and it lands
+ *    sooner than the next probe. A parsed reset is
+ *    a hint about when to expect recovery, never the only moment we look - the
+ *    account can be switched, the plan can roll over early, and the notice can
+ *    name the wrong window. See {@link tokenExhaustionDelayMs}.
  *
  * This module is intentionally pure and dependency-free so it can run in either
  * the renderer or the main process. It classifies by MESSAGE CONTENT rather than
@@ -31,8 +35,33 @@ export type RetryStrategy = 'availability' | 'token-exhaustion';
 export const AVAILABILITY_BASE_DELAY_MS = 30 * 1000;
 /** Ceiling for the availability backoff: once reached, retries repeat every 30m. */
 export const AVAILABILITY_MAX_DELAY_MS = 30 * 60 * 1000;
-/** Fallback wait for token exhaustion when no reset time can be parsed: 1h. */
-export const TOKEN_EXHAUSTION_FALLBACK_DELAY_MS = 60 * 60 * 1000;
+/**
+ * The token-exhaustion poll cadence, written out rather than computed.
+ *
+ * An explicit table because the two things this schedule has to satisfy pull in
+ * opposite directions, and a formula cannot express both. The first probes must
+ * be quick, since the seconds right after a limit fires are when a stale notice
+ * or an already-switched account is most likely. Everything after that must be
+ * SLOW: a plan quota comes back on a clock measured in hours, and probing it
+ * every minute is hundreds of refused requests that tell us nothing.
+ *
+ * A doubling ramp looks like it covers both and does not. Ramping from 15s to a
+ * 15m ceiling takes seven probes and about 31 minutes to get there, so the whole
+ * first half hour of a four-hour outage is spent probing - which is the
+ * behaviour being fixed, just slower.
+ *
+ * Two quick probes, then the floor. The last entry repeats forever.
+ */
+export const TOKEN_EXHAUSTION_POLL_STEPS_MS: readonly number[] = [
+	15 * 1000,
+	60 * 1000,
+	15 * 60 * 1000,
+];
+/** First token-exhaustion poll fires 15s after the limit is hit. */
+export const TOKEN_EXHAUSTION_POLL_BASE_MS = TOKEN_EXHAUSTION_POLL_STEPS_MS[0];
+/** Steady-state token-exhaustion poll: one probe every 15m, for as long as it takes. */
+export const TOKEN_EXHAUSTION_POLL_MAX_MS =
+	TOKEN_EXHAUSTION_POLL_STEPS_MS[TOKEN_EXHAUSTION_POLL_STEPS_MS.length - 1];
 /** Small cushion added past a parsed reset time so the quota is actually back. */
 export const RESET_TIME_BUFFER_MS = 5 * 1000;
 
@@ -78,6 +107,38 @@ export interface ClassifiableError {
 	recoverable: boolean;
 	/** Optional structured payload from the agent; may carry a reset/retry hint. */
 	parsedJson?: unknown;
+	/**
+	 * The provider's OWN error text, when the parser replaced `message` with a
+	 * curated one from the pattern bank.
+	 *
+	 * Classification has to read this, not just `message`. A pattern bank entry
+	 * is written for a human reading a dialog, so it is short and generic - and
+	 * the two things this module needs are exactly what that rewrite destroys:
+	 * the phrasing that separates a plan-quota outage from a transient throttle,
+	 * and any "resets in 4h 12m" hint. Codex hit both: a 429 that also said
+	 * "usage limit" came through as "Rate limited. Please wait and try again.",
+	 * which reads as `'availability'` and ran a 30s backoff against a multi-hour
+	 * quota outage.
+	 *
+	 * Display keeps using `message`, so populating this changes what Maestro
+	 * DECIDES without changing what the user reads.
+	 */
+	raw?: { errorLine?: string };
+}
+
+/**
+ * Every text this error carries, widest first.
+ *
+ * The provider's own line is checked BEFORE the curated message because it is
+ * strictly more informative; the curated one stays in the list so an error that
+ * only ever had a bank message still classifies exactly as it used to.
+ */
+function classifiableTexts(error: ClassifiableError): string[] {
+	const texts: string[] = [];
+	const rawLine = error.raw?.errorLine;
+	if (typeof rawLine === 'string' && rawLine.trim() !== '') texts.push(rawLine);
+	if (typeof error.message === 'string' && error.message !== '') texts.push(error.message);
+	return texts;
 }
 
 /**
@@ -90,9 +151,16 @@ export function classifyRetryableError(error: ClassifiableError): RetryStrategy 
 	if (!error.recoverable) return null;
 	if (NON_RETRYABLE_TYPES.has(error.type)) return null;
 
-	const message = error.message ?? '';
-	if (TOKEN_EXHAUSTION_RE.test(message)) return 'token-exhaustion';
-	if (AVAILABILITY_RE.test(message) || error.type === 'network_error') return 'availability';
+	// Exhaustion is decided across EVERY text before availability is considered
+	// for any of them, not per text in turn. A quota notice that also says "429"
+	// carries both signals, and the slow poll is the safe reading: treating a
+	// multi-hour outage as a transient throttle retries it every 30 seconds,
+	// while the reverse merely waits a little longer than it had to.
+	const texts = classifiableTexts(error);
+	if (texts.some((text) => TOKEN_EXHAUSTION_RE.test(text))) return 'token-exhaustion';
+	if (texts.some((text) => AVAILABILITY_RE.test(text)) || error.type === 'network_error') {
+		return 'availability';
+	}
 	return null;
 }
 
@@ -115,8 +183,9 @@ export function availabilityDelayMs(attempt: number): number {
  * Best-effort, in descending order of confidence: a structured retry/reset hint
  * on `parsedJson`, a `retry after N seconds/minutes` phrase, the legacy
  * `usage limit reached|<epoch>` marker, then a wall-clock reset that names its
- * own IANA timezone ("resets 11:40am (America/Chicago)"). When nothing
- * parseable is found returns `now + 1h` (the hourly fallback).
+ * own IANA timezone ("resets 11:40am (America/Chicago)"). Returns `undefined`
+ * when nothing parseable is found: the poll cadence governs from there, and
+ * inventing a reset time would put the caller back on a blind sleep.
  *
  * A bare wall-clock phrase like "resets at 3pm" is still ignored: without a
  * zone the guess can be hours off. Claude Code's own notice carries the zone in
@@ -126,22 +195,80 @@ export function availabilityDelayMs(attempt: number): number {
  * @param error the failing error
  * @param now   current epoch ms (injectable for tests)
  */
-export function tokenExhaustionResetAt(error: ClassifiableError, now: number): number {
+export function tokenExhaustionResetAt(error: ClassifiableError, now: number): number | undefined {
 	const fromJson = parseResetFromJson(error.parsedJson, now);
 	if (fromJson !== undefined) return fromJson + RESET_TIME_BUFFER_MS;
 
-	const message = error.message ?? '';
+	// The provider's own line first: a curated bank message never carries a reset
+	// hint, so for any agent whose parser rewrites `message` this is the only
+	// place a "resets in 4h 12m" can still be read.
+	for (const text of classifiableTexts(error)) {
+		const fromMessage = parseRetryAfterFromMessage(text, now);
+		if (fromMessage !== undefined) return fromMessage + RESET_TIME_BUFFER_MS;
 
-	const fromMessage = parseRetryAfterFromMessage(message, now);
-	if (fromMessage !== undefined) return fromMessage + RESET_TIME_BUFFER_MS;
+		const fromEpochMarker = parseEpochMarkerFromMessage(text, now);
+		if (fromEpochMarker !== undefined) return fromEpochMarker + RESET_TIME_BUFFER_MS;
 
-	const fromEpochMarker = parseEpochMarkerFromMessage(message, now);
-	if (fromEpochMarker !== undefined) return fromEpochMarker + RESET_TIME_BUFFER_MS;
+		const fromClock = parseZonedResetFromMessage(text, now);
+		if (fromClock !== undefined) return fromClock + RESET_TIME_BUFFER_MS;
+	}
 
-	const fromClock = parseZonedResetFromMessage(message, now);
-	if (fromClock !== undefined) return fromClock + RESET_TIME_BUFFER_MS;
+	return undefined;
+}
 
-	return now + TOKEN_EXHAUSTION_FALLBACK_DELAY_MS;
+/**
+ * Delay before the next token-exhaustion attempt: a POLL, not a sleep.
+ *
+ * A depleted quota does come back on a clock, so the obvious implementation is
+ * to parse the reset time and sleep until it. That is what this used to do, and
+ * it is wrong in one direction that matters: it treats the provider's notice as
+ * the only way the wait can end. It is not. The user can switch the agent to a
+ * different account or provider, the plan can roll over early, the window named
+ * in the message can be the wrong one, or the notice can simply be stale. A
+ * single long sleep is blind to all of it - the observed failure was a 2h26m
+ * outage that cleared "after 0 retries", meaning Maestro tried exactly once,
+ * at the end, and had no idea what was true at any point in between.
+ *
+ * So we keep probing. Each probe is a real resend, because a real resend is the
+ * only honest test of whether the quota is back - and it is nearly free when it
+ * is not: the provider refuses before consuming tokens, and the outage card
+ * updates in place rather than adding a transcript entry per attempt.
+ *
+ * Two rules:
+ *
+ *  1. **Never sleep past the expected reset.** When a reset time was parsed and
+ *     it lands sooner than the next poll, wait exactly that long, so a known
+ *     reset is met on the second rather than up to one poll interval late.
+ *  2. **Otherwise poll on a fixed cadence**: 15s, 60s, then every 15 minutes for
+ *     as long as it takes. The two early probes are quick because the first
+ *     seconds are when a mis-parsed reset or an already-cleared limit is most
+ *     likely; from the third probe on, the 15-minute floor keeps a four-hour
+ *     outage to about sixteen refused requests per tab rather than 240.
+ *
+ * `attempt` is 0-indexed (0 = the first attempt of this outage).
+ *
+ * @param attempt   0-indexed attempt number within this outage
+ * @param resetAt   parsed reset time, or undefined when none could be read
+ * @param now       current epoch ms (injectable for tests)
+ */
+export function tokenExhaustionDelayMs(
+	attempt: number,
+	resetAt: number | undefined,
+	now: number
+): number {
+	const safeAttempt = Math.max(0, Math.floor(attempt));
+	// Straight table lookup, clamped to the last entry, which then repeats for
+	// the rest of the outage. No exponent to guard against overflowing.
+	const poll =
+		TOKEN_EXHAUSTION_POLL_STEPS_MS[
+			Math.min(safeAttempt, TOKEN_EXHAUSTION_POLL_STEPS_MS.length - 1)
+		];
+
+	if (resetAt === undefined) return poll;
+	const untilReset = resetAt - now;
+	// A reset already in the past tells us nothing new - keep polling.
+	if (untilReset <= 0) return poll;
+	return Math.min(poll, untilReset);
 }
 
 /** Recognized numeric hint fields on a structured error payload. */

@@ -28,6 +28,7 @@ import {
 	chooseNextQueuedItem,
 	queueIsHeldByRetry,
 } from '../../../renderer/hooks/agent/internal/helpers/exitDequeue';
+import { TOKEN_EXHAUSTION_POLL_BASE_MS } from '../../../shared/retryClassification';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from '../../../renderer/stores/agentStore';
 import { takeNextRunnableQueueItem } from '../../../renderer/utils/executionQueue';
@@ -138,10 +139,12 @@ describe('queued messages across a quota outage', () => {
 		expect(session().executionQueue).toHaveLength(3);
 		expect(dispatched).toEqual(['running']);
 
-		// The retry is parked on the real reset time, not an arbitrary backoff.
+		// The retry POLLS rather than sleeping to the parsed reset: the first probe
+		// is quick, because the seconds right after a limit fires are when a stale
+		// notice or an already-switched account is most likely.
 		const entry = getRetryEntry(SESSION, TAB)!;
 		expect(entry.strategy).toBe('token-exhaustion');
-		expect(entry.nextRetryAt).toBeGreaterThan(NOW + 60 * 60 * 1000);
+		expect(entry.nextRetryAt).toBe(NOW + TOKEN_EXHAUSTION_POLL_BASE_MS);
 
 		// Quota resets. The retry fires and replays the ORIGINAL failed prompt.
 		await vi.advanceTimersByTimeAsync(entry.nextRetryAt - NOW + 10);
