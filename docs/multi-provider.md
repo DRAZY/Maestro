@@ -316,7 +316,6 @@ and memories live in each provider's own store and in its own format, so they do
 not follow the switch - the agent comes back with no idea what it was working
 on.
 
-Arbitrary provider switching, with session history and memories carried across,
-is on the roadmap. Until it lands, use a separate agent per provider and move
-context deliberately with
-[context transfer](/context-management).
+Moving an agent smoothly between providers, with its session history and
+memories carried across, is on the roadmap. Until it lands, use a separate agent
+per provider.
