@@ -15,6 +15,12 @@ import {
 import { GhostIconButton } from './ui/GhostIconButton';
 import type { Theme, BatchDocumentEntry } from '../types';
 import { generateId } from '../utils/ids';
+import {
+	applySelectionOrder,
+	deselectFolderFiles,
+	selectAllDocuments,
+	selectFolderFiles,
+} from '../utils/documentSelectionOrder';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { useResizableModal } from '../hooks/ui/useResizableModal';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -98,9 +104,10 @@ function DocumentSelectorModal({
 		});
 	}, []);
 
-	// Select all documents
+	// Select all documents. Appends whatever isn't selected yet so the order the
+	// user already built by clicking survives.
 	const selectAll = useCallback(() => {
-		setSelectedDocs(new Set(allDocuments));
+		setSelectedDocs((prev) => selectAllDocuments(prev, allDocuments));
 	}, [allDocuments]);
 
 	// Deselect all documents
@@ -151,23 +158,17 @@ function DocumentSelectorModal({
 		[getFilesInFolder, selectedDocs]
 	);
 
-	// Toggle all files in a folder
+	// Toggle all files in a folder. Selecting moves the folder's documents to the
+	// end of the selection as one block, so the order folders are clicked in is
+	// the order their documents run in.
 	const toggleFolder_ = useCallback(
 		(node: DocTreeNode) => {
 			const files = getFilesInFolder(node);
 			const allSelected = files.every((f) => selectedDocs.has(f));
 
-			setSelectedDocs((prev) => {
-				const next = new Set(prev);
-				if (allSelected) {
-					// Deselect all
-					files.forEach((f) => next.delete(f));
-				} else {
-					// Select all
-					files.forEach((f) => next.add(f));
-				}
-				return next;
-			});
+			setSelectedDocs((prev) =>
+				allSelected ? deselectFolderFiles(prev, files) : selectFolderFiles(prev, files)
+			);
 		},
 		[getFilesInFolder, selectedDocs]
 	);
@@ -687,24 +688,21 @@ export function DocumentsPanel({
 		setShowDocSelector(true);
 	}, []);
 
+	// The run list follows the picker's selection order: documents appear in the
+	// order the user clicked them (or clicked the folder holding them). Entries
+	// already in the list keep their id, reset flag, and duplicates - the picker
+	// seeds its selection from the list, so an order built by dragging rows is
+	// carried straight back in.
 	const handleAddSelectedDocs = useCallback(
 		(selectedDocs: Set<string>) => {
-			const existingFilenames = new Set(documents.map((d) => d.filename));
-
-			const newDocs: BatchDocumentEntry[] = [];
-			selectedDocs.forEach((filename) => {
-				if (!existingFilenames.has(filename)) {
-					newDocs.push({
-						id: generateId(),
-						filename,
-						resetOnCompletion: false,
-						isDuplicate: false,
-					});
-				}
-			});
-
-			const filteredDocs = documents.filter((d) => selectedDocs.has(d.filename));
-			setDocuments([...filteredDocs, ...newDocs]);
+			setDocuments(
+				applySelectionOrder(documents, selectedDocs, (filename) => ({
+					id: generateId(),
+					filename,
+					resetOnCompletion: false,
+					isDuplicate: false,
+				}))
+			);
 			setShowDocSelector(false);
 		},
 		[documents, setDocuments]

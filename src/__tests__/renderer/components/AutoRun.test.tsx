@@ -400,6 +400,9 @@ describe('AutoRun', () => {
 	describe('Font Zoom', () => {
 		beforeEach(() => {
 			installLocalStorageMock();
+			// The panel has no font size of its own: it reads the File Preview /
+			// File Editor surfaces, so the base has to be seeded explicitly.
+			useSettingsStore.setState({ fontSize: 14, fontZoom: 1, filePreviewFontSize: 0 });
 		});
 
 		// The source editor is CodeMirror, which carries its font size in the
@@ -423,14 +426,38 @@ describe('AutoRun', () => {
 			const { container } = renderWithProvider(<AutoRun {...props} />);
 
 			const preview = container.querySelector('.prose') as HTMLElement;
-			expect(parseFloat(preview.style.fontSize)).toBeCloseTo(13, 5);
+			expect(parseFloat(preview.style.fontSize)).toBeCloseTo(14, 5);
 
 			fireEvent.click(screen.getByLabelText('Increase preview font size'));
 
 			expect(
 				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
-			).toBeCloseTo(14.3, 5);
+			).toBeCloseTo(15.4, 5);
 			expect(window.localStorage.getItem('autoRun.previewFontScale')).toBe('1.1');
+		});
+
+		// The panel used to carry a hard-coded 13px, so it stayed put while the
+		// rest of the app moved and read visibly smaller than the transcript
+		// beside it. It is a File Preview surface like any other document pane.
+		it('takes its base size from the File Preview surface, zoom included', () => {
+			useSettingsStore.setState({ fontSize: 16, fontZoom: 1.2, filePreviewFontSize: 0 });
+			const props = createDefaultProps({ mode: 'preview' });
+			const { container } = renderWithProvider(<AutoRun {...props} />);
+
+			// 16 interface px * 1.2 zoom, inherited because the surface is unset.
+			expect(
+				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
+			).toBeCloseTo(19.2, 5);
+		});
+
+		it('follows an explicit File Preview size over the interface size', () => {
+			useSettingsStore.setState({ fontSize: 16, fontZoom: 1, filePreviewFontSize: 20 });
+			const props = createDefaultProps({ mode: 'preview' });
+			const { container } = renderWithProvider(<AutoRun {...props} />);
+
+			expect(
+				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
+			).toBeCloseTo(20, 5);
 		});
 
 		// The whole point of two keys: zooming one mode must leave the other alone.

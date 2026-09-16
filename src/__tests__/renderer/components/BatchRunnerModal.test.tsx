@@ -347,6 +347,26 @@ describe('BatchRunnerModal', () => {
 			});
 		});
 
+		it('lists documents in the order they were clicked, not alphabetically', async () => {
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+
+			fireEvent.click(screen.getByRole('button', { name: 'Add Docs' }));
+
+			const selectorModal = screen.getByText('Select Documents').closest('.fixed')!;
+			// Drop the preset doc, then pick the rest out of alphabetical order.
+			fireEvent.click(within(selectorModal).getByRole('button', { name: /test-doc\.md/ }));
+			fireEvent.click(within(selectorModal).getByRole('button', { name: /doc3\.md/ }));
+			fireEvent.click(within(selectorModal).getByRole('button', { name: /doc1\.md/ }));
+			fireEvent.click(within(selectorModal).getByRole('button', { name: /doc2\.md/ }));
+
+			fireEvent.click(screen.getByRole('button', { name: /Add \d+ file/ }));
+
+			await waitFor(() => {
+				const names = Array.from(document.querySelectorAll('bdi')).map((el) => el.textContent);
+				expect(names).toEqual(['doc3.md', 'doc1.md', 'doc2.md']);
+			});
+		});
+
 		it('removes document when X button is clicked', async () => {
 			const props = createDefaultProps();
 			render(<BatchRunnerModal {...props} />);
