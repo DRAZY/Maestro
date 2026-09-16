@@ -12,8 +12,9 @@
  *
  *  - `'token-exhaustion'` - the account's plan quota is depleted ("usage limit
  *    reached", "quota exceeded", "resets at …"). We POLL until it comes back:
- *    every 15s, then 30s, then once a minute for as long as the outage lasts,
- *    and exactly on the reset time when the error named one. A parsed reset is
+ *    at 15s, then 60s, then once every 15 minutes for as long as the outage
+ *    lasts, and exactly on the reset time when the error named one and it lands
+ *    sooner than the next probe. A parsed reset is
  *    a hint about when to expect recovery, never the only moment we look - the
  *    account can be switched, the plan can roll over early, and the notice can
  *    name the wrong window. See {@link tokenExhaustionDelayMs}.
@@ -34,10 +35,33 @@ export type RetryStrategy = 'availability' | 'token-exhaustion';
 export const AVAILABILITY_BASE_DELAY_MS = 30 * 1000;
 /** Ceiling for the availability backoff: once reached, retries repeat every 30m. */
 export const AVAILABILITY_MAX_DELAY_MS = 30 * 60 * 1000;
+/**
+ * The token-exhaustion poll cadence, written out rather than computed.
+ *
+ * An explicit table because the two things this schedule has to satisfy pull in
+ * opposite directions, and a formula cannot express both. The first probes must
+ * be quick, since the seconds right after a limit fires are when a stale notice
+ * or an already-switched account is most likely. Everything after that must be
+ * SLOW: a plan quota comes back on a clock measured in hours, and probing it
+ * every minute is hundreds of refused requests that tell us nothing.
+ *
+ * A doubling ramp looks like it covers both and does not. Ramping from 15s to a
+ * 15m ceiling takes seven probes and about 31 minutes to get there, so the whole
+ * first half hour of a four-hour outage is spent probing - which is the
+ * behaviour being fixed, just slower.
+ *
+ * Two quick probes, then the floor. The last entry repeats forever.
+ */
+export const TOKEN_EXHAUSTION_POLL_STEPS_MS: readonly number[] = [
+	15 * 1000,
+	60 * 1000,
+	15 * 60 * 1000,
+];
 /** First token-exhaustion poll fires 15s after the limit is hit. */
-export const TOKEN_EXHAUSTION_POLL_BASE_MS = 15 * 1000;
-/** Steady-state token-exhaustion poll: one probe a minute, for as long as it takes. */
-export const TOKEN_EXHAUSTION_POLL_MAX_MS = 60 * 1000;
+export const TOKEN_EXHAUSTION_POLL_BASE_MS = TOKEN_EXHAUSTION_POLL_STEPS_MS[0];
+/** Steady-state token-exhaustion poll: one probe every 15m, for as long as it takes. */
+export const TOKEN_EXHAUSTION_POLL_MAX_MS =
+	TOKEN_EXHAUSTION_POLL_STEPS_MS[TOKEN_EXHAUSTION_POLL_STEPS_MS.length - 1];
 /** Small cushion added past a parsed reset time so the quota is actually back. */
 export const RESET_TIME_BUFFER_MS = 5 * 1000;
 
@@ -219,10 +243,11 @@ export function tokenExhaustionResetAt(error: ClassifiableError, now: number): n
  *  1. **Never sleep past the expected reset.** When a reset time was parsed and
  *     it lands sooner than the next poll, wait exactly that long, so a known
  *     reset is met on the second rather than up to one poll interval late.
- *  2. **Otherwise poll on a fixed cadence** that ramps 15s → 30s → 60s and then
- *     holds. The early probes are quick because the first seconds are when a
- *     mis-parsed reset or an already-cleared limit is most likely; the ceiling
- *     keeps a multi-hour outage to one refused request a minute per tab.
+ *  2. **Otherwise poll on a fixed cadence**: 15s, 60s, then every 15 minutes for
+ *     as long as it takes. The two early probes are quick because the first
+ *     seconds are when a mis-parsed reset or an already-cleared limit is most
+ *     likely; from the third probe on, the 15-minute floor keeps a four-hour
+ *     outage to about sixteen refused requests per tab rather than 240.
  *
  * `attempt` is 0-indexed (0 = the first attempt of this outage).
  *
@@ -236,10 +261,12 @@ export function tokenExhaustionDelayMs(
 	now: number
 ): number {
 	const safeAttempt = Math.max(0, Math.floor(attempt));
+	// Straight table lookup, clamped to the last entry, which then repeats for
+	// the rest of the outage. No exponent to guard against overflowing.
 	const poll =
-		safeAttempt >= 31
-			? TOKEN_EXHAUSTION_POLL_MAX_MS
-			: Math.min(TOKEN_EXHAUSTION_POLL_BASE_MS * 2 ** safeAttempt, TOKEN_EXHAUSTION_POLL_MAX_MS);
+		TOKEN_EXHAUSTION_POLL_STEPS_MS[
+			Math.min(safeAttempt, TOKEN_EXHAUSTION_POLL_STEPS_MS.length - 1)
+		];
 
 	if (resetAt === undefined) return poll;
 	const untilReset = resetAt - now;

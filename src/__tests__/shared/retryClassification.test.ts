@@ -251,14 +251,28 @@ describe('tokenExhaustionResetAt', () => {
 
 describe('tokenExhaustionDelayMs', () => {
 	const now = 1_700_000_000_000;
-	const min = 60 * 1000;
+	const minute = 60 * 1000;
+	/** The steady-state floor: every probe from the third on waits this long. */
+	const floor = 15 * minute;
 
-	it('ramps 15s, 30s, then holds at one probe a minute', () => {
+	it('probes twice quickly, then holds at the 15 minute floor', () => {
+		// Two fast probes catch a stale notice or an account the user already
+		// switched. Everything after that is a quota coming back on a clock
+		// measured in hours, so it is polled at the floor and not faster.
 		expect(tokenExhaustionDelayMs(0, undefined, now)).toBe(15 * 1000);
-		expect(tokenExhaustionDelayMs(1, undefined, now)).toBe(30 * 1000);
-		expect(tokenExhaustionDelayMs(2, undefined, now)).toBe(min);
-		expect(tokenExhaustionDelayMs(3, undefined, now)).toBe(min);
+		expect(tokenExhaustionDelayMs(1, undefined, now)).toBe(minute);
+		expect(tokenExhaustionDelayMs(2, undefined, now)).toBe(floor);
+		expect(tokenExhaustionDelayMs(3, undefined, now)).toBe(floor);
 		expect(tokenExhaustionDelayMs(500, undefined, now)).toBe(TOKEN_EXHAUSTION_POLL_MAX_MS);
+	});
+
+	// A doubling ramp to the same ceiling reaches the floor on the seventh probe,
+	// roughly 31 minutes in, so the first half hour of a four-hour outage is
+	// still spent probing. The floor has to arrive on probe 3, not eventually.
+	it('reaches the floor by the third probe rather than ramping into it', () => {
+		expect(tokenExhaustionDelayMs(2, undefined, now)).toBe(floor);
+		const firstHour = [0, 1, 2, 3].map((a) => tokenExhaustionDelayMs(a, undefined, now));
+		expect(firstHour.reduce((a, b) => a + b, 0)).toBeGreaterThan(30 * minute);
 	});
 
 	it('clamps negative and fractional attempts to the first probe', () => {
@@ -270,30 +284,39 @@ describe('tokenExhaustionDelayMs', () => {
 	// an outage that cleared early - because the user swapped accounts, or the
 	// notice named the wrong window - was invisible until the sleep expired.
 	it('keeps polling through a reset that is hours away', () => {
-		const resetAt = now + 5 * 60 * min;
+		const resetAt = now + 5 * 60 * minute;
 		expect(tokenExhaustionDelayMs(0, resetAt, now)).toBe(15 * 1000);
-		expect(tokenExhaustionDelayMs(9, resetAt, now)).toBe(min);
-		expect(tokenExhaustionDelayMs(200, resetAt, now)).toBe(min);
+		expect(tokenExhaustionDelayMs(9, resetAt, now)).toBe(floor);
+		expect(tokenExhaustionDelayMs(200, resetAt, now)).toBe(floor);
 	});
 
 	it('lands exactly on the reset when it arrives sooner than the next probe', () => {
-		// 20s out with a 60s cadence: waiting the full minute would meet a known
-		// reset 40s late, every time, for no reason.
+		// 20s out at the floor: waiting the full 15 minutes would meet a known
+		// reset roughly 14 minutes late, every time, for no reason.
 		expect(tokenExhaustionDelayMs(5, now + 20 * 1000, now)).toBe(20 * 1000);
-		// ...but never LATER than the cadence, which is the sleep this replaced.
-		expect(tokenExhaustionDelayMs(5, now + 90 * 1000, now)).toBe(min);
+		expect(tokenExhaustionDelayMs(5, now + 90 * 1000, now)).toBe(90 * 1000);
+	});
+
+	// This is the guard on the clamp DIRECTION, and it is load-bearing. Clamping
+	// the other way (waiting for a distant reset instead of the cadence) restores
+	// the blind sleep this design replaced: the observed failure was a 2h26m
+	// outage that cleared "after 0 retries" because Maestro looked exactly once,
+	// at the end. A far-off reset must never stretch the wait past the floor.
+	it('never waits LONGER than the floor just because a reset is far away', () => {
+		expect(tokenExhaustionDelayMs(5, now + 30 * minute, now)).toBe(floor);
+		expect(tokenExhaustionDelayMs(5, now + 4 * 60 * minute, now)).toBe(floor);
 	});
 
 	it('goes on polling once the reset has come and gone', () => {
 		// The provider said the quota would be back and it was not. That is a
 		// reason to keep asking, not to stop.
-		expect(tokenExhaustionDelayMs(4, now - 60 * min, now)).toBe(min);
-		expect(tokenExhaustionDelayMs(4, now, now)).toBe(min);
+		expect(tokenExhaustionDelayMs(4, now - 60 * minute, now)).toBe(floor);
+		expect(tokenExhaustionDelayMs(4, now, now)).toBe(floor);
 	});
 
 	it('never returns a delay that could stall the loop', () => {
 		for (let attempt = 0; attempt < 40; attempt++) {
-			for (const resetAt of [undefined, now - 1, now, now + 1, now + 10 * min]) {
+			for (const resetAt of [undefined, now - 1, now, now + 1, now + 10 * minute]) {
 				const delay = tokenExhaustionDelayMs(attempt, resetAt, now);
 				expect(delay).toBeGreaterThan(0);
 				expect(delay).toBeLessThanOrEqual(TOKEN_EXHAUSTION_POLL_MAX_MS);

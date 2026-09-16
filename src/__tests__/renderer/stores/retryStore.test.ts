@@ -1138,8 +1138,12 @@ describe('token-exhaustion outage - spin, not sleep', () => {
 		expect(scheduleRetryForError('s1', 't1', error)).toBe(true);
 		const probes = await spinRefusing(error, 60 * 60 * 1000);
 
-		// One a minute after the ramp, for an hour - not one at the end of five.
-		expect(probes).toBeGreaterThan(50);
+		// Several probes across the hour, not one at the end of five hours. The
+		// upper bound is the other half of the promise: after two quick probes the
+		// cadence is the 15-minute floor, so an hour buys about five attempts
+		// rather than the 60+ a one-a-minute poll produced.
+		expect(probes).toBeGreaterThanOrEqual(4);
+		expect(probes).toBeLessThan(10);
 		expect(getRetryEntry('s1', 't1')?.status).toBe('scheduled');
 		expect(getOutage(getRetryEntry('s1', 't1')!.outageId)?.status).toBe('active');
 	});
@@ -1154,7 +1158,10 @@ describe('token-exhaustion outage - spin, not sleep', () => {
 		// succeeds, and nothing reschedules it.
 		await spinRefusing(error, 10 * 60 * 1000);
 		const before = processQueuedItem.mock.calls.length;
-		await vi.advanceTimersByTimeAsync(60 * 1000);
+		// One floor interval, since that is the spacing once the two quick probes
+		// are behind us. The point of the test is that recovery is noticed by the
+		// NEXT probe, not that the probe is soon.
+		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
 		expect(processQueuedItem.mock.calls.length).toBeGreaterThan(before);
 
 		// The successful resend settles on process exit, as the exit listener does.
@@ -1173,8 +1180,10 @@ describe('token-exhaustion outage - spin, not sleep', () => {
 
 		const probes = await spinRefusing(error, 10 * 60 * 1000);
 
-		// A reset in the past is not a reason to stop asking.
-		expect(probes).toBeGreaterThan(8);
+		// A reset in the past is not a reason to stop asking. The count is small
+		// because the floor governs once the advertised window has gone by; what
+		// matters is that it is not zero and the entry is still scheduled.
+		expect(probes).toBeGreaterThanOrEqual(3);
 		expect(getRetryEntry('s1', 't1')?.status).toBe('scheduled');
 	});
 
@@ -1208,8 +1217,9 @@ describe('token-exhaustion outage - spin, not sleep', () => {
 		await spinRefusing(error, 5 * 60 * 1000);
 
 		// The card reads "cleared after N retries"; N is now the truth rather
-		// than the 0 a single sleep always reported.
-		expect(getOutage(outageId)!.attempts).toBeGreaterThan(3);
+		// than the 0 a single sleep always reported. Five minutes covers the two
+		// quick probes, with the third due at the 15-minute floor.
+		expect(getOutage(outageId)!.attempts).toBeGreaterThanOrEqual(2);
 	});
 });
 
