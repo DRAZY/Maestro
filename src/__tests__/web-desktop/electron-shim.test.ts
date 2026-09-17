@@ -160,6 +160,19 @@ describe('web-desktop electron-shim desktop navigation sync', () => {
 	});
 });
 
+describe('web-desktop electron-shim foreground recovery', () => {
+	it('probes the socket immediately when the page returns to the foreground', () => {
+		const socket = InertWebSocket.instances[0];
+		socket.readyState = InertWebSocket.OPEN;
+		const before = socket.sent.length;
+
+		window.dispatchEvent(new Event('pageshow'));
+
+		expect(JSON.parse(socket.sent[before])).toEqual({ type: 'ping' });
+		socket.emit('message', { data: JSON.stringify({ type: 'pong' }) });
+	});
+});
+
 describe('web-desktop electron-shim autorun_state routing', () => {
 	// Auto Run is renderer-owned in-memory state. The owning client pushes it to
 	// main, which fans it out to every WebSocket client as an `autorun_state`

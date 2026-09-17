@@ -14,6 +14,7 @@ import {
 	applyQueuedItemDispatchFailure,
 	isSameQueuedPrompt,
 	findQueuedDuplicate,
+	releaseConnectionHeldQueueItems,
 } from '../../../renderer/utils/executionQueue';
 import type { AITab, QueuedItem, Session } from '../../../renderer/types';
 import { createMockSession } from '../../helpers/mockSession';
@@ -28,9 +29,20 @@ function tabItem(id: string, tabId: string): QueuedItem {
 }
 
 describe('executionQueue helpers', () => {
-	it('isRunnableQueueItem treats only non-paused items as runnable', () => {
+	it('isRunnableQueueItem treats user and connection holds as non-runnable', () => {
 		expect(isRunnableQueueItem(item('a'))).toBe(true);
 		expect(isRunnableQueueItem(item('b', true))).toBe(false);
+		expect(isRunnableQueueItem({ ...item('c'), waitingForConnection: true })).toBe(false);
+	});
+
+	it('releaseConnectionHeldQueueItems removes only the connection hold', () => {
+		const held = { ...item('a', true), waitingForConnection: true };
+		const queue = [held, item('b')];
+		const released = releaseConnectionHeldQueueItems(queue);
+
+		expect(released[0]).toEqual(item('a', true));
+		expect(released[1]).toEqual(item('b'));
+		expect(releaseConnectionHeldQueueItems(released)).toBe(released);
 	});
 
 	it('nextRunnableQueueItem returns the first non-paused item', () => {
@@ -38,6 +50,17 @@ describe('executionQueue helpers', () => {
 		expect(nextRunnableQueueItem(q)?.id).toBe('b');
 		expect(nextRunnableQueueItem([item('a', true)])).toBeUndefined();
 		expect(nextRunnableQueueItem([])).toBeUndefined();
+	});
+
+	it('does not let later work overtake a connection-held item', () => {
+		const q = [
+			item('paused', true),
+			{ ...item('held'), waitingForConnection: true },
+			item('later'),
+		];
+		expect(nextRunnableQueueItem(q)).toBeUndefined();
+		expect(hasRunnableQueueItem(q)).toBe(false);
+		expect(takeNextRunnableQueueItem(q)).toEqual({ item: null, remaining: q });
 	});
 
 	it('hasRunnableQueueItem reflects whether any item can run', () => {
@@ -125,7 +148,7 @@ describe('hasWorkAheadOfNewMessage', () => {
 		expect(hasWorkAheadOfNewMessage(orphaned)).toBe(true);
 	});
 
-	it('is true when an item is waiting, and false when every item is held', () => {
+	it('counts runnable and connection-held work, but not user-paused work', () => {
 		const queued = createMockSession({
 			aiTabs: [createMockAITab({ id: 'tab-1' })],
 			executionQueue: [item('a')],
@@ -138,6 +161,12 @@ describe('hasWorkAheadOfNewMessage', () => {
 			executionQueue: [item('a', true)],
 		});
 		expect(hasWorkAheadOfNewMessage(held)).toBe(false);
+
+		const connectionHeld = createMockSession({
+			aiTabs: [createMockAITab({ id: 'tab-1' })],
+			executionQueue: [{ ...item('a'), waitingForConnection: true }],
+		});
+		expect(hasWorkAheadOfNewMessage(connectionHeld)).toBe(true);
 	});
 
 	it('is true while Auto Run is active, which never marks the agent busy', () => {
