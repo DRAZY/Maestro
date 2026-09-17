@@ -95,7 +95,9 @@ export interface SessionLifecycleReturn {
 		/** Env vars parked with the eye button: kept, but never handed to a spawn. */
 		customEnvVarsDisabled?: Record<string, string>,
 		/** New working directory; `undefined` when the user left it unchanged. */
-		workingDirectory?: string
+		workingDirectory?: string,
+		/** Codex only: spend a reset credit automatically on quota exhaustion. Defaults off. */
+		codexAutoResetOnExhaustion?: boolean
 	) => void;
 	/** Rename the currently-selected tab (persists to agent session storage + history) */
 	handleRenameTab: (newName: string) => void;
@@ -184,7 +186,9 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 			/** Env vars parked with the eye button: kept, but never handed to a spawn. */
 			customEnvVarsDisabled?: Record<string, string>,
 			/** New working directory; `undefined` when the user left it unchanged. */
-			workingDirectory?: string
+			workingDirectory?: string,
+			/** Codex only: spend a reset credit automatically on quota exhaustion. Defaults off. */
+			codexAutoResetOnExhaustion?: boolean
 		) => {
 			// The dialog disables the field while the agent runs, but the agent can
 			// start between opening the dialog and saving. Say so rather than
@@ -226,6 +230,11 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 					// cleared on a provider switch below (unlike maestroP fields).
 					retryOnAvailabilityErrors,
 					retryOnTokenExhaustion,
+					// Codex automatic usage resets. Like resilience above, this is left
+					// alone by the provider switch below: an agent moved off Codex keeps
+					// the preference so moving back does not silently lose it, and the
+					// flag is inert for any provider without reset credits.
+					codexAutoResetOnExhaustion,
 				};
 
 				// If the provider changed, park each tab's provider-specific state and

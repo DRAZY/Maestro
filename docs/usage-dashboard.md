@@ -188,6 +188,42 @@ Two things it is careful about:
 
 Every chart on the dashboard also gains a **Tokens** metric mode, so charts that would otherwise plot query counts or time can plot token consumption over the same range.
 
+### OpenAI Usage
+
+One row per Codex account (`CODEX_HOME`), each with its plan badge, its email, and a bar per usage window: **Session (5h)**, **Weekly**, and any per-model limits the account reports, every one labelled with when it reopens.
+
+#### Usage resets
+
+OpenAI grants Codex accounts occasional **reset credits**. Redeeming one reopens that account's consumed usage windows straight away instead of waiting for the clock. Codex only exposes this inside its own terminal UI, so Maestro surfaces it here: any account holding credits grows a **Usage resets** block under its bars, listing each credit with its expiry and a **Reset now** button.
+
+Redeeming always asks first, because the credits are finite, expire (typically about a month after they are granted), and cannot be refunded. Maestro spends the soonest-to-expire credit so none lapses while others sit unused, and re-reads your usage immediately afterwards, so the bars show the reopened windows rather than the exhausted ones you just paid to clear.
+
+<Warning>
+A reset credit reopens whatever is currently consumed. Redeem one while your windows are near-empty and it is simply gone, having reset nothing. Maestro reads this from the account (the header says `2 available - 0 would take effect now`) and says so in the confirmation, but it will not stop you: they are your credits.
+</Warning>
+
+An account with no credits shows no block at all, so the row stays as it was.
+
+#### Automatic resets
+
+Individual agents can redeem a credit on their own when they hit a wall. The toggle is in the agent's **Codex Settings**, directly under Reasoning Effort, in both the New Agent and Edit Agent dialogs:
+
+**Redeem a reset credit when this agent hits its usage limit** - off by default.
+
+Turned on, an agent that stops on a plan-quota limit spends one credit and lets its usual auto-retry pick the work back up once the window is open. Maestro will not do this quietly: every automatic redemption raises a notification naming the agent and how many windows reopened.
+
+The automation is deliberately more cautious than the button:
+
+| It fires only when                               | Because                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| The agent runs on Codex and the toggle is on     | No other provider has reset credits, and the default is off                           |
+| The stop is a real plan-quota limit              | A crash or an auth failure is not something a reset can fix                           |
+| The account confirms the reset would take effect | It refuses a spend that would reset nothing, and refuses when it cannot tell          |
+| It has not already reset for this outage         | One wall must not be able to walk through the whole balance one error at a time       |
+| The agent runs locally                           | Over SSH the credits read here belong to this machine, not to the host the agent uses |
+
+Turn it off and nothing changes about the manual button: the credits stay yours to spend from the dashboard whenever you choose.
+
 ### Shortcuts
 
 How much of the keyboard you actually use, from two sources: which shortcuts you have ever fired, and how often shortcuts fired per day.

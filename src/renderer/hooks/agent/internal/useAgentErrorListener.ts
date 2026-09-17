@@ -44,6 +44,7 @@ import {
 	persistDispatchSnapshotForAuth,
 } from '../../../stores/retryStore';
 import { reportAuthFailure } from '../../../stores/authOutageStore';
+import { maybeAutoResetCodexUsage } from '../../../services/codexAutoReset';
 import type { AgentError, GroupChatMessage, LogEntry, SessionState } from '../../../types';
 import type { UseAgentListenersDeps, ToolProgressState } from './types';
 
@@ -350,6 +351,19 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 				// interval-based fallback that probeAvailability was designed for.
 				const pausedSession = getSessions().find((s) => s.id === actualSessionId);
 				const isSshBacked = !!pausedSession?.sshRemoteId;
+
+				// Automatic Codex usage reset. Gated hard inside the service (Codex
+				// only, opted in only, real limit only, fresh confirmation only, once
+				// per outage), so calling it for every limit error is safe. Fired
+				// after the synchronous pause above and never awaited: a reset that
+				// succeeds is picked up by the existing retry/auto-resume machinery
+				// on its next probe, and one that fails must not disturb the pause.
+				if (pausedSession) {
+					void maybeAutoResetCodexUsage(pausedSession, agentError).catch(() => {
+						// The service reports its own outcome to the user; a throw here
+						// would only mean the attempt never started.
+					});
+				}
 				if (isLimit && !isSshBacked && window.maestro.agents?.getLimitResetAt) {
 					void window.maestro.agents
 						.getLimitResetAt(agentError.agentId)

@@ -82,6 +82,10 @@ export function EditAgentModal({
 	// Agent Resilience (auto-retry) toggles. Both default ON; read with `?? true`.
 	const [retryOnAvailabilityErrors, setRetryOnAvailabilityErrors] = useState(true);
 	const [retryOnTokenExhaustion, setRetryOnTokenExhaustion] = useState(true);
+	// Codex automatic usage resets. Defaults OFF - see `codexAutoResetOnExhaustion`
+	// on Session for why this one does NOT follow the resilience flags' default-on
+	// rule: reset credits are finite and irreversible.
+	const [codexAutoReset, setCodexAutoReset] = useState(false);
 	const [editDynamicOptions, setEditDynamicOptions] = useState<Record<string, string[]>>({});
 	const [editLoadingDynamicOptions, setEditLoadingDynamicOptions] = useState(false);
 	const [refreshingAgent, setRefreshingAgent] = useState(false);
@@ -315,6 +319,7 @@ export function EditAgentModal({
 			// Both default ON; `undefined` (never configured) reads as enabled.
 			setRetryOnAvailabilityErrors(resilienceEnabled(session.retryOnAvailabilityErrors));
 			setRetryOnTokenExhaustion(resilienceEnabled(session.retryOnTokenExhaustion));
+			setCodexAutoReset(session.codexAutoResetOnExhaustion === true);
 		}
 
 		return () => {
@@ -544,7 +549,8 @@ export function EditAgentModal({
 			normalizeAdditionalDirectories(additionalDirectories, homeDir),
 			contextWindowSource,
 			Object.keys(customEnvVarsDisabled).length > 0 ? customEnvVarsDisabled : undefined,
-			workingDirChanged ? trimmedWorkingDir : undefined
+			workingDirChanged ? trimmedWorkingDir : undefined,
+			codexAutoReset
 		);
 		onClose();
 	}, [
@@ -567,6 +573,7 @@ export function EditAgentModal({
 		maestroPPath,
 		retryOnAvailabilityErrors,
 		retryOnTokenExhaustion,
+		codexAutoReset,
 		agent,
 		agentConfig,
 		sshRemoteConfig,
@@ -948,6 +955,8 @@ export function EditAgentModal({
 								/* Saved on modal save */
 							}}
 							detectedMaestroPPath={detectedMaestroPPath}
+							codexAutoResetOnExhaustion={codexAutoReset}
+							onCodexAutoResetChange={setCodexAutoReset}
 						/>
 					</div>
 				)}

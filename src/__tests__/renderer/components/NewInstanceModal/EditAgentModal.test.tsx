@@ -223,7 +223,9 @@ describe('EditAgentModal', () => {
 
 		expect(onSave).toHaveBeenCalledTimes(1);
 		const args = onSave.mock.calls[0];
-		expect(args[args.length - 1]).toBe('/home/user/moved-project');
+		// `workingDirectory` is second-from-last now that `codexAutoResetOnExhaustion`
+		// trails it - anchor on the slot rather than on "last".
+		expect(args[args.length - 2]).toBe('/home/user/moved-project');
 	});
 
 	it('should refuse a local working directory that does not exist', async () => {
@@ -308,7 +310,9 @@ describe('EditAgentModal', () => {
 
 		expect(onSave).toHaveBeenCalled();
 		const args = onSave.mock.calls[0];
-		expect(args[args.length - 1]).toBeUndefined(); // workingDirectory unchanged
+		// `workingDirectory` is second-from-last now that `codexAutoResetOnExhaustion`
+		// trails it - anchor on the slot rather than on "last".
+		expect(args[args.length - 2]).toBeUndefined(); // workingDirectory unchanged
 	});
 
 	it('should refuse a new SSH working directory the remote reports is not a directory', async () => {
@@ -515,7 +519,8 @@ describe('EditAgentModal', () => {
 				undefined, // contextWindowSource: the window was not touched, so no
 				// provenance is recorded and P1 precedence stands (finding AD1)
 				undefined, // customEnvVarsDisabled (nothing switched off)
-				undefined // workingDirectory unchanged
+				undefined, // workingDirectory unchanged
+				false // codexAutoResetOnExhaustion: off by default
 			);
 		});
 
@@ -614,7 +619,8 @@ describe('EditAgentModal', () => {
 			undefined, // contextWindowSource: the window was not touched, so no
 			// provenance is recorded and P1 precedence stands (finding AD1)
 			undefined, // customEnvVarsDisabled (nothing switched off)
-			undefined // workingDirectory unchanged
+			undefined, // workingDirectory unchanged
+			false // codexAutoResetOnExhaustion: off by default
 		);
 		expect(onClose).toHaveBeenCalled();
 	});
@@ -850,7 +856,8 @@ describe('EditAgentModal', () => {
 			undefined, // contextWindowSource: the window was not touched, so no
 			// provenance is recorded and P1 precedence stands (finding AD1)
 			undefined, // customEnvVarsDisabled (nothing switched off)
-			undefined // workingDirectory unchanged
+			undefined, // workingDirectory unchanged
+			false // codexAutoResetOnExhaustion: off by default
 		);
 	});
 
@@ -926,7 +933,8 @@ describe('EditAgentModal', () => {
 			undefined, // contextWindowSource: the window was not touched, so no
 			// provenance is recorded and P1 precedence stands (finding AD1)
 			undefined, // customEnvVarsDisabled (nothing switched off)
-			undefined // workingDirectory unchanged
+			undefined, // workingDirectory unchanged
+			false // codexAutoResetOnExhaustion: off by default
 		);
 	});
 
@@ -1008,7 +1016,8 @@ describe('EditAgentModal', () => {
 			undefined, // contextWindowSource: the window was not touched, so no
 			// provenance is recorded and P1 precedence stands (finding AD1)
 			undefined, // customEnvVarsDisabled (nothing switched off)
-			undefined // workingDirectory unchanged
+			undefined, // workingDirectory unchanged
+			false // codexAutoResetOnExhaustion: off by default
 		);
 	});
 
@@ -1366,6 +1375,104 @@ describe('EditAgentModal', () => {
 			const args = onSave.mock.calls[0];
 			expect(args[10]).toBe(120000);
 			expect(args[18]).toBe('user-edited');
+		});
+	});
+
+	// The toggle is the ONLY way a user opts into unattended spending of a
+	// finite, non-refundable grant, so both directions are pinned: an agent that
+	// asked for it must come back with it on, and Save must carry the new value
+	// out. A regression in either direction is silent - the checkbox still
+	// renders, it just stops meaning anything.
+	describe('Codex automatic usage resets', () => {
+		const codexAgent = {
+			id: 'codex',
+			name: 'Codex',
+			available: true,
+			path: '/usr/local/bin/codex',
+			binaryName: 'codex',
+			hidden: false,
+		} as AgentConfig;
+
+		const codexSession = (overrides: Partial<Session> = {}) =>
+			createSession({
+				id: 'codex-1',
+				toolType: 'codex',
+				customPath: undefined,
+				customModel: undefined,
+				customEnvVars: undefined,
+				...overrides,
+			});
+
+		function renderCodex(session: Session) {
+			vi.mocked(window.maestro.agents.detect).mockResolvedValue([codexAgent]);
+			return render(
+				<EditAgentModal
+					isOpen={true}
+					onClose={onClose}
+					onSave={onSave}
+					theme={theme}
+					session={session}
+					existingSessions={[]}
+				/>
+			);
+		}
+
+		const toggle = () =>
+			screen.getByLabelText(
+				'Automatically redeem a reset credit when usage limits are hit'
+			) as HTMLInputElement;
+
+		it('renders the toggle off for a Codex agent that never opted in', async () => {
+			renderCodex(codexSession());
+
+			await waitFor(() => expect(toggle()).toBeInTheDocument());
+			expect(toggle().checked).toBe(false);
+		});
+
+		it('reflects an agent that already opted in', async () => {
+			renderCodex(codexSession({ codexAutoResetOnExhaustion: true }));
+
+			await waitFor(() => expect(toggle().checked).toBe(true));
+		});
+
+		it('carries the opt-in out through Save', async () => {
+			renderCodex(codexSession());
+
+			await waitFor(() => expect(toggle()).toBeInTheDocument());
+			fireEvent.click(toggle());
+			fireEvent.click(screen.getByText('Save Changes'));
+
+			const args = onSave.mock.calls[0];
+			expect(args[args.length - 1]).toBe(true);
+		});
+
+		it('carries an opt-OUT out through Save', async () => {
+			// Turning it back off has to reach the session too: leaving the old
+			// `true` in place would keep spending credits after the user stopped it.
+			renderCodex(codexSession({ codexAutoResetOnExhaustion: true }));
+
+			await waitFor(() => expect(toggle().checked).toBe(true));
+			fireEvent.click(toggle());
+			fireEvent.click(screen.getByText('Save Changes'));
+
+			const args = onSave.mock.calls[0];
+			expect(args[args.length - 1]).toBe(false);
+		});
+
+		it('is absent for a provider with no reset credits', async () => {
+			render(
+				<EditAgentModal
+					isOpen={true}
+					onClose={onClose}
+					onSave={onSave}
+					theme={theme}
+					session={createSession()}
+					existingSessions={[]}
+				/>
+			);
+
+			await waitFor(() => expect(screen.getByDisplayValue('My Agent')).toBeInTheDocument());
+			expect(screen.queryByTestId('codex-auto-reset-option')).not.toBeInTheDocument();
 		});
 	});
 });

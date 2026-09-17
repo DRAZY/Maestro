@@ -1772,11 +1772,24 @@ interface MaestroAPI {
 					session?: { percent: number; resetsAt: string };
 					weekly?: { percent: number; resetsAt: string };
 					additionalLimits?: Array<{ name: string; percent: number; resetsAt?: string }>;
+					resetCredits?: import('../shared/codexResetCredits').CodexResetCreditCounts;
 					error?: string;
 				}
 			>
 		>;
 		getCodexUsageAccountKeys: () => Promise<string[]>;
+		/** READ: the reset credits one Codex account holds. */
+		getCodexResetCredits: (codexHome: string) => Promise<{
+			ok: boolean;
+			detail?: import('../shared/codexResetCredits').CodexResetCreditsDetail;
+			error?: string;
+		}>;
+		/** WRITE: redeem one reset credit. Irreversible; pass a stable key to make a retry safe. */
+		consumeCodexResetCredit: (
+			codexHome: string,
+			creditId: string,
+			idempotencyKey?: string
+		) => Promise<import('../shared/codexResetCredits').CodexResetCreditConsumeResult>;
 		refreshClaudeUsageSnapshots: () => Promise<{ refreshed: number }>;
 		refreshCodexUsageSnapshots: () => Promise<{ refreshed: number }>;
 	};

@@ -7,11 +7,9 @@
  * the main process.
  */
 
-import fs from 'fs/promises';
-import path from 'path';
-
 import type { CodexUsageSnapshot } from '../stores/codexUsageStore';
 import { resolveCodexHomeKey } from '../stores/codexUsageStore';
+import { codexAuthHeaders, readCodexAuth } from './codex-auth';
 import { captureMessage } from '../utils/sentry';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
@@ -39,14 +37,6 @@ export interface SampleCodexUsageOptions {
 	timeoutMs?: number;
 }
 
-interface CodexAuthFile {
-	tokens?: {
-		access_token?: string;
-		account_id?: string;
-		id_token?: string;
-	};
-}
-
 interface WhamUsageWindow {
 	used_percent?: unknown;
 	reset_at?: unknown;
@@ -67,37 +57,29 @@ interface WhamUsageResponse {
 			primary_window?: WhamUsageWindow;
 		};
 	}>;
+	/**
+	 * Reset-credit inventory, which the usage payload already carries - so the
+	 * count beside the bars costs no extra request. The full per-credit list
+	 * (ids, titles, expiry) needs the dedicated read in `codex-reset-credits.ts`.
+	 */
+	rate_limit_reset_credits?: {
+		available_count?: unknown;
+		applicable_available_count?: unknown;
+	};
 }
 
 export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<CodexUsageSnapshot> {
 	const codexHomeKey = resolveCodexHomeKey({ CODEX_HOME: opts.codexHome });
 	const sampledAt = new Date().toISOString();
-	const authPath = path.join(codexHomeKey, 'auth.json');
 
-	let auth: CodexAuthFile;
-	try {
-		auth = JSON.parse(await fs.readFile(authPath, 'utf8')) as CodexAuthFile;
-	} catch (err) {
+	const auth = await readCodexAuth(codexHomeKey);
+	if (!auth.ok) {
 		return {
 			sampledAt,
 			codexHomeKey,
-			authState: 'missing_auth',
-			error:
-				err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT'
-					? `No auth.json at ${authPath}`
-					: 'Failed to read Codex auth.json',
-		};
-	}
-
-	const accessToken = auth.tokens?.access_token;
-	const accountId = auth.tokens?.account_id;
-	if (!accessToken) {
-		return {
-			sampledAt,
-			codexHomeKey,
-			authState: 'unauthenticated',
-			email: extractEmailFromJwt(auth.tokens?.id_token),
-			error: 'No access_token in auth.json. Run `codex login` for this CODEX_HOME.',
+			authState: auth.kind,
+			...(auth.email ? { email: auth.email } : {}),
+			error: auth.error,
 		};
 	}
 
@@ -105,13 +87,7 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 	try {
 		response = await fetchWithTimeout(
 			CODEX_USAGE_ENDPOINT,
-			{
-				headers: {
-					Authorization: `Bearer ${accessToken}`,
-					Accept: 'application/json',
-					...(accountId ? { 'ChatGPT-Account-Id': accountId } : {}),
-				},
-			},
+			{ headers: codexAuthHeaders(auth) },
 			opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
 		);
 	} catch {
@@ -124,7 +100,7 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 			sampledAt,
 			codexHomeKey,
 			authState: 'error',
-			email: extractEmailFromJwt(auth.tokens?.id_token),
+			email: auth.email,
 			error: 'Failed to request Codex quota metadata.',
 		};
 	}
@@ -142,7 +118,7 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 			sampledAt,
 			codexHomeKey,
 			authState: status === 401 || status === 403 ? 'unauthenticated' : 'error',
-			email: extractEmailFromJwt(auth.tokens?.id_token),
+			email: auth.email,
 			error:
 				status === 401 || status === 403
 					? 'Codex auth token was rejected. Run `codex login` for this CODEX_HOME.'
@@ -159,7 +135,7 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 			sampledAt,
 			codexHomeKey,
 			authState: 'error',
-			email: extractEmailFromJwt(auth.tokens?.id_token),
+			email: auth.email,
 			error: 'Codex quota endpoint returned malformed JSON.',
 		};
 	}
@@ -172,15 +148,35 @@ export async function sampleCodexUsage(opts: SampleCodexUsageOptions): Promise<C
 		sampledAt,
 		codexHomeKey,
 		authState: 'authenticated',
-		email:
-			typeof body.email === 'string' && body.email.length > 0
-				? body.email
-				: extractEmailFromJwt(auth.tokens?.id_token),
+		email: typeof body.email === 'string' && body.email.length > 0 ? body.email : auth.email,
 		planType: typeof body.plan_type === 'string' ? body.plan_type : undefined,
 		session: session ?? undefined,
 		weekly: weekly ?? undefined,
 		additionalLimits: parseAdditionalLimits(body.additional_rate_limits),
+		resetCredits: parseResetCreditCounts(body.rate_limit_reset_credits),
 	};
+}
+
+/**
+ * The two reset-credit counts, kept apart deliberately.
+ *
+ * `available` is inventory; `applicable` is how many would take effect right
+ * now, which the API reports as 0 whenever no window is consumed enough for a
+ * reset to change anything. An absent `applicable` stays `undefined` rather
+ * than becoming 0 - see `CodexResetCreditCounts`, where unknown and zero drive
+ * different verdicts.
+ */
+function parseResetCreditCounts(
+	raw: WhamUsageResponse['rate_limit_reset_credits']
+): CodexUsageSnapshot['resetCredits'] {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const available = readCount(raw.available_count);
+	if (available === undefined) return undefined;
+	return { available, applicable: readCount(raw.applicable_available_count) };
+}
+
+function readCount(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function parseWindow(window: WhamUsageWindow | undefined): CodexUsageSnapshot['session'] | null {
@@ -220,21 +216,6 @@ function parseResetAt(value: unknown): string | null {
 	const milliseconds = value > 10_000_000_000 ? value : value * 1000;
 	const date = new Date(milliseconds);
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function extractEmailFromJwt(idToken: string | undefined): string | undefined {
-	if (!idToken) return undefined;
-	try {
-		const payload = idToken.split('.')[1];
-		if (!payload) return undefined;
-		const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
-		const decoded = JSON.parse(Buffer.from(padded, 'base64url').toString('utf8')) as {
-			email?: unknown;
-		};
-		return typeof decoded.email === 'string' ? decoded.email : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 function formatError(err: unknown): string {

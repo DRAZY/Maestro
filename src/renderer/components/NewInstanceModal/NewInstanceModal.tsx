@@ -69,6 +69,9 @@ export function NewInstanceModal({
 		{}
 	);
 	const [retryTokenByAgent, setRetryTokenByAgent] = useState<Record<string, boolean>>({});
+	// Codex automatic usage resets, per provider. Defaults OFF - unlike the
+	// resilience toggles above, spending a reset credit is irreversible.
+	const [codexAutoResetByAgent, setCodexAutoResetByAgent] = useState<Record<string, boolean>>({});
 	const [agentConfigs, setAgentConfigs] = useState<Record<string, Record<string, any>>>({});
 	const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
 	const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
@@ -347,6 +350,13 @@ export function NewInstanceModal({
 					...prev,
 					[source.toolType]: resilienceEnabled(source.retryOnTokenExhaustion),
 				}));
+				// Duplicating an agent carries its automatic-reset preference too, so a
+				// copy does not silently start spending credits the original never did
+				// (and vice versa).
+				setCodexAutoResetByAgent((prev) => ({
+					...prev,
+					[source.toolType]: source.codexAutoResetOnExhaustion === true,
+				}));
 
 				// Pre-fill SSH remote configuration if source session has it
 				if (source.sessionSshRemoteConfig?.enabled && source.sessionSshRemoteConfig?.remoteId) {
@@ -621,7 +631,8 @@ export function NewInstanceModal({
 			agentMaestroPMode,
 			retryAvailabilityByAgent[selectedAgent] ?? true,
 			retryTokenByAgent[selectedAgent] ?? true,
-			normalizeAdditionalDirectories(additionalDirectories, homeDir)
+			normalizeAdditionalDirectories(additionalDirectories, homeDir),
+			codexAutoResetByAgent[selectedAgent] ?? false
 		);
 		onClose();
 
@@ -1074,6 +1085,10 @@ export function NewInstanceModal({
 					dynamicOptions={dynamicOptions}
 					loadingDynamicOptions={loadingDynamicOptions}
 					onLoadDynamicOptionsForAgent={loadDynamicOptionsForAgent}
+					codexAutoResetByAgent={codexAutoResetByAgent}
+					onCodexAutoResetChange={(agentId, value) =>
+						setCodexAutoResetByAgent((prev) => ({ ...prev, [agentId]: value }))
+					}
 				/>
 
 				{/* Agent Resilience: auto-retry toggles (default ON). Sits directly

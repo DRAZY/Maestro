@@ -7,6 +7,8 @@
 
 import { create } from 'zustand';
 
+import type { CodexResetCreditCounts } from '../../shared/codexResetCredits';
+
 export interface CodexUsageWindow {
 	percent: number;
 	resetsAt: string;
@@ -30,6 +32,8 @@ export interface CodexUsageSnapshot {
 	session?: CodexUsageWindow;
 	weekly?: CodexUsageWindow;
 	additionalLimits?: CodexAdditionalLimit[];
+	/** Reset-credit inventory, carried free on the usage payload. */
+	resetCredits?: CodexResetCreditCounts;
 	error?: string;
 }
 

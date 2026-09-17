@@ -58,7 +58,9 @@ export interface NewInstanceModalProps {
 		maestroPMode?: 'interactive' | 'dynamic',
 		retryOnAvailabilityErrors?: boolean,
 		retryOnTokenExhaustion?: boolean,
-		additionalDirectories?: AdditionalDirectory[]
+		additionalDirectories?: AdditionalDirectory[],
+		/** Codex only: spend a reset credit automatically on quota exhaustion. Defaults off. */
+		codexAutoResetOnExhaustion?: boolean
 	) => void;
 	theme: Theme;
 	existingSessions: Session[];
@@ -94,7 +96,9 @@ export interface EditAgentModalProps {
 		/** Env vars parked with the eye button: kept, but never handed to a spawn. */
 		customEnvVarsDisabled?: Record<string, string>,
 		/** New working directory; `undefined` when the user left it unchanged. */
-		workingDirectory?: string
+		workingDirectory?: string,
+		/** Codex only: spend a reset credit automatically on quota exhaustion. Defaults off. */
+		codexAutoResetOnExhaustion?: boolean
 	) => void;
 	theme: Theme;
 	session: Session | null;
@@ -176,4 +180,7 @@ export interface AgentPickerGridProps {
 	dynamicOptions?: Record<string, Record<string, string[]>>;
 	loadingDynamicOptions?: Record<string, boolean>;
 	onLoadDynamicOptionsForAgent?: (agentId: string) => void;
+	/** Codex automatic usage resets, per agent id. Defaults off when absent. */
+	codexAutoResetByAgent?: Record<string, boolean>;
+	onCodexAutoResetChange?: (agentId: string, value: boolean) => void;
 }

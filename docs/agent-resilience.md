@@ -89,6 +89,14 @@ Both toggles live in the **New Agent** dialog when you create an agent, and in *
 
 Both default to on, including for agents you created before the feature existed. Turn one off and that failure class goes back to opening the error dialog immediately.
 
+### Codex: skip the wait entirely
+
+Waiting out a quota window is the best Maestro can do for most providers. Codex is the exception: OpenAI grants those accounts **reset credits** that reopen a consumed window on demand. A Codex agent therefore has a third toggle, under **Codex Settings → Automatic Usage Resets**, off by default:
+
+- **Redeem a reset credit when this agent hits its usage limit** - spends one credit instead of waiting, then lets the retry above carry on as usual.
+
+It is off by default because credits are finite, expire, and cannot be refunded, and it only fires once per outage against an account that confirms the reset would take effect. See [Usage resets](/usage-dashboard#usage-resets) for the credit list, the manual **Reset now** button, and the full set of conditions.
+
 ## Auto Run
 
 An Auto Run batch is where this matters most, because a stalled overnight run wastes the whole night.

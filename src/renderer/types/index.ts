@@ -1526,6 +1526,16 @@ export interface Session {
 	retryOnAvailabilityErrors?: boolean;
 	retryOnTokenExhaustion?: boolean;
 
+	// Codex only. When true, hitting a plan-quota wall spends one of the
+	// account's rate-limit reset credits automatically instead of waiting for the
+	// window to reopen. Defaults OFF, and unlike the two flags above that default
+	// is deliberate rather than historical: credits are finite, expire, and
+	// cannot be refunded, so unattended spending is something a user opts into
+	// rather than something they discover after the fact. See
+	// `shouldAutoSpendCredit` in shared/codexResetCredits for the (deliberately
+	// narrow) conditions under which the automation actually fires.
+	codexAutoResetOnExhaustion?: boolean;
+
 	// Last resolved Claude headless-mode state (only meaningful for Claude Code
 	// sessions with `enableMaestroP === true`). The spawner writes this after
 	// each `selectMode()` call so the context-window popover, sticky-limit

@@ -307,6 +307,13 @@ export interface SessionInfo {
 	 * via {@link resilienceEnabled}. Set explicitly `false` to opt out.
 	 */
 	retryOnTokenExhaustion?: boolean;
+	/**
+	 * Codex only: spend a rate-limit reset credit automatically when this agent
+	 * hits a plan-quota wall, instead of waiting for the window to reopen.
+	 * Defaults OFF - credits are finite and irreversible, so unattended spending
+	 * is opt-in. See `shouldAutoSpendCredit` in shared/codexResetCredits.
+	 */
+	codexAutoResetOnExhaustion?: boolean;
 	/** Per-session SSH remote config - when enabled, CLI spawns via SSH. */
 	sessionSshRemoteConfig?: AgentSshRemoteConfig;
 }
