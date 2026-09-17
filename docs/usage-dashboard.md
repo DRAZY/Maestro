@@ -257,6 +257,10 @@ The Auto Run tab focuses specifically on automated playbook execution:
 **Tasks Completed Over Time:**
 A mini bar chart showing task completions by date (last 14 days). Hover over bars to see exact counts and success percentages for each day.
 
+**How a run's duration is measured:** wall-clock time from start to finish, minus any time the machine spent asleep. Whether the Maestro window was on screen makes no difference - the agent runs in its own process and keeps working while you do something else, so a run you walked away from is timed the same as one you watched.
+
+Older builds also subtracted time the window was hidden, which on macOS includes being minimized or fully covered by another app. That under-recorded exactly the unattended overnight runs whose length matters most, and recorded some as zero. If your history predates the fix, `scripts/repair-autorun-durations.mjs` rebuilds each affected run's duration from its own task timestamps (dry run by default; `--apply` writes, after a backup). Runs with no recorded tasks cannot be reconstructed and are left as they are.
+
 ## Time Range Filtering
 
 Use the time range dropdown in the top-right corner to filter all dashboard data:

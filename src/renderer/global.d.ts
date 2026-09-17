@@ -1564,6 +1564,7 @@ interface MaestroAPI {
 				maxEntries?: number;
 				ignorePatterns?: string[];
 				honorGitignore?: boolean;
+				expandedPaths?: string[];
 			}
 		) => Promise<{
 			tree: LocalFileScanNode[];
