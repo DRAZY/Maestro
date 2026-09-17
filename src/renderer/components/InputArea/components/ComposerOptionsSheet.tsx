@@ -15,15 +15,22 @@
  * twice through a state they did not want. Listing the options and letting one
  * be picked is the same information in a form a finger can use. History is a
  * plain boolean, so it stays a switch.
+ *
+ * The rows themselves are the shared `PhoneSheetRows` vocabulary, so this sheet
+ * and the file-preview actions sheet cannot drift on tap-target heights.
  */
 
 import { memo, useState } from 'react';
-import { Brain, Check, ChevronDown, Eye, Gauge, History, Sparkles } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Brain, Eye, Gauge, History, Sparkles } from 'lucide-react';
 import type { Theme, ThinkingMode } from '../../../types';
 import { getPermissionModeLabel } from '../../../../shared/agentMetadata';
 import { THINKING_MODES } from '../../../../shared/types';
 import { PhoneBottomSheet } from '../../ui/PhoneBottomSheet';
+import {
+	PHONE_SHEET_ROW_HEIGHT,
+	PhoneSheetOptionRow,
+	PhoneSheetSection,
+} from '../../ui/PhoneSheetRows';
 
 export type PermissionMode = 'full' | 'standard' | 'readonly';
 
@@ -56,92 +63,6 @@ const THINKING_LABELS: Record<ThinkingMode, string> = {
 	on: 'On',
 	sticky: 'Sticky',
 };
-
-/**
- * One expandable row: a header the user taps, and the option list beneath it.
- *
- * Only one section is open at a time (the sheet owns that state), because the
- * panel is half a screen and two open lists would push the second below the
- * fold with no sign it is there.
- */
-function OptionSection({
-	icon: Icon,
-	label,
-	value,
-	accent,
-	expanded,
-	onToggle,
-	children,
-	theme,
-	testId,
-}: {
-	icon: LucideIcon;
-	label: string;
-	value: string;
-	accent: string;
-	expanded: boolean;
-	onToggle: () => void;
-	children: React.ReactNode;
-	theme: Theme;
-	testId: string;
-}) {
-	return (
-		<div className="border-b" style={{ borderColor: theme.colors.border }}>
-			<button
-				type="button"
-				onClick={onToggle}
-				className="flex w-full items-center gap-3 px-4 text-left"
-				style={{ minHeight: 52, color: theme.colors.textMain }}
-				aria-expanded={expanded}
-				data-testid={testId}
-			>
-				<Icon className="w-4 h-4 shrink-0" style={{ color: accent }} />
-				<span className="text-sm flex-1 min-w-0">{label}</span>
-				<span className="text-xs font-mono truncate max-w-[45%]" style={{ color: accent }}>
-					{value}
-				</span>
-				<ChevronDown
-					className={`w-4 h-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
-					style={{ color: theme.colors.textDim }}
-					aria-hidden="true"
-				/>
-			</button>
-			{expanded && <div className="pb-2">{children}</div>}
-		</div>
-	);
-}
-
-/** One selectable option inside an expanded section. */
-function OptionRow({
-	label,
-	selected,
-	accent,
-	onSelect,
-	theme,
-}: {
-	label: string;
-	selected: boolean;
-	accent: string;
-	onSelect: () => void;
-	theme: Theme;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onSelect}
-			className="flex w-full items-center gap-3 pl-11 pr-4 text-left"
-			style={{
-				minHeight: 44,
-				color: selected ? accent : theme.colors.textMain,
-				backgroundColor: selected ? `${accent}12` : undefined,
-			}}
-			aria-pressed={selected}
-		>
-			<span className="text-sm flex-1 min-w-0 truncate">{label}</span>
-			{selected && <Check className="w-4 h-4 shrink-0" aria-hidden="true" />}
-		</button>
-	);
-}
 
 export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 	open,
@@ -195,7 +116,11 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 					type="button"
 					onClick={onToggleTabSaveToHistory}
 					className="flex w-full items-center gap-3 px-4 text-left border-b"
-					style={{ minHeight: 52, borderColor: theme.colors.border, color: theme.colors.textMain }}
+					style={{
+						minHeight: PHONE_SHEET_ROW_HEIGHT,
+						borderColor: theme.colors.border,
+						color: theme.colors.textMain,
+					}}
 					role="switch"
 					aria-checked={tabSaveToHistory}
 					data-testid="composer-options-history"
@@ -215,7 +140,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 			)}
 
 			{hasReadOnlyCapability && (
-				<OptionSection
+				<PhoneSheetSection
 					icon={Eye}
 					label="Access"
 					value={getPermissionModeLabel(permissionMode, agentId)}
@@ -226,7 +151,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 					testId="composer-options-access"
 				>
 					{permissionModes.map((mode) => (
-						<OptionRow
+						<PhoneSheetOptionRow
 							key={mode}
 							label={getPermissionModeLabel(mode, agentId)}
 							selected={mode === permissionMode}
@@ -235,11 +160,11 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 							theme={theme}
 						/>
 					))}
-				</OptionSection>
+				</PhoneSheetSection>
 			)}
 
 			{supportsThinking && onThinkingModeChange && (
-				<OptionSection
+				<PhoneSheetSection
 					icon={Brain}
 					label="Thinking"
 					value={THINKING_LABELS[tabShowThinking]}
@@ -250,7 +175,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 					testId="composer-options-thinking"
 				>
 					{THINKING_MODES.map((mode) => (
-						<OptionRow
+						<PhoneSheetOptionRow
 							key={mode}
 							label={THINKING_LABELS[mode]}
 							selected={mode === tabShowThinking}
@@ -259,11 +184,11 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 							theme={theme}
 						/>
 					))}
-				</OptionSection>
+				</PhoneSheetSection>
 			)}
 
 			{onEffortChange && availableEfforts.some((e) => e !== '') && (
-				<OptionSection
+				<PhoneSheetSection
 					icon={Gauge}
 					label="Effort"
 					value={currentEffort || 'default'}
@@ -274,7 +199,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 					testId="composer-options-effort"
 				>
 					{availableEfforts.map((effort) => (
-						<OptionRow
+						<PhoneSheetOptionRow
 							key={effort || '__default__'}
 							label={effort || '(default)'}
 							selected={effort === currentEffort}
@@ -283,11 +208,11 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 							theme={theme}
 						/>
 					))}
-				</OptionSection>
+				</PhoneSheetSection>
 			)}
 
 			{onModelChange && availableModels.length > 0 && (
-				<OptionSection
+				<PhoneSheetSection
 					icon={Sparkles}
 					label="Model"
 					value={currentModel || 'default'}
@@ -298,7 +223,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 					testId="composer-options-model"
 				>
 					{modelOptions.map((model) => (
-						<OptionRow
+						<PhoneSheetOptionRow
 							key={model || '__default__'}
 							label={model || '(default)'}
 							selected={model === currentModel}
@@ -307,7 +232,7 @@ export const ComposerOptionsSheet = memo(function ComposerOptionsSheet({
 							theme={theme}
 						/>
 					))}
-				</OptionSection>
+				</PhoneSheetSection>
 			)}
 		</PhoneBottomSheet>
 	);

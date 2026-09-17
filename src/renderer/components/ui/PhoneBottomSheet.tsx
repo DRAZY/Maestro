@@ -8,12 +8,14 @@
  * inside, carries its own close button, and goes away on a swipe down from its
  * grip or a tap on the scrim.
  *
- * Two callers today - the tab chip action menu (`TabOverlayPortal`) and the
- * composer options sheet (`ComposerOptionsSheet`) - and the shell was written
- * once for the first before the second needed the same thing. What differs
- * between them is CONTENT and the body's styling hook, never the chrome, so
- * everything about how the sheet behaves lives here: the scrim arm delay, the
- * grip-only swipe, the safe-area padding, the animations.
+ * Three callers today - the tab chip action menu (`TabOverlayPortal`), the
+ * composer options sheet (`ComposerOptionsSheet`), and the file preview's
+ * actions sheet (`FilePreviewActionsSheet`) - and the shell was written once for
+ * the first before the others needed the same thing. What differs between them
+ * is CONTENT and the body's styling hook, never the chrome, so everything about
+ * how the sheet behaves lives here: the scrim arm delay, the grip-only swipe,
+ * the safe-area padding, the animations. The rows that go INSIDE it are the
+ * shared vocabulary in `PhoneSheetRows.tsx`.
  */
 
 import React, { useCallback, useEffect, useRef } from 'react';
