@@ -575,6 +575,15 @@ export class TuiDriver extends EventEmitter {
 	// Full raw PTY stream captured since start(). Empty unless options.captureScreen
 	// was set. statusMode parses the /usage panel from this so cursor-addressed
 	// (newline-free) panels are not lost to the `\n`-delimited 'line' stream.
+	//
+	// Deliberately an ACCUMULATOR with no reset, and statusMode's /usage retry
+	// depends on that. A re-sent /usage appends a second panel rather than
+	// replacing the first, and parseUsage anchors on the LAST `Current session`
+	// header (see sliceToFinalPanel), so the newest panel is what gets read.
+	// Clearing between attempts would look tidier and would break the case where
+	// claude repaints differentially - only the changed cells arrive, carrying no
+	// fresh section header, so a cleared buffer holds anchorless fragments that
+	// parse to null. Keep the history; let the parser pick the end.
 	getScreenCapture(): string {
 		return this.screenCapture;
 	}

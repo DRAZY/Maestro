@@ -53,6 +53,40 @@ const STATUS_INITIAL_WAIT_MS = 1500;
 // Then debounce on no-new-lines for this long before declaring the panel done.
 const STATUS_QUIET_DEBOUNCE_MS = 800;
 const STATUS_DEBOUNCE_POLL_MS = 100;
+// ── /usage retry ────────────────────────────────────────────────────────────
+// A /usage panel that does not parse is USUALLY transient. Measured over 204
+// scripted --status runs across three plan accounts, one account's probe failed
+// 11.8% of runs (19.0% over the trailing week) while six consecutive SERIAL
+// probes all succeeded: the failures track concurrency (the desktop Usage
+// Dashboard auto-refreshes every 15 min onto the same scrape, and a scheduled
+// poller hits it too), not plan layout and not auth.
+//
+// The blast radius is far larger than the error rate, which is why one attempt
+// is not enough. A consumer cannot tell "probe failed" from "account has no
+// measurable quota", so it has to drop that account as both a source and a
+// destination - one transient flake degrades a whole balancing pass into a
+// no-op that reads exactly like a considered decision.
+//
+// Retry the /usage SEND, not the spawn: the TUI is still alive at the parse
+// point, so a re-send costs ~2.4s against a full claude boot.
+//
+// Wall-clock deadline measured from process start, NOT an attempt count. The
+// ceiling that actually matters is the caller's: claude-usage-sampler.ts kills
+// the probe at DEFAULT_TIMEOUT_MS (30s), and blowing through that turns a parse
+// flake into classifySpawnError -> 'timeout' - the same no-op for the consumer
+// with a worse diagnosis. Boot time varies by seconds, so only a deadline keeps
+// the total honest. 25s leaves room for driver.quit()'s QUIT_GRACE_MS on top.
+const STATUS_RETRY_DEADLINE_MS = 25_000;
+// First re-send waits this long. Deliberately longer than the previous send's
+// last Enter re-tap (SEND_ENTER_DELAY_MS + SUBMIT_ENTER_RETRIES *
+// SUBMIT_ENTER_RETRY_INTERVAL_MS = 3080ms after the send, i.e. ~780ms after an
+// attempt ends), so a stray tap cannot land mid-type on the next attempt.
+const STATUS_RETRY_INITIAL_DELAY_MS = 800;
+const STATUS_RETRY_MAX_DELAY_MS = 1600;
+// What one attempt costs, for deciding whether another still fits the deadline.
+// Never start an attempt that cannot finish - a truncated attempt is a timeout
+// kill, which is strictly worse than giving up with a diagnosis.
+const STATUS_ATTEMPT_COST_MS = STATUS_INITIAL_WAIT_MS + STATUS_QUIET_DEBOUNCE_MS + 100;
 // Floor for how long to wait for the new JSONL file to appear after a
 // fresh-session spawn. This is only a FLOOR: the actual discovery window is
 // raised to the caller's `--max-wait` budget (see the fresh-session path
@@ -713,33 +747,32 @@ async function statusMode(args: ParsedArgs): Promise<never> {
 		process.exit(1);
 	});
 
+	// Measured before start() so the retry budget below covers claude's boot too:
+	// the caller's 30s kill timer starts when this process does, not when the TUI
+	// becomes ready.
+	const startedAt = Date.now();
+	const deadline = startedAt + STATUS_RETRY_DEADLINE_MS;
+
 	await driver.start();
 	await waitForEvent(driver, 'ready');
 
-	driver.send('/usage');
-
-	// Initial hold so the panel has time to start rendering.
-	await new Promise<void>((resolve) => setTimeout(resolve, STATUS_INITIAL_WAIT_MS));
-
-	// Then debounce on no-new-lines: keep polling until the line stream has
-	// been quiet for STATUS_QUIET_DEBOUNCE_MS straight.
-	let quietSince = Date.now();
-	let lastSeenAt = lastLineAt;
-	while (Date.now() - quietSince < STATUS_QUIET_DEBOUNCE_MS) {
-		await new Promise<void>((resolve) => setTimeout(resolve, STATUS_DEBOUNCE_POLL_MS));
-		if (lastLineAt !== lastSeenAt) {
-			lastSeenAt = lastLineAt;
-			quietSince = Date.now();
+	// Wait out one /usage paint: an initial hold to let it start rendering, then
+	// debounce on no-new-lines until the stream has been quiet for
+	// STATUS_QUIET_DEBOUNCE_MS straight. Bounded by the deadline so a panel that
+	// never stops trickling gives up with a diagnosis instead of being killed
+	// mid-sentence by the sampler's timeout.
+	const settleUsagePanel = async (): Promise<void> => {
+		await new Promise<void>((resolve) => setTimeout(resolve, STATUS_INITIAL_WAIT_MS));
+		let quietSince = Date.now();
+		let lastSeenAt = lastLineAt;
+		while (Date.now() - quietSince < STATUS_QUIET_DEBOUNCE_MS && Date.now() < deadline) {
+			await new Promise<void>((resolve) => setTimeout(resolve, STATUS_DEBOUNCE_POLL_MS));
+			if (lastLineAt !== lastSeenAt) {
+				lastSeenAt = lastLineAt;
+				quietSince = Date.now();
+			}
 		}
-	}
-
-	// Parse from the full raw screen capture, not the `\n`-delimited 'line'
-	// events: heavier /usage panels (Team/Enterprise accounts, or any account
-	// with a long "what's contributing" breakdown) paint via cursor-addressing
-	// with no line feeds, leaving the 'line' stream empty. The screen capture is
-	// a superset that always carries the panel; fall back to the joined lines
-	// only if capture was somehow empty.
-	const raw = driver.getScreenCapture() || lines.join('\n');
+	};
 
 	// Diagnostic hook: when MAESTRO_P_DUMP_RAW points at a file, write the raw
 	// captured screen there before parsing. The /usage layout drifts by plan
@@ -748,16 +781,64 @@ async function statusMode(args: ParsedArgs): Promise<never> {
 	// lets a maintainer capture the exact panel a given account renders without
 	// rebuilding an instrumented binary. Best-effort: a write failure must never
 	// derail the status probe itself.
-	const dumpPath = process.env.MAESTRO_P_DUMP_RAW;
-	if (dumpPath) {
+	//
+	// Attempt 1 keeps the plain configured path so the existing single-file
+	// contract is unchanged; a retry writes alongside it as `.attempt2`, `.attempt3`
+	// and so on, because diagnosing a flake needs the screen that FLAKED, not just
+	// the last one.
+	const dumpRaw = (raw: string, attempt: number): void => {
+		const dumpPath = process.env.MAESTRO_P_DUMP_RAW;
+		if (!dumpPath) return;
 		try {
-			fs.writeFileSync(dumpPath, raw, 'utf8');
+			fs.writeFileSync(attempt === 1 ? dumpPath : `${dumpPath}.attempt${attempt}`, raw, 'utf8');
 		} catch {
 			// ignore - diagnostics are non-fatal
 		}
+	};
+
+	let attempts = 0;
+	let retryDelay = STATUS_RETRY_INITIAL_DELAY_MS;
+	let parsed: ReturnType<typeof parseUsage> = null;
+
+	for (;;) {
+		attempts += 1;
+
+		// NOTE: neither the screen capture nor `lines` is cleared between attempts,
+		// and that is load-bearing rather than an oversight. Both accumulate, so a
+		// retry's panel lands appended to the previous one - which is exactly the
+		// shape parseUsage already expects: sliceToFinalPanel() anchors on the LAST
+		// `Current session` header and reads forward from there, so the newest panel
+		// wins and the stale one is ignored. Clearing would break claude's
+		// differential repaints, where only the changed cells arrive and no fresh
+		// section header is painted: a cleared buffer would hold anchorless
+		// fragments and parse to null on every retry. Verified in
+		// usage-parser.test.ts, "stacked /usage panels".
+		driver.send('/usage');
+		await settleUsagePanel();
+
+		// Parse from the full raw screen capture, not the `\n`-delimited 'line'
+		// events: heavier /usage panels (Team/Enterprise accounts, or any account
+		// with a long "what's contributing" breakdown) paint via cursor-addressing
+		// with no line feeds, leaving the 'line' stream empty. The screen capture is
+		// a superset that always carries the panel; fall back to the joined lines
+		// only if capture was somehow empty.
+		const raw = driver.getScreenCapture() || lines.join('\n');
+		dumpRaw(raw, attempts);
+
+		parsed = parseUsage(raw, new Date().toISOString(), configDir);
+		if (parsed) break;
+
+		// An API Usage Billing account has no plan windows to render, so this panel
+		// will never parse no matter how often it is asked. Retrying a structurally
+		// unmeasurable account burns the whole budget on every single run for an
+		// answer that cannot change. Fail fast and name the billing mode.
+		if (apiBilling) break;
+
+		if (Date.now() + retryDelay + STATUS_ATTEMPT_COST_MS > deadline) break;
+		await new Promise<void>((resolve) => setTimeout(resolve, retryDelay));
+		retryDelay = Math.min(retryDelay * 2, STATUS_RETRY_MAX_DELAY_MS);
 	}
 
-	const parsed = parseUsage(raw, new Date().toISOString(), configDir);
 	statusFinalized = true;
 	if (parsed) {
 		const emitter = new JsonEmitter();
@@ -770,7 +851,15 @@ async function statusMode(args: ParsedArgs): Promise<never> {
 		const { reason } = diagnoseApiUsageBilling(childEnv, configDir);
 		process.stderr.write(`maestro-p: ${reason} There is no plan usage to report.\n`);
 	} else {
-		process.stderr.write('maestro-p: failed to parse /usage output\n');
+		// Report the attempt count and elapsed time, not just the failure. A
+		// consumer reading this has to decide whether the account is flaky or
+		// genuinely unparseable, and "gave up after 5 attempts" is a different
+		// diagnosis from "failed on the only attempt there was time for".
+		const elapsedMs = Date.now() - startedAt;
+		process.stderr.write(
+			`maestro-p: failed to parse /usage output after ${attempts} ` +
+				`attempt${attempts === 1 ? '' : 's'} over ${Math.round(elapsedMs / 100) / 10}s\n`
+		);
 	}
 	await driver.quit();
 	process.exit(1);

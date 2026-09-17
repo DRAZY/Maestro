@@ -1017,4 +1017,49 @@ describe('TuiDriver', () => {
 			expect(mockPtyProcess.kill).not.toHaveBeenCalled();
 		});
 	});
+
+	describe('getScreenCapture()', () => {
+		async function makeCapturingDriver(): Promise<TuiDriver> {
+			const driver = new TuiDriver({
+				binPath: 'claude',
+				args: [],
+				cwd: '/tmp',
+				env: { HOME: '/home/test' },
+				captureScreen: true,
+			});
+			await driver.start();
+			return driver;
+		}
+
+		it('stays empty when captureScreen is not set', async () => {
+			// Run mode never asks for the capture, and paying to concatenate every byte
+			// of a long session would be pure overhead there.
+			const driver = await makeDriver();
+			feed('some output\r\n');
+			expect(driver.getScreenCapture()).toBe('');
+		});
+
+		it('ACCUMULATES across paints instead of replacing', async () => {
+			// Required by statusMode's /usage retry (#1595): a re-sent /usage
+			// appends its panel rather than replacing the previous one, and parseUsage
+			// resolves that by anchoring on the LAST `Current session` header. If this
+			// ever becomes a per-paint snapshot, the retry still "works" but silently
+			// loses claude's differential repaints - the ones that carry only changed
+			// cells and no section header - and every retry parses to null.
+			const driver = await makeCapturingDriver();
+			feed('first panel');
+			feed(' second panel');
+			expect(driver.getScreenCapture()).toBe('first panel second panel');
+		});
+
+		it('keeps raw ANSI rather than the stripped line stream', async () => {
+			// Why statusMode parses this instead of the 'line' events: heavier /usage
+			// panels paint by cursor-addressing with no line feeds, so the newline
+			// -delimited stream is empty while the panel is fully present here.
+			const driver = await makeCapturingDriver();
+			feed('\u001b[2J\u001b[H23% used');
+			expect(driver.getScreenCapture()).toContain('\u001b[2J');
+			expect(driver.getScreenCapture()).toContain('23% used');
+		});
+	});
 });
