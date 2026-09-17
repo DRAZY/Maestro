@@ -1324,9 +1324,14 @@ interface MaestroAPI {
 					label?: string;
 					email?: string;
 					planType?: string;
-					session?: { percent: number; resetsAt: string };
-					weekly?: { percent: number; resetsAt: string };
-					additionalLimits?: Array<{ name: string; percent: number; resetsAt?: string }>;
+					session?: { percent: number; resetsAt: string; windowSeconds?: number };
+					weekly?: { percent: number; resetsAt: string; windowSeconds?: number };
+					additionalLimits?: Array<{
+						name: string;
+						percent: number;
+						resetsAt?: string;
+						windowSeconds?: number;
+					}>;
 					error?: string;
 				}
 			>
