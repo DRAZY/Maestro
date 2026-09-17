@@ -55,12 +55,14 @@ import { AutoRunBottomPanel } from './AutoRunBottomPanel';
 import { NoFolderState, EmptyFolderState } from './AutoRunEmptyStates';
 import { useBatchStore } from '../../stores/batchStore';
 import { AutoRunAttachmentsPanel } from './AutoRunAttachmentsPanel';
-import { useTemplateAutocomplete, useAutoRunUndo, useAutoRunImageHandling } from '../../hooks';
+import { useAutoRunUndo, useAutoRunImageHandling } from '../../hooks';
+import { useEditorTemplateAutocomplete } from '../../hooks/input/useEditorTemplateAutocomplete';
+import { MarkdownEditor, type MarkdownEditorHandle } from '../FilePreview/markdownEditor';
 import { TemplateAutocompleteDropdown } from '../TemplateAutocompleteDropdown';
 import type { AutoRunProps, AutoRunHandle } from './types';
-import { TextareaLineNumbers, lineNumberGutterMetrics } from '../ui/TextareaLineNumbers';
 import { FontScaleControl } from '../ui/FontScaleControl';
 import { useFontScale } from '../../hooks/ui/useFontScale';
+import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { findHumanOnlyTasks } from '../../hooks/batch/batchUtils';
 import { toggleTaskCheckboxAtLine } from '../../utils/markdownTasks';
 import { useAutoRunContentSync } from '../../hooks/batch/useAutoRunContentSync';
@@ -74,11 +76,6 @@ import { logger } from '../../utils/logger';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
-
-/** Unzoomed font size of the rendered preview, in px. */
-const PREVIEW_BASE_FONT_SIZE = 13;
-/** Unzoomed font size of the Markdown source editor, in px (Tailwind `text-sm`). */
-const EDIT_BASE_FONT_SIZE = 14;
 
 // Inner implementation component
 const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInner(
@@ -210,7 +207,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	const modeBeforeAutoRunRef = useRef<'edit' | 'preview' | null>(null);
 	const [helpModalOpen, setHelpModalOpen] = useState(false);
 	const [resetTasksModalOpen, setResetTasksModalOpen] = useState(false);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const editorRef = useRef<MarkdownEditorHandle>(null);
 	const previewRef = useRef<HTMLDivElement>(null);
 	const documentSelectorRef = useRef<AutoRunDocumentSelectorHandle>(null);
 
@@ -219,23 +216,14 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	const handleJumpToLine = useCallback(
 		(line: number) => {
 			setMode('edit');
-			const offset = localContent
-				.split('\n')
-				.slice(0, line)
-				.reduce((sum, text) => sum + text.length + 1, 0);
-			// Defer so the textarea exists when we came from preview mode.
+			// Defer so the editor exists when we came from preview mode.
+			// CodeMirror lines are 1-based; the caller's line is 0-indexed.
 			requestAnimationFrame(() => {
-				const textarea = textareaRef.current;
-				if (!textarea) return;
-				textarea.focus();
-				textarea.setSelectionRange(offset, offset);
-				// setSelectionRange does not scroll, so place the line a third of
-				// the way down rather than leaving the caret offscreen.
-				const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-				textarea.scrollTop = Math.max(0, line * lineHeight - textarea.clientHeight / 3);
+				editorRef.current?.focus();
+				editorRef.current?.scrollToLine(line + 1);
 			});
 		},
-		[localContent, setMode]
+		[setMode]
 	);
 
 	// Bionify reading mode (global setting; disabled while search highlights are active)
@@ -258,7 +246,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	} = useAutoRunSearch({
 		localContent,
 		mode,
-		textareaRef,
+		editorRef,
 		previewRef,
 	});
 
@@ -270,7 +258,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	const { switchMode, toggleMode, handlePreviewScroll } = useAutoRunScrollSync({
 		mode,
 		setMode,
-		textareaRef,
+		editorRef,
 		previewRef,
 		localContent,
 		searchOpen,
@@ -289,9 +277,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		selectVariable,
 		closeAutocomplete: _closeAutocomplete,
 		autocompleteRef,
-	} = useTemplateAutocomplete({
-		textareaRef,
-		value: localContent,
+	} = useEditorTemplateAutocomplete({
+		editorRef,
 		onChange: setLocalContent,
 	});
 
@@ -307,7 +294,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		selectedFile,
 		localContent,
 		setLocalContent,
-		textareaRef,
+		editorRef,
 	});
 
 	// Reset undo history when document changes (session or file change)
@@ -440,7 +427,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		setLocalContent,
 		handleContentChange,
 		isLocked,
-		textareaRef,
+		editorRef,
 		pushUndoState,
 		lastUndoSnapshotRef,
 		sshRemoteId,
@@ -472,8 +459,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		() => ({
 			focus: () => {
 				// Focus the appropriate element based on current mode
-				if (mode === 'edit' && textareaRef.current) {
-					textareaRef.current.focus();
+				if (mode === 'edit' && editorRef.current) {
+					editorRef.current.focus();
 				} else if (mode === 'preview' && previewRef.current) {
 					previewRef.current.focus();
 				}
@@ -522,8 +509,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		// Skip focus when auto-follow is driving changes during a batch run
 		if (autoFollowEnabled && isRunningRef.current) return;
 
-		if (mode === 'edit' && textareaRef.current) {
-			textareaRef.current.focus();
+		if (mode === 'edit' && editorRef.current) {
+			editorRef.current.focus();
 		} else if (mode === 'preview' && previewRef.current) {
 			previewRef.current.focus();
 		}
@@ -545,8 +532,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 
 			// Focus on document change
 			requestAnimationFrame(() => {
-				if (mode === 'edit' && textareaRef.current) {
-					textareaRef.current.focus();
+				if (mode === 'edit' && editorRef.current) {
+					editorRef.current.focus();
 				} else if (mode === 'preview' && previewRef.current) {
 					previewRef.current.focus();
 				}
@@ -600,8 +587,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// Keyboard handler for textarea (Tab, undo/redo, save, checkbox, list continuation)
 	const handleKeyDown = useAutoRunKeyboard({
 		localContent,
-		setLocalContent,
-		textareaRef,
+		editorRef,
 		pushUndoState,
 		lastUndoSnapshotRef,
 		handleUndo,
@@ -620,6 +606,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// restores the size that mode was left at.
 	const previewFontScale = useFontScale('autoRun.previewFontScale');
 	const editFontScale = useFontScale('autoRun.editFontScale');
+	// The panel reads and edits a Markdown document, so it is the File Preview /
+	// File Editor surfaces - not a font size of its own. The zoom controls above
+	// multiply on top, the same two-knob split FilePreview uses.
+	const previewTypography = useSurfaceTypography('filePreview');
+	const editorTypography = useSurfaceTypography('fileEditor');
 	const activeFontScale = mode === 'edit' ? editFontScale : previewFontScale;
 
 	// Disable Bionify while search is active so search highlights remain visible
@@ -805,48 +796,49 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 							onOpenSetup={onOpenSetup}
 						/>
 					) : mode === 'edit' ? (
-						<div className="relative w-full h-full">
-							{showLineNumbers && (
-								<TextareaLineNumbers
-									textareaRef={textareaRef}
-									value={localContent}
-									theme={theme}
-									remeasureKey={editFontScale.fontScale}
-								/>
-							)}
-							<textarea
-								ref={textareaRef}
+						// Markdown source editor. Same CodeMirror editor the file
+						// preview uses, so a document reads the same - syntax colors,
+						// wrap-aware line numbers, painted search hits - whether it is
+						// open in a file tab or in this panel.
+						// The border lives on the wrapper rather than the editor: CM6 owns
+						// its own scroller, and preview mode draws the same frame, so the
+						// panel keeps one outline across the Cmd+E flip. While a batch run
+						// holds the document the frame turns warning-colored and the box
+						// tints, which is the only signal that typing will be refused.
+						<div
+							className="relative w-full h-full border rounded overflow-hidden"
+							style={{
+								borderColor: isLocked ? theme.colors.warning : theme.colors.border,
+								backgroundColor: isLocked ? theme.colors.bgActivity + '30' : 'transparent',
+							}}
+						>
+							<MarkdownEditor
+								ref={editorRef}
 								value={localContent}
-								onChange={(e) => {
-									if (!isLocked) {
-										// Schedule undo snapshot with current content before the change
-										const previousContent = localContent;
-										const previousCursor = textareaRef.current?.selectionStart || 0;
-										// Use autocomplete handler to detect "{{" triggers
-										handleAutocompleteChange(e);
+								onChange={(next) => {
+									if (isLocked) return;
+									const previousContent = localContent;
+									const previousCursor = editorRef.current?.getCaret() ?? 0;
+									// Autocomplete handler both stores the value and detects "{{"
+									handleAutocompleteChange(next);
+									// An explicit edit (tab, list continuation, checkbox) has already
+									// pushed its own undo entry and stamped the snapshot ref with the
+									// result, so scheduling a second one would double it up.
+									if (next !== lastUndoSnapshotRef.current) {
 										scheduleUndoSnapshot(previousContent, previousCursor);
 									}
 								}}
-								onFocus={() => {
-									/* no-op, manual save only */
-								}}
 								onKeyDown={!isLocked ? handleKeyDown : undefined}
 								onPaste={handlePaste}
+								language="markdown"
 								placeholder="Capture notes, images, and tasks in Markdown. (type {{ for variables)"
+								theme={theme}
 								readOnly={isLocked}
-								className={`w-full h-full border rounded p-4 bg-transparent outline-none resize-none font-mono ${isLocked ? 'cursor-not-allowed opacity-70' : ''}`}
-								style={{
-									borderColor: isLocked ? theme.colors.warning : theme.colors.border,
-									color: theme.colors.textMain,
-									backgroundColor: isLocked ? theme.colors.bgActivity + '30' : 'transparent',
-									// `text-sm` in px, scaled. The line height rides the font size so
-									// zooming in doesn't cram taller glyphs into the old 20px rows.
-									fontSize: `${EDIT_BASE_FONT_SIZE * editFontScale.fontScale}px`,
-									lineHeight: 1.45,
-									...(showLineNumbers
-										? { paddingLeft: lineNumberGutterMetrics(localContent).textPaddingLeft }
-										: {}),
-								}}
+								showLineNumbers={showLineNumbers}
+								fontScale={editFontScale.fontScale}
+								fontFamily={editorTypography.fontFamily}
+								baseFontPx={editorTypography.fontSize}
+								className={isLocked ? 'opacity-70 cursor-not-allowed' : ''}
 							/>
 							{/* Template Variable Autocomplete Dropdown */}
 							<TemplateAutocompleteDropdown
@@ -886,7 +878,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								color: theme.colors.textMain,
 								// The prose styles size everything else in `em`, so scaling the
 								// container carries headings, code, and lists with it.
-								fontSize: `${PREVIEW_BASE_FONT_SIZE * previewFontScale.fontScale}px`,
+								fontFamily: previewTypography.fontFamily,
+								fontSize: `${Math.round(previewTypography.fontSize * previewFontScale.fontScale * 10) / 10}px`,
 							}}
 						>
 							<style>{proseStyles}</style>

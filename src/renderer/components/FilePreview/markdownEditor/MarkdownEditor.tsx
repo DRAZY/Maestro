@@ -47,7 +47,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 			showLineNumbers = true,
 			onLineNumberContextMenu,
 			onKeyDown,
+			onPaste,
+			placeholder,
 			fontScale = 1,
+			fontFamily,
+			baseFontPx,
 			className,
 		},
 		ref
@@ -59,6 +63,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 		// fresh closures without us reconfiguring on every prop change.
 		const onChangeRef = useRef(onChange);
 		const onKeyDownRef = useRef(onKeyDown);
+		const onPasteRef = useRef(onPaste);
 		const onGutterContextRef = useRef(onLineNumberContextMenu);
 		useEffect(() => {
 			onChangeRef.current = onChange;
@@ -66,6 +71,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 		useEffect(() => {
 			onKeyDownRef.current = onKeyDown;
 		}, [onKeyDown]);
+		useEffect(() => {
+			onPasteRef.current = onPaste;
+		}, [onPaste]);
 		useEffect(() => {
 			onGutterContextRef.current = onLineNumberContextMenu;
 		}, [onLineNumberContextMenu]);
@@ -100,6 +108,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 				readOnly,
 				onGutterContextMenu: (lineNumber, event) => onGutterContextRef.current?.(lineNumber, event),
 				onKeyDown: (event) => onKeyDownRef.current?.(event),
+				onPaste: (event) => onPasteRef.current?.(event),
+				placeholder,
 			});
 
 			const updateListener = EditorView.updateListener.of((update) => {
@@ -112,7 +122,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 				doc: value,
 				extensions: [
 					compartments.base.of(baseExt),
-					compartments.theme.of(buildEditorTheme(theme, fontScale)),
+					compartments.theme.of(buildEditorTheme(theme, fontScale, fontFamily, baseFontPx)),
 					compartments.language.of([]),
 					searchHighlightExtension(),
 					updateListener,
@@ -158,16 +168,20 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 			}
 		}, [value]);
 
-		// Theme or font-zoom change → reconfigure the theme compartment. Font size
-		// rides in the theme (see themeAdapter) so a zoom re-measures line heights
-		// the same way a theme swap does.
+		// Theme, font-zoom, or surface-font change → reconfigure the theme
+		// compartment. Font size and family both ride in the theme (see
+		// themeAdapter) so either re-measures line heights the same way a theme
+		// swap does; leaving fontFamily out of the deps would apply a new face
+		// only on the next unrelated theme change.
 		useEffect(() => {
 			const view = viewRef.current;
 			if (!view) return;
 			view.dispatch({
-				effects: compartments.theme.reconfigure(buildEditorTheme(theme, fontScale)),
+				effects: compartments.theme.reconfigure(
+					buildEditorTheme(theme, fontScale, fontFamily, baseFontPx)
+				),
 			});
-		}, [theme, fontScale, compartments.theme]);
+		}, [theme, fontScale, fontFamily, baseFontPx, compartments.theme]);
 
 		// Language change → reload + reconfigure. Plain-text falls through to
 		// an empty extension so the previously loaded grammar is cleared.
@@ -201,9 +215,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 				readOnly,
 				onGutterContextMenu: (lineNumber, event) => onGutterContextRef.current?.(lineNumber, event),
 				onKeyDown: (event) => onKeyDownRef.current?.(event),
+				onPaste: (event) => onPasteRef.current?.(event),
+				placeholder,
 			});
 			view.dispatch({ effects: compartments.base.reconfigure(baseExt) });
-		}, [wrap, showLineNumbers, spellCheck, readOnly, compartments.base]);
+		}, [wrap, showLineNumbers, spellCheck, readOnly, placeholder, compartments.base]);
 
 		useImperativeHandle(
 			ref,
@@ -271,6 +287,22 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 					const view = viewRef.current;
 					if (!view) return 0;
 					return view.state.selection.main.head;
+				},
+				getSelectionRange() {
+					const view = viewRef.current;
+					if (!view) return { from: 0, to: 0 };
+					const { from, to } = view.state.selection.main;
+					return { from, to };
+				},
+				getScrollTop() {
+					const view = viewRef.current;
+					if (!view) return 0;
+					return view.scrollDOM.scrollTop;
+				},
+				setScrollTop(px: number) {
+					const view = viewRef.current;
+					if (!view) return;
+					view.scrollDOM.scrollTop = Math.max(0, px);
 				},
 				coordsAtPos(pos: number) {
 					const view = viewRef.current;

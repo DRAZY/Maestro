@@ -62,8 +62,22 @@ function assertSerializedJsonIsSafe(serialized: string | undefined, filePath: st
 export async function atomicWriteJson(filePath: string, data: unknown): Promise<void> {
 	const serialized = JSON.stringify(data, null, 2);
 	assertSerializedJsonIsSafe(serialized, filePath);
+	await atomicWriteText(filePath, serialized);
+}
+
+/**
+ * Atomically replace `filePath` with `contents` via a temp file + rename, with
+ * the same crash/interleave guarantees as `atomicWriteJson` but no JSON
+ * assumptions. Used for line-oriented stores (JSONL history rotation), where
+ * the payload is many independent records rather than one document.
+ *
+ * Callers own validation: unlike `atomicWriteJson` there is no parse-back gate,
+ * because the content is not a single parseable value. Never hand this an empty
+ * string when the target holds data you care about.
+ */
+export async function atomicWriteText(filePath: string, contents: string): Promise<void> {
 	const tmp = `${filePath}.tmp`;
-	await fs.writeFile(tmp, serialized, 'utf-8');
+	await fs.writeFile(tmp, contents, 'utf-8');
 	const maxRetries = 3;
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {

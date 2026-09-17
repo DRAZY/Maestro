@@ -21,23 +21,28 @@ import {
 } from './global-hotkey-manager';
 import { CueEngine } from './cue/cue-engine';
 import { configureCueTelemetry } from './cue/cue-telemetry';
-import {
-	executeCuePrompt,
-	recordCueHistoryEntry,
-	stopCueRun,
-	getCueProcessList,
-} from './cue/cue-executor';
+import { executeCuePrompt, stopCueRun, getCueProcessList } from './cue/cue-executor';
 import { executeCueShell, stopCueShellRun } from './cue/cue-shell-executor';
 import { executeCueCli, stopCueCliRun } from './cue/cue-cli-executor';
 import { executeCueNotify } from './cue/cue-notify-executor';
 import { reportCueAuthFailure } from './cue/cue-auth-detector';
 import { setSusFactorNotifier } from './cue/cue-susfactor';
 import { emitCueNotifyToast } from './cue/cue-notify-bridge';
+import {
+	getCueHistoryBuckets,
+	getCueHistoryEntries,
+	getCueHistoryFingerprint,
+	getCueHistoryGroupRuns,
+	getCueHistoryGroups,
+} from './cue/stats/cue-stats-query';
 import { getAgentDisplayName } from '../shared/agentMetadata';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';
 import { getHistoryManager } from './history-manager';
+import { MAX_ENTRIES_PER_SESSION, resolveHistoryEntryLimit } from '../shared/history';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../shared/cue/retention';
+import { resolveEncoreFeatures } from '../shared/encoreFeatures';
 import {
 	initializeStores,
 	getEarlySettings,
@@ -302,6 +307,13 @@ if (disableGpuAcceleration) {
 // This creates a unique identifier per Maestro installation for telemetry differentiation
 const store = getSettingsStore();
 let installationId = store.get('installationId');
+// An installationId already on disk means this settings store existed before
+// this boot, i.e. the app has launched before. Record that once, permanently -
+// it is how the renderer tells a returning user who deleted every agent from a
+// genuinely new install (sessions.length alone reads both as "new").
+if (installationId && !store.get('hasPriorInstallation')) {
+	store.set('hasPriorInstallation', true);
+}
 if (!installationId) {
 	installationId = crypto.randomUUID();
 	store.set('installationId', installationId);
@@ -1022,8 +1034,10 @@ app
 						mainWindow,
 						onLog: notifyLog,
 					});
-					const notifyHistory = recordCueHistoryEntry(notifyResult, sessionInfo);
-					void historyManager.addEntry(storedSession.id, projectRoot, notifyHistory);
+					// No History write here: Cue runs are served to History from
+					// `cue_events` (see `getCueHistoryEntries`), so the agent's JSONL
+					// file keeps only USER/AUTO entries and CUE rows can no longer
+					// evict them.
 					return notifyResult;
 				}
 
@@ -1092,10 +1106,8 @@ app
 									// point at the wrong daemon and `maestro-cli.js` may not
 									// exist on the remote host.
 								});
-					const cmdHistory = recordCueHistoryEntry(cmdResult, sessionInfo);
-					// Fire-and-forget: this is on the Cue execution path; the
-					// caller doesn't need to wait for the disk write to settle.
-					void historyManager.addEntry(storedSession.id, projectRoot, cmdHistory);
+					// History reads Cue runs from `cue_events`, not the JSONL file -
+					// see the note on the notify path above.
 					return cmdResult;
 				}
 
@@ -1173,15 +1185,8 @@ app
 						: undefined
 				);
 
-				const historyEntry = recordCueHistoryEntry(result, {
-					id: storedSession.id,
-					name: storedSession.name,
-					toolType: storedSession.toolType,
-					cwd: projectRoot,
-					projectRoot,
-					autoRunFolderPath: storedSession.autoRunFolderPath,
-				});
-				void historyManager.addEntry(storedSession.id, projectRoot, historyEntry);
+				// History reads Cue runs from `cue_events`, not the JSONL file -
+				// see the note on the notify path above.
 				return result;
 			},
 			onStopCueRun: (runId) => stopCueRun(runId) || stopCueShellRun(runId) || stopCueCliRun(runId),
@@ -1197,10 +1202,12 @@ app
 			// Phase 01 - gate cue_events stats lineage writes on the
 			// `encoreFeatures.usageStats` flag. Read on every record so toggling
 			// the Encore flag at runtime takes effect without an app restart.
-			getUsageStatsEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.usageStats === true;
-			},
+			getUsageStatsEnabled: () => resolveEncoreFeatures(store.get('encoreFeatures')).usageStats,
+			// How far back the engine-start prune keeps cue_events. Read on every
+			// start (not captured once) so changing the setting takes effect the
+			// next time Cue is enabled, without an app restart.
+			getCueHistoryRetentionDays: () =>
+				store.get('cueHistoryRetentionDays', DEFAULT_CUE_HISTORY_RETENTION_DAYS),
 		});
 
 		// Configure Cue telemetry submitter. Reads installationId / encore flags
@@ -1212,8 +1219,8 @@ app
 			getAppVersion: () => app.getVersion(),
 			getPlatform: () => process.platform,
 			isEncoreEnabled: () => {
-				const ef = store.get('encoreFeatures', {}) as Record<string, boolean>;
-				return ef.maestroCue === true && ef.usageStats === true;
+				const ef = resolveEncoreFeatures(store.get('encoreFeatures'));
+				return ef.maestroCue && ef.usageStats;
 			},
 		});
 
@@ -1222,6 +1229,11 @@ app
 		// Initialize history manager (handles migration from legacy format if needed)
 		logger.info('Initializing history manager', 'Startup');
 		const historyManager = getHistoryManager();
+		// Before initialize(): every writer that passes no explicit cap - and the
+		// legacy-format migration, which never does - must trim to the user's
+		// maxLogBuffer. A writer using the lower built-in fallback silently
+		// truncates history the user raised the cap to keep.
+		historyManager.setMaxEntriesResolver(() => store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION));
 		try {
 			await historyManager.initialize();
 			logger.info('History manager initialized', 'Startup');
@@ -1482,16 +1494,22 @@ function setupIpcHandlers() {
 
 	// History operations - extracted to src/main/ipc/handlers/history.ts
 	// Uses HistoryManager singleton for per-session storage
+	const readSessionRecords = (): Array<Record<string, unknown>> =>
+		(sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(
+			(s) => typeof s === 'object' && s !== null
+		);
 	registerHistoryHandlers({
 		safeSend,
-		getMaxEntries: () => store.get('maxLogBuffer', 5000) as number,
+		getMaxEntries: () =>
+			resolveHistoryEntryLimit(store.get('maxLogBuffer', MAX_ENTRIES_PER_SESSION)),
 		getSshRemoteById,
-		getSessionById: (id: string) => {
-			const sessions = (sessionsStore.get('sessions', []) as Array<Record<string, unknown>>).filter(
-				(s) => typeof s === 'object' && s !== null
-			);
-			return sessions.find((s) => s.id === id);
-		},
+		getSessionById: (id: string) => readSessionRecords().find((s) => s.id === id),
+		getAllSessions: readSessionRecords,
+		getCueHistoryEntries,
+		getCueHistoryGroups,
+		getCueHistoryGroupRuns,
+		getCueHistoryBuckets,
+		getCueHistoryFingerprint,
 	});
 
 	// Director's Notes - unified history + synopsis generation
@@ -1499,6 +1517,9 @@ function setupIpcHandlers() {
 		getProcessManager: () => processManager,
 		getAgentDetector: () => agentDetector,
 		agentConfigsStore,
+		getCueHistoryEntries,
+		getCueHistoryBuckets,
+		getCueHistoryFingerprint,
 	});
 
 	// Cue - event-driven automation engine

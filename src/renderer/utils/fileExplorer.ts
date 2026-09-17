@@ -765,6 +765,24 @@ export interface FileTreeChanges {
 }
 
 /**
+ * Path sets per tree array identity, for the root-level walk only.
+ *
+ * `compareFileTrees` runs on every auto-refresh tick and walks BOTH trees in
+ * full, but the "old" tree on tick N is the "new" tree from tick N-1 - already
+ * walked, and identical, because a tree array is never mutated in place. A
+ * field trace put the pair of walks at ~280ms of renderer main-thread time in a
+ * 58-second window; caching halves that outright. WeakMap, so a superseded
+ * tree's path sets are collected with the tree.
+ *
+ * Only the `currentPath === ''` case is cached: a prefixed walk produces
+ * different strings for the same nodes, and no caller passes one today.
+ */
+const rootPathSetsCache = new WeakMap<
+	FileTreeNode[],
+	{ files: Set<string>; folders: Set<string> }
+>();
+
+/**
  * Helper to collect all paths from a file tree
  * @see {@link walkTreePartitioned} from shared/treeUtils for the underlying implementation
  */
@@ -772,7 +790,14 @@ function collectPaths(
 	nodes: FileTreeNode[],
 	currentPath = ''
 ): { files: Set<string>; folders: Set<string> } {
-	return walkTreePartitioned(nodes, currentPath);
+	if (currentPath !== '') return walkTreePartitioned(nodes, currentPath);
+
+	const cached = rootPathSetsCache.get(nodes);
+	if (cached) return cached;
+
+	const paths = walkTreePartitioned(nodes, currentPath);
+	rootPathSetsCache.set(nodes, paths);
+	return paths;
 }
 
 /**

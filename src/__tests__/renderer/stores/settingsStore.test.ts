@@ -8,7 +8,8 @@ import {
 } from '../../../renderer/stores/settingsStore';
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
 import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
-import { MAESTRO_FONT_STACK } from '../../../shared/fontStacks';
+import { MAESTRO_FONT_STACK } from '../../../shared/fontStack';
+import { DEFAULT_CUE_HISTORY_RETENTION_DAYS } from '../../../shared/cue/retention';
 import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 import {
@@ -84,9 +85,6 @@ function resetStore() {
 		settingsLoaded: false,
 		conductorProfile: '',
 		globalShowHotkey: [],
-		llmProvider: 'openrouter',
-		modelSlug: 'anthropic/claude-3.5-sonnet',
-		apiKey: '',
 		defaultShell: 'zsh',
 		customShellPath: '',
 		shellArgs: '',
@@ -154,6 +152,8 @@ function resetStore() {
 		fileTabAutoRefreshEnabled: false,
 		suppressWindowsWarning: false,
 		directorNotesSettings: { provider: 'claude-code', defaultLookbackDays: 7 },
+		cueHistoryRetentionDays: DEFAULT_CUE_HISTORY_RETENTION_DAYS,
+		groupCueEntries: true,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
 		forcedParallelExecution: false,
@@ -196,9 +196,6 @@ describe('settingsStore', () => {
 
 			expect(state.settingsLoaded).toBe(false);
 			expect(state.conductorProfile).toBe('');
-			expect(state.llmProvider).toBe('openrouter');
-			expect(state.modelSlug).toBe('anthropic/claude-3.5-sonnet');
-			expect(state.apiKey).toBe('');
 			expect(state.defaultShell).toBe('zsh');
 			expect(state.customShellPath).toBe('');
 			expect(state.shellArgs).toBe('');
@@ -281,26 +278,6 @@ describe('settingsStore', () => {
 	// ========================================================================
 
 	describe('simple setters', () => {
-		describe('AI/LLM', () => {
-			it('setLlmProvider updates state and persists', () => {
-				useSettingsStore.getState().setLlmProvider('anthropic' as any);
-				expect(useSettingsStore.getState().llmProvider).toBe('anthropic');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('llmProvider', 'anthropic');
-			});
-
-			it('setModelSlug updates state and persists', () => {
-				useSettingsStore.getState().setModelSlug('gpt-4');
-				expect(useSettingsStore.getState().modelSlug).toBe('gpt-4');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('modelSlug', 'gpt-4');
-			});
-
-			it('setApiKey updates state and persists', () => {
-				useSettingsStore.getState().setApiKey('sk-test-key');
-				expect(useSettingsStore.getState().apiKey).toBe('sk-test-key');
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('apiKey', 'sk-test-key');
-			});
-		});
-
 		describe('Shell', () => {
 			it('setDefaultShell updates state and persists', () => {
 				useSettingsStore.getState().setDefaultShell('bash');
@@ -678,6 +655,35 @@ describe('settingsStore', () => {
 			});
 		});
 
+		describe('Cue history retention', () => {
+			it('defaults to the shared retention constant', () => {
+				expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(
+					DEFAULT_CUE_HISTORY_RETENTION_DAYS
+				);
+			});
+
+			it('setCueHistoryRetentionDays updates state and persists', () => {
+				useSettingsStore.getState().setCueHistoryRetentionDays(30);
+				expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('cueHistoryRetentionDays', 30);
+			});
+		});
+
+		describe('Cue History grouping', () => {
+			// Default ON: the ungrouped view is what made the History panel
+			// unreadable on a machine running high-frequency triggers.
+			it('defaults to grouping Cue entries', () => {
+				expect(useSettingsStore.getState().groupCueEntries).toBe(true);
+				expect(SETTINGS_METADATA.groupCueEntries.default).toBe(true);
+			});
+
+			it('setGroupCueEntries updates state and persists', () => {
+				useSettingsStore.getState().setGroupCueEntries(false);
+				expect(useSettingsStore.getState().groupCueEntries).toBe(false);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('groupCueEntries', false);
+			});
+		});
+
 		describe('Stats settings', () => {
 			it('setStatsCollectionEnabled updates state and persists', () => {
 				useSettingsStore.getState().setStatsCollectionEnabled(false);
@@ -976,6 +982,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1002,6 +1009,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1022,6 +1030,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1042,6 +1051,7 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
@@ -1060,11 +1070,45 @@ describe('settingsStore', () => {
 					maxSimultaneousQueries: 4,
 					maxQueueDepth: 1,
 				},
+				settingsLoaded: true,
 			});
 			vi.clearAllMocks();
 
 			useSettingsStore.getState().updateUsageStats({});
 			expect(useSettingsStore.getState().usageStats.maxAgents).toBe(5);
+		});
+
+		// Regression: peaks are lifetime high-water marks, but before
+		// loadAllSettings resolves the store still holds the zeroed defaults.
+		// The sampling effect in useAutoRunAchievements fires on the first
+		// `sessions` ref flip, which routinely beats the settings load, so an
+		// unguarded write persisted a live snapshot AS the all-time peak. A real
+		// install lost maxSimultaneousQueries 6 -> 3 and maxQueueDepth 16 -> 10
+		// this way. Nothing may be written until the baseline is real.
+		it('updateUsageStats writes nothing before settings have loaded', () => {
+			useSettingsStore.setState({
+				usageStats: {
+					maxAgents: 0,
+					maxDefinedAgents: 0,
+					maxSimultaneousAutoRuns: 0,
+					maxSimultaneousQueries: 0,
+					maxQueueDepth: 0,
+				},
+				settingsLoaded: false,
+			});
+			vi.clearAllMocks();
+
+			// A live snapshot that would look like a new record for every counter.
+			useSettingsStore.getState().updateUsageStats({
+				maxAgents: 88,
+				maxDefinedAgents: 88,
+				maxSimultaneousAutoRuns: 1,
+				maxSimultaneousQueries: 2,
+				maxQueueDepth: 1,
+			});
+
+			expect(window.maestro.settings.set).not.toHaveBeenCalled();
+			expect(useSettingsStore.getState().usageStats.maxAgents).toBe(0);
 		});
 	});
 
@@ -1635,6 +1679,70 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			expect(useSettingsStore.getState().activeThemeId).toBe('dracula');
+		});
+
+		// Opting out has to survive a restart: a user who turned grouping off
+		// did so because they need to see every run.
+		it('loads a persisted Cue grouping opt-out', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				groupCueEntries: false,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().groupCueEntries).toBe(false);
+		});
+
+		it('keeps Cue grouping on when nothing is stored', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().groupCueEntries).toBe(true);
+		});
+
+		it('loads a persisted Cue retention window', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: 30,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+		});
+
+		// A hand-edited settings file or a CLI write can store the number as
+		// text. The shared resolver parses it rather than discarding what the
+		// user asked for, so the store agrees with the engine's prune window.
+		it('parses a numeric string stored by a hand edit', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: '30',
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(30);
+		});
+
+		// The number shown in the UI is a promise about what the prune keeps, so
+		// an unusable stored value must read back as the default rather than as
+		// NaN or 0 - a 0-day window would mean "delete everything".
+		it.each([
+			['a non-numeric string', 'abc'],
+			['zero', 0],
+			['a negative count', -5],
+			['NaN', Number.NaN],
+			['null', null],
+		])('falls back to the default when the stored value is %s', async (_label, stored) => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				cueHistoryRetentionDays: stored,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().cueHistoryRetentionDays).toBe(
+				DEFAULT_CUE_HISTORY_RETENTION_DAYS
+			);
 		});
 
 		it('restores both halves of the environment editor', async () => {

@@ -105,6 +105,13 @@ export interface CueEngineDeps {
 	 * store; tests typically pass `() => true` or omit (defaults to off).
 	 */
 	getUsageStatsEnabled?: () => boolean;
+	/**
+	 * The user's `cueHistoryRetentionDays` setting, forwarded to the recovery
+	 * service so the engine-start prune uses the window the user chose instead
+	 * of a hardcoded one. Read on every start so a change takes effect without
+	 * an app restart. Omit (tests) to prune with the default window.
+	 */
+	getCueHistoryRetentionDays?: () => unknown;
 }
 
 export class CueEngine {
@@ -458,6 +465,7 @@ export class CueEngine {
 			onDispatch: (sessionId, sub, event) => {
 				this.dispatchService.dispatchSubscription(sessionId, sub, event, sessionId);
 			},
+			getCueHistoryRetentionDays: deps.getCueHistoryRetentionDays,
 		});
 	}
 

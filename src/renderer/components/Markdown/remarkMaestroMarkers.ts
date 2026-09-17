@@ -109,8 +109,10 @@ export function remarkMaestroMarkers() {
 			if (typeof line !== 'number') return;
 			const marker = markers.get(`${line}:${kind}`);
 			// No entry means the scanner skipped it - almost always because it sits
-			// inside a fence. Leaving the node untouched keeps it invisible, which
-			// is the correct rendering for a documentation example.
+			// inside a fence. Leaving the node untouched is the correct rendering
+			// for a documentation example; `remarkStripHtmlComments`, which runs
+			// after this plugin, is what actually keeps it invisible (react-markdown
+			// would otherwise print the raw comment as text).
 			if (!marker) return;
 
 			const detail = detailFor(marker);

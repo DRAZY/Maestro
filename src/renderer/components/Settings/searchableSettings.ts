@@ -45,6 +45,15 @@ export interface SearchableSetting {
 	description?: string;
 	/** Extra keywords for search matching (not displayed) */
 	keywords?: string[];
+	/**
+	 * Element to scroll to instead of `id`, for a setting whose control lives
+	 * OUTSIDE the Settings modal (the Cue retention dial sits in the Cue
+	 * modal's Activity Log header). Without this the jump would hunt for an id
+	 * the Settings content never renders and quietly give up, leaving the user
+	 * on a tab with nothing highlighted. Point it at the nearest section that
+	 * does render so the result still lands somewhere meaningful.
+	 */
+	jumpToId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +204,30 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 		description:
 			'Idle time to wait before generating a History synopsis; coalesces rapid completions into one',
 		keywords: ['synopsis', 'debounce', 'coalesce', 'history', 'delay', 'throttle', 'idle'],
+	},
+	{
+		id: 'general-group-cue-entries',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Group Cue History Entries',
+		description:
+			'Collapse repeated Cue runs into one History row with a run count, the most recent run time, and a failure count',
+		keywords: [
+			'cue',
+			'group',
+			'grouping',
+			'collapse',
+			'collapsed',
+			'history',
+			'entries',
+			'rows',
+			'repeated',
+			'duplicate',
+			'noise',
+			'trigger',
+			'run count',
+			'automation',
+		],
 	},
 	{
 		id: 'general-thinking-mode',
@@ -451,20 +484,105 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 // ---------------------------------------------------------------------------
 export const DISPLAY_SETTINGS: SearchableSetting[] = [
 	{
-		id: 'display-font-family',
+		id: 'display-typography-reset',
 		tab: 'display',
 		tabLabel: 'Display',
-		label: 'Font Family',
-		description: 'Choose the font for the interface',
-		keywords: ['font', 'typeface', 'family', 'monospace', 'custom font'],
+		label: 'Factory Reset Fonts',
+		description: 'Restore every font and size at once to Default or Hacker',
+		keywords: [
+			'font',
+			'typography',
+			'reset',
+			'factory reset',
+			'default',
+			'hacker',
+			'preset',
+			'restore',
+			'monospace',
+			'proportional',
+		],
 	},
 	{
-		id: 'display-font-size',
+		id: 'display-typography-snapshot',
 		tab: 'display',
 		tabLabel: 'Display',
-		label: 'Font Size',
-		description: 'Small, Medium, Large, or X-Large',
-		keywords: ['font', 'size', 'text', 'small', 'medium', 'large', 'x-large', 'xl', 'zoom'],
+		label: 'Save & Restore Customizations',
+		description: 'Keep your own fonts and sizes, and put them back after trying a preset',
+		keywords: [
+			'font',
+			'typography',
+			'save',
+			'restore',
+			'snapshot',
+			'saved fonts',
+			'backup',
+			'customization',
+			'my fonts',
+			'undo',
+			'revert',
+		],
+	},
+	{
+		id: 'display-custom-fonts',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Manage Custom Fonts',
+		description: 'Add font names installed on this machine, offered in every font picker',
+		keywords: [
+			'font',
+			'fonts',
+			'custom font',
+			'manage',
+			'add font',
+			'typeface',
+			'install',
+			'family',
+		],
+	},
+	{
+		id: 'display-fonts',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Fonts',
+		description:
+			'Pick a font and size for the interface, terminal, AI chat, file preview, and file editor',
+		keywords: [
+			'font',
+			'fonts',
+			'typeface',
+			'family',
+			'typography',
+			'monospace',
+			'proportional',
+			'custom font',
+			'interface font',
+			'terminal font',
+			'ai chat font',
+			'file preview font',
+			'file editor font',
+			'document graph font',
+			'graph font',
+			'nerd font',
+			'font size',
+		],
+	},
+	{
+		id: 'display-font-zoom',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Zoom',
+		description: 'Scale every surface font size together, without losing their relative sizes',
+		keywords: [
+			'font',
+			'size',
+			'zoom',
+			'text',
+			'bigger',
+			'smaller',
+			'scale',
+			'accessibility',
+			'magnify',
+		],
 	},
 	{
 		id: 'display-max-log-buffer',
@@ -1216,7 +1334,7 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 		tabLabel: 'Encore Features',
 		label: 'Maestro Cue',
 		description:
-			'Event-driven automation (Beta) — trigger agent prompts on timers, file changes, agent completions, GitHub PRs/issues, and pending tasks',
+			'Event-driven automation (Beta) - trigger agent prompts on timers, file changes, agent completions, GitHub PRs/issues, and pending tasks',
 		keywords: [
 			'cue',
 			'automation',
@@ -1236,6 +1354,31 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 		],
 	},
 	{
+		id: 'cue-history-retention',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		jumpToId: 'encore-cue',
+		label: 'Cue history retention',
+		description:
+			"How many days of Maestro Cue run history to keep. The control is in the Cue modal's Activity Log header; runs older than the window are pruned when the Cue engine starts.",
+		keywords: [
+			'cue',
+			'retention',
+			'history',
+			'activity log',
+			'prune',
+			'purge',
+			'cleanup',
+			'days',
+			'keep',
+			'database',
+			'cue.db',
+			'cue_events',
+			'expire',
+			'older than',
+		],
+	},
+	{
 		id: 'encore-director-notes',
 		tab: 'encore',
 		tabLabel: 'Encore Features',
@@ -1251,6 +1394,27 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'beta',
 			'fleet',
 			'unified',
+		],
+	},
+	{
+		id: 'encore-director-notes-provider',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Synopsis Provider (Director's Notes)",
+		description:
+			'Use the first available provider, or pin the synopsis to one agent and customize it',
+		keywords: [
+			'director',
+			'notes',
+			'synopsis',
+			'provider',
+			'agent',
+			'auto',
+			'automatic',
+			'first available',
+			'claude',
+			'codex',
+			'opencode',
 		],
 	},
 	{

@@ -57,6 +57,13 @@ beforeEach(() => {
 });
 
 // Mock the external dependencies
+// CodeMirror cannot lay itself out in jsdom, so the Auto Run source editor is
+// swapped for the shared textarea double (it still implements the editor handle).
+vi.mock('../../../renderer/components/FilePreview/markdownEditor', async () => {
+	const { markdownEditorModuleMock } = await import('../../helpers/mockMarkdownEditor');
+	return markdownEditorModuleMock();
+});
+
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => (
 		<div data-testid="react-markdown">{children}</div>
@@ -363,24 +370,55 @@ describe('AutoRun', () => {
 		});
 	});
 
+	// The source editor is CodeMirror, which owns its own scroller and draws no
+	// frame, so the panel outline lives on the wrapper around it. That wrapper is
+	// also where a locked document announces itself: while a batch run holds the
+	// file the editor is readOnly, and the warning-colored frame plus the tint are
+	// the only signal that typing will be refused.
+	describe('Locked document framing', () => {
+		it('frames the editor in the border color when the document is free', () => {
+			const props = createDefaultProps({ mode: 'edit' });
+			renderWithProvider(<AutoRun {...props} />);
+
+			const frame = screen.getByRole('textbox').closest('.border');
+			expect(frame).toHaveStyle({ borderColor: createMockTheme().colors.border });
+		});
+
+		it('turns the frame warning-colored while a batch run holds the document', () => {
+			const props = createDefaultProps({ mode: 'edit', batchRunState: createBatchRunState() });
+			renderWithProvider(<AutoRun {...props} />);
+
+			const frame = screen.getByRole('textbox').closest('.border');
+			expect(frame).toHaveStyle({ borderColor: createMockTheme().colors.warning });
+			// The editor itself refuses edits; the frame only says so out loud.
+			expect(screen.getByRole('textbox')).toHaveAttribute('readonly');
+		});
+	});
+
 	// Reading a rendered document and editing its source are different jobs at
 	// different comfortable sizes, so the two modes keep separate scales.
 	describe('Font Zoom', () => {
 		beforeEach(() => {
 			installLocalStorageMock();
+			// The panel has no font size of its own: it reads the File Preview /
+			// File Editor surfaces, so the base has to be seeded explicitly.
+			useSettingsStore.setState({ fontSize: 14, fontZoom: 1, filePreviewFontSize: 0 });
 		});
 
+		// The source editor is CodeMirror, which carries its font size in the
+		// editor theme rather than an inline style, so the assertion is on the
+		// persisted scale the zoom control writes (and the editor reads).
 		it('scales the editor font and persists under the edit key', () => {
 			const props = createDefaultProps({ mode: 'edit' });
 			renderWithProvider(<AutoRun {...props} />);
 
-			const textarea = screen.getByRole('textbox');
-			expect(parseFloat(textarea.style.fontSize)).toBeCloseTo(14, 5);
+			expect(window.localStorage.getItem('autoRun.editFontScale')).toBeNull();
 
 			fireEvent.click(screen.getByLabelText('Increase editor font size'));
 
-			expect(parseFloat(screen.getByRole('textbox').style.fontSize)).toBeCloseTo(15.4, 5);
 			expect(window.localStorage.getItem('autoRun.editFontScale')).toBe('1.1');
+			// The preview keeps its own scale - zooming one must not move the other.
+			expect(window.localStorage.getItem('autoRun.previewFontScale')).toBeNull();
 		});
 
 		it('scales the preview font and persists under the preview key', () => {
@@ -388,14 +426,38 @@ describe('AutoRun', () => {
 			const { container } = renderWithProvider(<AutoRun {...props} />);
 
 			const preview = container.querySelector('.prose') as HTMLElement;
-			expect(parseFloat(preview.style.fontSize)).toBeCloseTo(13, 5);
+			expect(parseFloat(preview.style.fontSize)).toBeCloseTo(14, 5);
 
 			fireEvent.click(screen.getByLabelText('Increase preview font size'));
 
 			expect(
 				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
-			).toBeCloseTo(14.3, 5);
+			).toBeCloseTo(15.4, 5);
 			expect(window.localStorage.getItem('autoRun.previewFontScale')).toBe('1.1');
+		});
+
+		// The panel used to carry a hard-coded 13px, so it stayed put while the
+		// rest of the app moved and read visibly smaller than the transcript
+		// beside it. It is a File Preview surface like any other document pane.
+		it('takes its base size from the File Preview surface, zoom included', () => {
+			useSettingsStore.setState({ fontSize: 16, fontZoom: 1.2, filePreviewFontSize: 0 });
+			const props = createDefaultProps({ mode: 'preview' });
+			const { container } = renderWithProvider(<AutoRun {...props} />);
+
+			// 16 interface px * 1.2 zoom, inherited because the surface is unset.
+			expect(
+				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
+			).toBeCloseTo(19.2, 5);
+		});
+
+		it('follows an explicit File Preview size over the interface size', () => {
+			useSettingsStore.setState({ fontSize: 16, fontZoom: 1, filePreviewFontSize: 20 });
+			const props = createDefaultProps({ mode: 'preview' });
+			const { container } = renderWithProvider(<AutoRun {...props} />);
+
+			expect(
+				parseFloat((container.querySelector('.prose') as HTMLElement).style.fontSize)
+			).toBeCloseTo(20, 5);
 		});
 
 		// The whole point of two keys: zooming one mode must leave the other alone.

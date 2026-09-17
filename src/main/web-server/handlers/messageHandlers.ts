@@ -5010,13 +5010,19 @@ export class WebSocketMessageHandler {
 	 */
 	private async handleProfilingStart(client: WebClient, message: WebClientMessage): Promise<void> {
 		try {
-			const status = await startProfiling();
+			// 'cli' origin: the buffer watchdog must NOT end this recording through
+			// the desktop UI. That flow raises a save dialog and writes wherever the
+			// user picks, which would hijack an unattended capture loop and put the
+			// bundle somewhere the caller never looks. A CLI capture sees
+			// `autoStopRequested` in `profiling status` and stops itself.
+			const status = await startProfiling(undefined, 'cli');
 			this.send(client, {
 				type: 'profiling_start_result',
 				success: true,
 				active: status.active,
 				startedAt: status.startedAt,
 				categories: status.categories,
+				bufferSizeKb: status.bufferSizeKb,
 				requestId: message.requestId,
 			});
 		} catch (error) {
@@ -5042,6 +5048,14 @@ export class WebSocketMessageHandler {
 			startedAt: status.startedAt,
 			elapsedMs: status.elapsedMs,
 			categories: status.categories,
+			// Buffer pressure, and whether the watchdog has already decided this
+			// recording should end. A scripted capture loop polls this to decide when
+			// to stop; without it the loop can only guess a duration, which is how
+			// truncated bundles got analyzed as if they were whole.
+			bufferPercent: status.bufferPercent,
+			peakBufferPercent: status.peakBufferPercent,
+			bufferSizeKb: status.bufferSizeKb,
+			autoStopRequested: status.autoStopRequested,
 			requestId: message.requestId,
 		});
 	}
@@ -5085,17 +5099,25 @@ export class WebSocketMessageHandler {
 		const tracePath = path.join(app.getPath('temp'), `maestro-trace-${timestamp}.json`);
 
 		try {
-			const { durationMs, categories } = await stopProfiling(tracePath);
+			const outcome = await stopProfiling(tracePath);
+			const { durationMs } = outcome;
 			// Ensure the destination directory exists so callers can point at a fresh
 			// output dir per loop iteration without pre-creating it.
 			await fs.mkdir(path.dirname(outputPath), { recursive: true });
-			const finalized = await finalizeCapture(tracePath, outputPath, durationMs, categories);
+			const finalized = await finalizeCapture(tracePath, outputPath, outcome);
 			logger.info(`[Profiling] CLI capture saved: ${finalized.path} (${durationMs}ms trace)`);
+			// An unattended capture -> analyze loop has nobody watching a modal, so
+			// completeness travels in the result. A caller that keeps analyzing
+			// truncated bundles without knowing it is the failure mode this whole
+			// change exists to end.
 			sendResult(true, {
 				path: finalized.path,
 				bundleSizeBytes: finalized.bundleSizeBytes,
 				traceSizeBytes: finalized.traceSizeBytes,
 				durationMs,
+				peakBufferPercent: outcome.peakBufferPercent,
+				autoStopped: outcome.autoStopped,
+				bufferExhausted: outcome.bufferExhausted,
 			});
 		} catch (error) {
 			const errMsg = error instanceof Error ? error.message : String(error);

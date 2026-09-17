@@ -19,7 +19,6 @@ import { Share2, Copy, Download, Check } from 'lucide-react';
 import type { Theme, AutoRunStats, MaestroUsageStats, LeaderboardRegistration } from '../types';
 import { getBadgeForTime, formatCumulativeTime } from '../constants/conductorBadges';
 import { formatTokensCompact } from '../utils/formatters';
-import { humanizeDuration } from '../../shared/duration';
 import maestroWandIcon from '../assets/icon-wand.png';
 import { safeClipboardWriteBlob } from '../utils/clipboard';
 import { logger } from '../utils/logger';
@@ -62,19 +61,6 @@ export interface AchievementShareButtonProps {
 }
 
 const GOLD_COLOR = '#FFD700';
-
-/**
- * Format the global hands-on time for the achievement image footer.
- * Rounds down to the nearest minute; under one minute reads as "0m" so the
- * canvas math stays predictable.
- */
-function formatHandsOnTime(ms: number): string {
-	return humanizeDuration(ms, {
-		units: ['hour', 'minute'],
-		keepZeroUnits: true,
-		fallback: '0m',
-	});
-}
 
 /**
  * Word-wrap a string to a max pixel width using the canvas's current font.
@@ -354,7 +340,10 @@ export function AchievementShareButton({
 			: 0;
 		const tokensValue = totalTokens > 0 ? formatTokensCompact(totalTokens) : '-';
 		const sessionsValue = globalStats?.totalSessions?.toLocaleString() || '-';
-		const handsOnValue = handsOnTimeMs ? formatHandsOnTime(handsOnTimeMs) : '-';
+		// Same formatter as the two Auto Run stats beside it, so a figure past a
+		// day reads "14d 11h 13m" rather than piling up as "347h 13m". The three
+		// share a row and get compared against each other at a glance.
+		const handsOnValue = handsOnTimeMs ? formatCumulativeTime(handsOnTimeMs) : '-';
 		const autoRunTotal = formatCumulativeTime(autoRunStats.cumulativeTimeMs);
 		const autoRunBest = formatCumulativeTime(autoRunStats.longestRunMs);
 

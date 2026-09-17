@@ -11,7 +11,10 @@
  *
  * Cache invalidation: when the underlying file's `mtimeMs`/`size` changes
  * (i.e. a new entry is appended), the cache misses and the caller is
- * expected to recompute and re-`set()`.
+ * expected to recompute and re-`set()`. The fingerprint is the caller's to
+ * compose, and it has to cover EVERY source the aggregate reads - the history
+ * graph mixes in a Cue-database stamp because its CUE series no longer comes
+ * from the file (see `getCueHistoryFingerprint()`).
  */
 
 import * as fs from 'fs';
@@ -25,7 +28,7 @@ import { captureException } from './sentry';
 const LOG_CONTEXT = '[HistoryBucketCache]';
 
 /** Bump to invalidate every existing cache entry on disk. */
-export const HISTORY_BUCKET_CACHE_VERSION = 2;
+export const HISTORY_BUCKET_CACHE_VERSION = 3;
 
 /**
  * Single bucket of the activity graph - counts of each entry type within the

@@ -31,6 +31,7 @@ import {
 	Keyboard,
 	AlertTriangle,
 	Clock,
+	Layers,
 } from 'lucide-react';
 import { useSettings } from '../../../hooks';
 import { captureException } from '../../../utils/sentry';
@@ -87,6 +88,8 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		setDefaultSaveToHistory,
 		synopsisDebounceSeconds,
 		setSynopsisDebounceSeconds,
+		groupCueEntries,
+		setGroupCueEntries,
 		defaultShowThinking,
 		setDefaultShowThinking,
 		// Spell check
@@ -949,6 +952,19 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 						</p>
 					</div>
 				)}
+			</div>
+
+			{/* Group Cue entries in the History panel */}
+			<div data-setting-id="general-group-cue-entries">
+				<SettingCheckbox
+					icon={Layers}
+					sectionLabel="Group Cue History Entries"
+					title="Collapse repeated Cue runs into one History row"
+					description="A high-frequency trigger becomes a single row with its run count, the most recent run time, and a failure count. Expand the row to see the individual runs. Turn this off to list every Cue run separately."
+					checked={groupCueEntries}
+					onChange={setGroupCueEntries}
+					theme={theme}
+				/>
 			</div>
 
 			{/* Default Thinking Toggle - Three states: Off, On, Sticky */}
