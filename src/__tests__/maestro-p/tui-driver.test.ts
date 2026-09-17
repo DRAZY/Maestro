@@ -62,6 +62,8 @@ vi.mock('node-pty', () => ({
 
 import {
 	chunkPromptForPty,
+	MACOS_PTY_INPUT_QUEUE_BYTES,
+	PROMPT_CHUNK_DRAIN_TIMEOUT_MS,
 	PROMPT_CHUNK_INTERVAL_MS,
 	PROMPT_CHUNK_MAX_BYTES,
 	PROMPT_SETTLE_MAX_MS,
@@ -712,6 +714,15 @@ describe('TuiDriver', () => {
 			}
 		});
 
+		// A chunk that claude has not read yet is still sitting in the PTY's input
+		// queue when the next one lands. At 512 bytes two undrained chunks were
+		// 1,024 against a 1,022-byte queue, which is how 3.4 KB prompts kept
+		// losing exactly one queue (issue #1598) with paced writes already in
+		// place. The budget has to leave room for several chunks in flight.
+		it('sizes chunks so several can sit undrained inside the PTY input queue', () => {
+			expect(PROMPT_CHUNK_MAX_BYTES * 3).toBeLessThan(MACOS_PTY_INPUT_QUEUE_BYTES);
+		});
+
 		it('types a long prompt in paced chunks, each well under the PTY input queue', async () => {
 			const driver = await makeDriver();
 			feed('❯ \n');
@@ -721,13 +732,19 @@ describe('TuiDriver', () => {
 			const prompt = 'x'.repeat(1300);
 			const sending = driver.send(prompt);
 			await vi.advanceTimersByTimeAsync(PROMPT_SETTLE_QUIET_MS);
-			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
-			await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_INTERVAL_MS);
-			expect(mockPtyProcess.write).toHaveBeenCalledTimes(2);
-			await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_INTERVAL_MS);
+			let typed = 1;
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(typed);
+			// Each subsequent chunk waits for claude to paint (drain evidence) and
+			// then the floor, so drive both per chunk until the prompt is out.
+			while (mockPtyProcess.write.mock.calls.length < Math.ceil(1300 / PROMPT_CHUNK_MAX_BYTES)) {
+				feed('redraw');
+				await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_INTERVAL_MS);
+				typed += 1;
+				expect(mockPtyProcess.write).toHaveBeenCalledTimes(typed);
+			}
 			await sending;
 			const writes = mockPtyProcess.write.mock.calls.map((c) => c[0] as string);
-			expect(writes).toHaveLength(3);
+			expect(writes).toHaveLength(Math.ceil(1300 / PROMPT_CHUNK_MAX_BYTES));
 			expect(writes.join('')).toBe(prompt);
 			for (const chunk of writes) {
 				expect(chunk.length).toBeLessThanOrEqual(PROMPT_CHUNK_MAX_BYTES);
@@ -737,6 +754,55 @@ describe('TuiDriver', () => {
 			expect(writes).not.toContain('\r');
 			await vi.advanceTimersByTimeAsync(SEND_ENTER_DELAY_MS);
 			expect(mockPtyProcess.write).toHaveBeenLastCalledWith('\r');
+		});
+
+		// The point of drain-aware pacing: a chunk is held until claude has
+		// actually read the last one, so a slow editor render cannot let chunks
+		// pile up in the queue the way a fixed interval did.
+		it('holds the next chunk until claude paints, however long that takes', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			const sending = driver.send('z'.repeat(PROMPT_CHUNK_MAX_BYTES * 2));
+			await vi.advanceTimersByTimeAsync(PROMPT_SETTLE_QUIET_MS);
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			// The floor alone is not enough: with no paint, nothing more is typed.
+			await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_INTERVAL_MS * 4);
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			// claude redraws its editor - it read the chunk. Typing resumes.
+			feed('redraw');
+			await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_INTERVAL_MS);
+			await sending;
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(2);
+		});
+
+		// A screen that goes quiet must not strand the prompt: past the ceiling
+		// we keep typing, which is no worse than the fixed interval it replaced.
+		it('types on anyway once the drain ceiling passes with no paint', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			const sending = driver.send('q'.repeat(PROMPT_CHUNK_MAX_BYTES * 2));
+			await vi.advanceTimersByTimeAsync(PROMPT_SETTLE_QUIET_MS);
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(PROMPT_CHUNK_DRAIN_TIMEOUT_MS + PROMPT_CHUNK_INTERVAL_MS);
+			await sending;
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(2);
+		});
+
+		// send() parks on a paint that a dead PTY will never send; exit has to
+		// release it rather than leave the caller waiting out the ceiling.
+		it('unwinds immediately when the PTY exits while waiting for a paint', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			const sending = driver.send('w'.repeat(PROMPT_CHUNK_MAX_BYTES * 2));
+			await vi.advanceTimersByTimeAsync(PROMPT_SETTLE_QUIET_MS);
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			triggerExit(1);
+			// No timer advance at all: the exit itself is what resolves send().
+			await sending;
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
 		});
 
 		it('stops typing and never presses Enter if the PTY exits mid-prompt', async () => {
