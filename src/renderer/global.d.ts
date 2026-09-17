@@ -684,8 +684,7 @@ interface MaestroAPI {
 		) => () => void;
 		sendRemoteNewAITabWithPromptResponse: (
 			responseChannel: string,
-			success: boolean,
-			tabId?: string
+			result: { success: boolean; tabId?: string; queued?: boolean; error?: string }
 		) => void;
 		/** Cross-agent consult asked for over the CLI (`maestro-cli ask`). The
 		 *  reply is the consulted agent's ANSWER, so it can arrive minutes later. */
