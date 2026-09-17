@@ -1741,6 +1741,10 @@ export interface EncoreFeatureFlags {
 	// Groups+ - nested groups, standard folder icons, and label colors.
 	// Off by default. Optional so older fixtures and persisted settings remain valid.
 	groupsPlus?: boolean;
+	// Web Login - require a username and password on the web interface, with
+	// per-account attribution on History and stats. Off by default. Optional so
+	// older fixtures and persisted settings remain valid.
+	webLogin?: boolean;
 }
 
 // Director's Notes settings for synopsis generation

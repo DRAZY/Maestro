@@ -22,6 +22,7 @@ export const ENCORE_FEATURE_DEFAULTS = {
 	opencodeServer: false,
 	concerto: false,
 	groupsPlus: false,
+	webLogin: false,
 } as const satisfies Readonly<Record<string, boolean>>;
 
 /** The flag shape these defaults describe, derived so the two cannot drift. */
