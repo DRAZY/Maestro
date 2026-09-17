@@ -54,13 +54,14 @@ function Harness({
 }
 
 /** Drive the rAF loop by hand so scroll deltas are deterministic. */
-let frameCallbacks: FrameRequestCallback[] = [];
+let frameHandles = new Map<number, FrameRequestCallback>();
+let nextHandle = 0;
 let now = 0;
 
 function runFrame(elapsedMs: number) {
 	now += elapsedMs;
-	const pending = frameCallbacks;
-	frameCallbacks = [];
+	const pending = [...frameHandles.values()];
+	frameHandles.clear();
 	act(() => {
 		pending.forEach((cb) => cb(now));
 	});
@@ -76,13 +77,16 @@ function dragOver(el: HTMLElement, clientX: number, clientY: number) {
 
 describe('useDragAutoScroll', () => {
 	beforeEach(() => {
-		frameCallbacks = [];
+		frameHandles = new Map();
+		nextHandle = 0;
 		now = 0;
 		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-			frameCallbacks.push(cb);
-			return frameCallbacks.length;
+			frameHandles.set(++nextHandle, cb);
+			return nextHandle;
 		});
-		vi.stubGlobal('cancelAnimationFrame', () => {});
+		vi.stubGlobal('cancelAnimationFrame', (handle: number) => {
+			frameHandles.delete(handle);
+		});
 		vi.spyOn(performance, 'now').mockImplementation(() => now);
 	});
 

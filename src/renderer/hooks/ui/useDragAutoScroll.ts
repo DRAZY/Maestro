@@ -63,7 +63,10 @@ export function useDragAutoScroll(
 
 		let pointer: { x: number; y: number; at: number } | null = null;
 		let frame: number | null = null;
-		let lastFrameAt = 0;
+		// null, not 0: a test clock (or a page whose timeline genuinely starts at
+		// zero) would otherwise read the first frame as "no baseline yet" twice and
+		// swallow a frame of movement.
+		let lastFrameAt: number | null = null;
 
 		const onDragOver = (e: DragEvent) => {
 			pointer = { x: e.clientX, y: e.clientY, at: performance.now() };
@@ -71,7 +74,7 @@ export function useDragAutoScroll(
 
 		const step = (now: number) => {
 			frame = requestAnimationFrame(step);
-			const elapsed = lastFrameAt === 0 ? 0 : now - lastFrameAt;
+			const elapsed = lastFrameAt === null ? 0 : now - lastFrameAt;
 			lastFrameAt = now;
 			if (!pointer || elapsed <= 0) return;
 
