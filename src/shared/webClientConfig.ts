@@ -51,6 +51,9 @@ export interface MaestroWebClientConfig {
 	webLoginRequired?: boolean;
 }
 
+/** Reconcile browser-held work with the main process after bridge recovery. */
+export const WEB_BRIDGE_RECONCILE_EVENT = 'maestro:webBridgeReconcile';
+
 declare global {
 	interface Window {
 		__MAESTRO_CONFIG__?: MaestroWebClientConfig;

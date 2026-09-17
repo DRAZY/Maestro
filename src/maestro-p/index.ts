@@ -22,6 +22,7 @@ import * as fs from 'node:fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { isRateLimitErrorRow } from './api-error-row';
 import { parseArgs, type ParsedArgs } from './args';
 import { diagnoseApiUsageBilling } from './billing-mode';
 import { buildChildEnv } from './child-env';
@@ -31,6 +32,7 @@ import { extractExitPlanText } from './plan-mode';
 import { checkPromptEcho, isPromptEchoVerifiable, promptEchoText } from './prompt-echo';
 import { discoverSessionId, cwdSlug } from './session-watcher';
 import { cleanupStreamJsonImages, translateStreamJsonInput } from './stream-json-input';
+import { formatScreenTailReport, idleTimeoutMessage } from './timeout-report';
 import { TuiDriver } from './tui-driver';
 import { parseUsage } from './usage-parser';
 import { VERSION } from './package-info';
@@ -453,10 +455,41 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			});
 	};
 
+	// A quota limit means claude reports the limit and sits - it won't emit
+	// (further) transcript output this turn. Don't wait for the first-byte /
+	// idle timeout to settle: that long stall is what makes a Dynamic-mode turn
+	// look like it produced "no response" after the mode-switch banner, and what
+	// makes a headless caller burn its whole --max-wait. Finalize after the same
+	// short drain grace used for end_turn (so any assistant text written BEFORE
+	// the limit still flushes), then exit. `limitHit` forces exit code 2, which
+	// fires the desktop's interactive→API replay so the user's prompt is promptly
+	// re-sent under `claude --print` and actually gets answered.
+	//
+	// Two sources report a limit - the TUI banner and the transcript's
+	// rate_limit row - and either can fire alone, so both land here. The first
+	// one wins; the second is a no-op.
+	const markLimitHit = (): void => {
+		if (limitHit) return;
+		limitHit = true;
+		setTimeout(() => {
+			if (!finalized) {
+				finalize({ isError: false, exitCode: 2 });
+			}
+		}, END_TURN_GRACE_MS);
+	};
+
 	const processEntry = (entry: unknown): void => {
 		if (finalized || !entry || typeof entry !== 'object') return;
 		const e = entry as Record<string, unknown>;
 		const message = e.message as Record<string, unknown> | undefined;
+
+		// Claude's plan-limit notice is a synthetic row too, so it has to be
+		// caught before the bookkeeping filter below drops it (see
+		// api-error-row.ts).
+		if (isRateLimitErrorRow(e)) {
+			markLimitHit();
+			return;
+		}
 
 		// Synthetic-model bookkeeping rows ("No response requested.") never
 		// reach the wire.
@@ -560,23 +593,7 @@ async function runMode(args: ParsedArgs): Promise<never> {
 		);
 	};
 
-	driver.on('limit-hit', () => {
-		limitHit = true;
-		// A quota limit means claude paints the limit line on the TUI and sits -
-		// it won't emit (further) transcript output this turn. Don't wait for the
-		// first-byte / idle timeout (up to 120s) to settle: that long stall is what
-		// makes a Dynamic-mode turn look like it produced "no response" after the
-		// mode-switch banner. Finalize after the same short drain grace used for
-		// end_turn (so any assistant text painted BEFORE the limit still flushes),
-		// then exit. `limitHit` forces exit code 2, which fires the desktop's
-		// interactive→API replay so the user's prompt is promptly re-sent under
-		// `claude --print` and actually gets answered.
-		setTimeout(() => {
-			if (!finalized) {
-				finalize({ isError: false, exitCode: 2 });
-			}
-		}, END_TURN_GRACE_MS);
-	});
+	driver.on('limit-hit', markLimitHit);
 	driver.on('exit', () => {
 		if (finalized) return;
 		finalize({ isError: true, error: 'tui_exited', exitCode: 1 });
@@ -604,10 +621,11 @@ async function runMode(args: ParsedArgs): Promise<never> {
 		// Dump the last screenful so the failure is diagnosable from stderr
 		// alone: an MCP-connecting banner, a blocking modal, or un-submitted
 		// prompt text each point at a different remaining fix.
-		const screenTail = driver.getScreenTail();
 		process.stderr.write(
-			`maestro-p: no transcript output within ${args.firstByteTimeoutSeconds}s of sending the prompt - claude never started the turn (prompt may have been swallowed by a startup modal). Failing with first_byte_timeout.\n` +
-				`maestro-p: last screen at timeout (ANSI-stripped tail):\n${screenTail}\n`
+			formatScreenTailReport(
+				`no transcript output within ${args.firstByteTimeoutSeconds}s of sending the prompt - claude never started the turn (prompt may have been swallowed by a startup modal). Failing with first_byte_timeout.`,
+				driver.getScreenTail()
+			)
 		);
 		finalize({ isError: true, error: 'first_byte_timeout', exitCode: 5 });
 	}, firstByteTimeoutMs);
@@ -666,8 +684,10 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			// bubble to main()'s catch (a bare exit 1 with no result envelope).
 			if (!finalized) {
 				process.stderr.write(
-					`maestro-p: session discovery failed: ${err instanceof Error ? err.message : String(err)}\n` +
-						`maestro-p: last screen at timeout (ANSI-stripped tail):\n${driver.getScreenTail()}\n`
+					formatScreenTailReport(
+						`session discovery failed: ${err instanceof Error ? err.message : String(err)}`,
+						driver.getScreenTail()
+					)
 				);
 				finalize({ isError: true, error: 'first_byte_timeout', exitCode: 5 });
 			}
@@ -690,6 +710,16 @@ async function runMode(args: ParsedArgs): Promise<never> {
 		if (finalized || !tailer) return;
 		const idleMs = Date.now() - tailer.getLastByteAt();
 		if (idleMs > args.maxWaitSeconds * 1000) {
+			// Dump the screen before finalize() quits the TUI: a turn that goes
+			// silent mid-turn is parked on something (a permission prompt, a
+			// modal, a hung tool or API call), and the screen is the only record
+			// of which one.
+			process.stderr.write(
+				formatScreenTailReport(
+					idleTimeoutMessage(idleMs, args.maxWaitSeconds),
+					driver.getScreenTail()
+				)
+			);
 			finalize({ isError: true, error: 'timeout', exitCode: 3 });
 		}
 	}, WATCHDOG_INTERVAL_MS);

@@ -172,7 +172,7 @@ export interface MessageHandlerCallbacks {
 		sessionId: string,
 		prompt: string,
 		background?: boolean
-	) => Promise<{ success: boolean; tabId?: string }>;
+	) => Promise<{ success: boolean; tabId?: string; queued?: boolean; error?: string }>;
 	/** Consult another agent and return its answer (`maestro-cli ask`). */
 	consultAgent: (params: ConsultAgentParams) => Promise<ConsultAgentResult>;
 	/** Mark a delivered CLI dispatch in the calling agent's transcript. Fire-and-forget. */

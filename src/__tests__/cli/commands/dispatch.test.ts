@@ -155,7 +155,53 @@ describe('dispatch command', () => {
 			expect(processExitSpy).toHaveBeenCalledWith(1);
 		});
 
-		it('rejects --new-tab combined with --force as INVALID_OPTIONS (a new tab is never busy)', async () => {
+		it('reports the desktop reason when --new-tab is refused, not NEW_TAB_NO_ID (#1602)', async () => {
+			// sendCommand resolves on any reply, success or not. A refusal carries
+			// no tab id, so it used to fall through to the NEW_TAB_NO_ID branch and
+			// be reported as "the desktop acked without a tab id" - a protocol
+			// fault, which is the one thing it is not.
+			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+			const mockSendCommand = vi.fn().mockResolvedValue({
+				type: 'new_ai_tab_with_prompt_result',
+				success: false,
+				error: 'Agent not found: agent-abc-123',
+			});
+			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+				const mockClient = { sendCommand: mockSendCommand };
+				return action(mockClient as never);
+			});
+
+			await dispatch('agent-abc', 'Open a new conversation', { newTab: true });
+
+			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
+			expect(output.success).toBe(false);
+			expect(output.code).toBe('DISPATCH_REFUSED');
+			expect(output.error).toBe('Agent not found: agent-abc-123');
+			expect(processExitSpy).toHaveBeenCalledWith(1);
+		});
+
+		it('reports queued: true when --new-tab queued the prompt behind a running turn', async () => {
+			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+			const mockSendCommand = vi.fn().mockResolvedValue({
+				type: 'new_ai_tab_with_prompt_result',
+				success: true,
+				tabId: 'tab-fresh-42',
+				queued: true,
+			});
+			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+				const mockClient = { sendCommand: mockSendCommand };
+				return action(mockClient as never);
+			});
+
+			await dispatch('agent-abc', 'Open a new conversation', { newTab: true });
+
+			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
+			expect(output.success).toBe(true);
+			expect(output.tabId).toBe('tab-fresh-42');
+			expect(output.queued).toBe(true);
+		});
+
+		it('rejects --new-tab combined with --force as INVALID_OPTIONS (no turn to bypass)', async () => {
 			await dispatch('agent-abc', 'Hello', { newTab: true, force: true });
 
 			const output = JSON.parse(consoleSpy.mock.calls[0][0]);

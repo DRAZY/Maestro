@@ -464,7 +464,19 @@ export type ConsultAgentCallback = (params: ConsultAgentParams) => Promise<Consu
  * already succeeded, and the pill is a record of it, not part of it.
  */
 export type NoteAgentDelegationCallback = (notice: AgentDelegationNotice) => void;
-export type NewAITabWithPromptResult = { success: boolean; tabId?: string };
+/**
+ * Result of `dispatch --new-tab`. The tab is created either way; `queued` says
+ * whether its prompt started immediately or joined the agent's execution queue
+ * because the agent was mid-turn. `error` carries the renderer's own reason for
+ * a refusal, so the CLI can report what actually happened instead of inferring
+ * one from a missing tab id.
+ */
+export type NewAITabWithPromptResult = {
+	success: boolean;
+	tabId?: string;
+	queued?: boolean;
+	error?: string;
+};
 export type NewAITabWithPromptCallback = (
 	sessionId: string,
 	prompt: string,

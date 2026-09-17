@@ -1302,16 +1302,15 @@ describe('useRemoteIntegration', () => {
 			);
 			// The renderer surfaces the new tab id through the IPC ack so
 			// `maestro-cli dispatch --new-tab` can return an addressable id.
-			expect(mockProcess.sendRemoteNewAITabWithPromptResponse).toHaveBeenCalledWith(
-				'chan-1',
-				true,
-				expect.any(String)
-			);
+			expect(mockProcess.sendRemoteNewAITabWithPromptResponse).toHaveBeenCalledWith('chan-1', {
+				success: true,
+				tabId: expect.any(String),
+			});
 
 			dispatchEventSpy.mockRestore();
 		});
 
-		it('acks false and skips dispatch when session is missing', () => {
+		it('acks the failure reason and skips dispatch when session is missing', () => {
 			const deps = createDeps({ sessions: [] });
 			const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent');
 
@@ -1324,32 +1323,51 @@ describe('useRemoteIntegration', () => {
 
 			expect(useSessionStore.getState().sessions).toBe(before);
 			expect(dispatchEventSpy).not.toHaveBeenCalled();
+			// The reason travels with the ack - the CLI used to have only a
+			// missing tab id to go on and reported every refusal as a protocol
+			// fault (NEW_TAB_NO_ID).
 			expect(mockProcess.sendRemoteNewAITabWithPromptResponse).toHaveBeenCalledWith(
 				'chan-missing',
-				false
+				{ success: false, error: expect.stringContaining('nonexistent') }
 			);
 
 			dispatchEventSpy.mockRestore();
 		});
 
-		it('acks false and skips dispatch when session is busy', () => {
-			const session = createMockSession({ id: 'session-1', state: 'busy' });
+		it('creates the tab and QUEUES the prompt when the agent is busy (#1602)', () => {
+			const tab = createMockTab({ id: 'tab-1' });
+			const session = createMockSession({ id: 'session-1', state: 'busy', aiTabs: [tab] });
+			const originalTabCount = session.aiTabs.length;
 			const deps = createDeps({ sessions: [session] });
 			const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent');
 
 			renderHook(() => useRemoteIntegration(deps));
 
-			const before = useSessionStore.getState().sessions;
 			act(() => {
-				onRemoteNewAITabWithPromptHandler?.('session-1', 'Hello', 'chan-busy');
+				onRemoteNewAITabWithPromptHandler?.('session-1', 'Hello', 'chan-busy', true);
 			});
 
-			expect(useSessionStore.getState().sessions).toBe(before);
-			expect(dispatchEventSpy).not.toHaveBeenCalled();
-			expect(mockProcess.sendRemoteNewAITabWithPromptResponse).toHaveBeenCalledWith(
-				'chan-busy',
-				false
+			// A busy AGENT cannot start a second turn, but the tab is still
+			// created and the prompt waits in the execution queue instead of
+			// being dropped.
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'session-1');
+			expect(updated?.aiTabs).toHaveLength(originalTabCount + 1);
+			const newTabId = updated?.aiTabs[updated.aiTabs.length - 1]?.id;
+			expect(updated?.executionQueue).toHaveLength(1);
+			expect(updated?.executionQueue?.[0]).toMatchObject({
+				type: 'message',
+				text: 'Hello',
+				tabId: newTabId,
+			});
+			// No immediate spawn - that is what the queue is for.
+			expect(dispatchEventSpy).not.toHaveBeenCalledWith(
+				expect.objectContaining({ type: 'maestro:remoteCommand' })
 			);
+			expect(mockProcess.sendRemoteNewAITabWithPromptResponse).toHaveBeenCalledWith('chan-busy', {
+				success: true,
+				tabId: newTabId,
+				queued: true,
+			});
 
 			dispatchEventSpy.mockRestore();
 		});
