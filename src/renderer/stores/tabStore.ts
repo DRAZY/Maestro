@@ -568,7 +568,7 @@ export const useTabStore = create<TabStore>()((set) => ({
 	updateTabName: (tabId, name) => updateAiTab(tabId, { name }),
 
 	// Snooze - see utils/snoozeHelpers.ts for why snoozed tabs leave aiTabs entirely
-	snoozeTab: (tabId, wakeAt, note, showUnreadOnly = false) => {
+	snoozeTab: (tabId, wakeAt, note, showUnreadOnly) => {
 		const session = getActiveSession();
 		if (!session) return null;
 		const result = snoozeTabHelper(session, tabId, wakeAt, note, showUnreadOnly);
