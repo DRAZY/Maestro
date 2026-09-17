@@ -46,24 +46,20 @@
  * left-to-right) so packing tidies without scrambling placement.
  */
 
-import type {
-	AgentNodeData,
-	CommandNodeData,
-	CuePipeline,
-	PipelineNode,
-	TriggerNodeData,
-} from '../../../../shared/cue-pipeline-types';
-import {
-	getTriggerConfigSummary,
-	summarizeCommandNode,
-} from '../../../../shared/cue-pipeline-summary';
+import type { CuePipeline, PipelineNode } from '../../../../shared/cue-pipeline-types';
+import { computePipelineYOffsets, resolvePipelineOffset } from './pipelineGraph';
+// One source of truth for how much room a node takes on screen; see
+// nodeFootprint.ts for why the card must be measured from the same numbers the
+// renderer uses. `estimateNodeWidth` is re-exported below because it moved out
+// of this module and callers still reach for it here.
 import {
 	NODE_BG_WIDTH,
-	NODE_BG_HEIGHT,
-	PIPELINE_GROUP_PADDING,
-	computePipelineYOffsets,
-	resolvePipelineOffset,
-} from './pipelineGraph';
+	estimateNodeWidth,
+	nodeFootprintWidth,
+	pipelineCardBounds,
+} from './nodeFootprint';
+
+export { estimateNodeWidth };
 
 // Empty space the grid leaves between adjacent node footprints. This is also the
 // MINIMUM length of the orthogonal edge segment that bridges two nodes, so the
@@ -96,118 +92,6 @@ const ROW_HEIGHT = DEFAULT_NODE_HEIGHT; // tallest node drives the uniform row s
 
 function nodeHeight(node: PipelineNode): number {
 	return node.type === 'trigger' ? TRIGGER_HEIGHT : DEFAULT_NODE_HEIGHT;
-}
-
-// ─── Width estimation (layout without a DOM) ────────────────────────────────
-// Nodes render at `width: max-content`, so their true width is text-driven and
-// only known after ReactFlow measures the DOM. Automatic layout passes (load
-// heal, structural-change heal) run BEFORE or WITHOUT measurement, so they
-// estimate from the same text the node components render. The estimate is
-// deliberately floored at NODE_BG_WIDTH: short labels keep today's uniform
-// column pitch (uniformity reads as a grid), while long labels - a shell
-// command's `$ …` summary, a long agent name - widen their column so the next
-// one clears them instead of overlapping (the naive fixed-pitch overlap bug).
-// Estimation errs WIDE on purpose: an overestimate costs a few px of gutter,
-// an underestimate stacks one node on top of another.
-
-// Approximate advance width per character as a fraction of font size. The app
-// themes render nodes in monospace-leaning faces (~0.6em); 0.66 adds the
-// err-wide margin.
-const CHAR_EM = 0.66;
-// Fixed horizontal chrome shared by content nodes: 32px drag rail + content
-// padding + trailing icon column (gear / play / handles) + borders.
-const NODE_CHROME = 110;
-
-// CHAR_EM alone is a guess about a font the USER chooses. Pick a wide UI face in
-// Typography settings and every label renders wider than the guess, which the
-// load heal (the one pass that has no measurements to fall back on) turns into
-// nodes drawn on top of each other on the very first paint. When a DOM is around
-// we can do better than guess: measure the real advance width with a canvas
-// context in the app's own font. Falls back to CHAR_EM outside the browser
-// (unit tests, jsdom without canvas), and the two are unioned so the estimate
-// can only ever get WIDER - an overestimate costs a few px of gutter, an
-// underestimate stacks one node on another.
-let textCtx: CanvasRenderingContext2D | null | undefined;
-let cachedFontFamily = '';
-let cachedFontFamilyAt = 0;
-/** Re-read the app font this often; it changes only when the user edits
- *  Typography settings, and getComputedStyle forces a style recalc. */
-const FONT_FAMILY_TTL_MS = 2000;
-
-function measuringContext(): CanvasRenderingContext2D | null {
-	if (textCtx !== undefined) return textCtx;
-	textCtx = null;
-	try {
-		if (typeof document !== 'undefined') {
-			textCtx = document.createElement('canvas').getContext('2d');
-		}
-	} catch {
-		// jsdom without a canvas backend: stay on the CHAR_EM approximation.
-		textCtx = null;
-	}
-	return textCtx;
-}
-
-function appFontFamily(): string {
-	const now = Date.now();
-	if (cachedFontFamily && now - cachedFontFamilyAt < FONT_FAMILY_TTL_MS) return cachedFontFamily;
-	try {
-		cachedFontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
-	} catch {
-		cachedFontFamily = 'sans-serif';
-	}
-	cachedFontFamilyAt = now;
-	return cachedFontFamily;
-}
-
-function textPx(text: string | undefined, fontSize: number, fontWeight = 400): number {
-	const approx = (text ?? '').length * fontSize * CHAR_EM;
-	if (!text) return approx;
-	const ctx = measuringContext();
-	if (!ctx) return approx;
-	ctx.font = `${fontWeight} ${fontSize}px ${appFontFamily()}`;
-	return Math.max(approx, ctx.measureText(text).width);
-}
-
-/**
- * Estimate a node's rendered width from its data. Used as the floor for every
- * layout pass (measured widths still win when they're larger) so automatic
- * re-layouts are deterministic: the same node data always yields the same
- * estimate, DOM or no DOM.
- */
-export function estimateNodeWidth(node: PipelineNode): number {
-	let content = 0;
-	switch (node.type) {
-		case 'trigger': {
-			const data = node.data as TriggerNodeData;
-			// 14px icon + 6px gap beside the 12px label; 10px config summary below.
-			content = Math.max(
-				20 + textPx(data.label, 12, 600),
-				textPx(getTriggerConfigSummary(data), 10)
-			);
-			break;
-		}
-		case 'agent': {
-			const data = node.data as AgentNodeData;
-			// 13px semibold title; "(N)" instance suffix adds up to ~4 chars.
-			content = Math.max(textPx(`${data.sessionName} (0)`, 13, 600), textPx(data.toolType, 11));
-			break;
-		}
-		case 'command': {
-			const data = node.data as CommandNodeData;
-			// 12px icon + gap + 13px name + mode badge (~5 chars at 9px + padding);
-			// 11px monospace summary below (summarizeCommandNode caps it at 38 chars).
-			content = Math.max(
-				24 + textPx(data.name, 13, 600) + 46,
-				textPx(summarizeCommandNode(data), 11)
-			);
-			break;
-		}
-		case 'error':
-			// ErrorNode caps itself at maxWidth: 320.
-			return NODE_BG_WIDTH;
-	}
-	return Math.max(NODE_BG_WIDTH, Math.ceil(content + NODE_CHROME));
 }
 
 // Horizontal step between rank columns = footprint + gap. The canonical node
@@ -756,8 +640,7 @@ function arrangeByColumns(
 	// REAL measured width (when ReactFlow has one) and the text-derived estimate,
 	// so each column clears the previous one even when layout runs before or
 	// without measurement (load heal, structural heal, unit tests).
-	const widthOf = (node: PipelineNode): number =>
-		Math.max(nodeWidths?.get(node.id) ?? 0, estimateNodeWidth(node));
+	const widthOf = (node: PipelineNode): number => nodeFootprintWidth(node, nodeWidths);
 
 	const arranged: PipelineNode[] = [];
 	let stackBottom = 0;
@@ -880,8 +763,7 @@ export function separateOverlappingNodes(
 ): PipelineNode[] {
 	if (pipeline.nodes.length < 2) return pipeline.nodes;
 
-	const widthOf = (node: PipelineNode): number =>
-		Math.max(nodeWidths?.get(node.id) ?? 0, estimateNodeWidth(node));
+	const widthOf = (node: PipelineNode): number => nodeFootprintWidth(node, nodeWidths);
 
 	// X-major: the sweep always keeps the LEFT node of a collision and moves the
 	// right one, and it relies on every node's x being final by the time it is
@@ -919,9 +801,9 @@ export function separateOverlappingNodes(
 
 interface GroupInfo {
 	id: string;
-	/** Min node position in canonical space (pre-offset). */
-	minX: number;
-	minY: number;
+	/** Card top-left in canonical space (pre-offset), padding included. */
+	cardX: number;
+	cardY: number;
 	/** Card footprint including the surrounding group padding. */
 	width: number;
 	height: number;
@@ -935,30 +817,21 @@ function groupInfo(
 	currentOffset: { x: number; y: number },
 	nodeWidths?: Map<string, number>
 ): GroupInfo | null {
-	if (pipeline.nodes.length === 0) return null;
-	let minX = Infinity;
-	let minY = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	for (const node of pipeline.nodes) {
-		// A `max-content` node wider than the canonical footprint must still be
-		// INSIDE its card, and the card must still clear its neighbour: sizing
-		// every card at NODE_BG_WIDTH lets a long label spill over the card
-		// border and into the card packed beside it.
-		const width = Math.max(NODE_BG_WIDTH, nodeWidths?.get(node.id) ?? 0, estimateNodeWidth(node));
-		minX = Math.min(minX, node.position.x);
-		minY = Math.min(minY, node.position.y);
-		maxX = Math.max(maxX, node.position.x + width);
-		maxY = Math.max(maxY, node.position.y + NODE_BG_HEIGHT);
-	}
+	// A `max-content` node wider than the canonical footprint must still be
+	// INSIDE its card, and the card must still clear its neighbour: sizing every
+	// card at NODE_BG_WIDTH lets a long label spill over the card border and into
+	// the card packed beside it. `pipelineCardBounds` is the same measurement the
+	// renderer uses, so a packed card is exactly the card the user sees.
+	const card = pipelineCardBounds(pipeline.nodes, { nodeWidths });
+	if (!card) return null;
 	return {
 		id: pipeline.id,
-		minX,
-		minY,
-		width: maxX - minX + 2 * PIPELINE_GROUP_PADDING,
-		height: maxY - minY + 2 * PIPELINE_GROUP_PADDING,
-		currentX: minX + currentOffset.x,
-		currentY: minY + currentOffset.y,
+		cardX: card.x,
+		cardY: card.y,
+		width: card.width,
+		height: card.height,
+		currentX: card.x + currentOffset.x,
+		currentY: card.y + currentOffset.y,
 	};
 }
 
@@ -1032,10 +905,11 @@ export function arrangePipelineGroups(
 		let top = 0;
 		for (const info of colCards[c]) {
 			// Place the card's padded top-left corner at (colX, top). The card
-			// renders at (minX + offset - PADDING), so solve offset for that origin.
+			// renders at its canonical origin plus the offset, so solve the offset
+			// that puts that origin where the column wants it.
 			result.set(info.id, {
-				x: colX[c] - (info.minX - PIPELINE_GROUP_PADDING),
-				y: top - (info.minY - PIPELINE_GROUP_PADDING),
+				x: colX[c] - info.cardX,
+				y: top - info.cardY,
 			});
 			top += info.height + GROUP_GAP;
 		}

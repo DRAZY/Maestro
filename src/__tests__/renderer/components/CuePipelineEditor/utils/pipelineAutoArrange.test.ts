@@ -21,6 +21,7 @@ import {
 	NODE_BG_HEIGHT,
 	PIPELINE_GROUP_PADDING,
 } from '../../../../../renderer/components/CuePipelineEditor/utils/pipelineGraph';
+import { pipelineCardBounds } from '../../../../../renderer/components/CuePipelineEditor/utils/nodeFootprint';
 import type { CuePipeline, PipelineNode } from '../../../../../shared/cue-pipeline-types';
 
 function agentNode(id: string, x: number, y: number): PipelineNode {
@@ -541,16 +542,16 @@ describe('arrangePipelineGroups', () => {
 	// the SAME footprint math as groupInfo, so we can assert geometric packing
 	// properties the old uniform-grid layout violated.
 	function cardRect(p: CuePipeline, offset: { x: number; y: number }) {
-		const minX = Math.min(...p.nodes.map((n) => n.position.x));
-		const minY = Math.min(...p.nodes.map((n) => n.position.y));
-		const maxX = Math.max(...p.nodes.map((n) => n.position.x + NODE_BG_WIDTH));
-		const maxY = Math.max(...p.nodes.map((n) => n.position.y + NODE_BG_HEIGHT));
-		const width = maxX - minX + 2 * PIPELINE_GROUP_PADDING;
-		const height = maxY - minY + 2 * PIPELINE_GROUP_PADDING;
-		// Card renders at (minX + offset - PADDING); offset is what arrange returns.
-		const left = minX + offset.x - PIPELINE_GROUP_PADDING;
-		const top = minY + offset.y - PIPELINE_GROUP_PADDING;
-		return { left, top, right: left + width, bottom: top + height };
+		// Ask for the rect the renderer draws rather than restating its geometry,
+		// so a change to the footprint cannot leave the packer and this test
+		// asserting different boxes.
+		const card = pipelineCardBounds(p.nodes, { offset })!;
+		return {
+			left: card.x,
+			top: card.y,
+			right: card.x + card.width,
+			bottom: card.y + card.height,
+		};
 	}
 
 	function rectsOverlap(a: ReturnType<typeof cardRect>, b: ReturnType<typeof cardRect>): boolean {
@@ -732,13 +733,12 @@ describe('beautifyPipelineLayouts', () => {
 		expect(healed[1].viewOffset).toBeDefined();
 		// Cards must not overlap in the All-Pipelines frame.
 		const rects = healed.map((p) => {
-			const xs = p.nodes.map((n) => n.position.x + p.viewOffset!.x);
-			const ys = p.nodes.map((n) => n.position.y + p.viewOffset!.y);
+			const card = pipelineCardBounds(p.nodes, { offset: p.viewOffset! })!;
 			return {
-				l: Math.min(...xs) - PIPELINE_GROUP_PADDING,
-				r: Math.max(...xs) + NODE_BG_WIDTH + PIPELINE_GROUP_PADDING,
-				t: Math.min(...ys) - PIPELINE_GROUP_PADDING,
-				b: Math.max(...ys) + NODE_BG_HEIGHT + PIPELINE_GROUP_PADDING,
+				l: card.x,
+				r: card.x + card.width,
+				t: card.y,
+				b: card.y + card.height,
 			};
 		});
 		const cardsOverlap =

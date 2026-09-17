@@ -94,6 +94,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Toggling the unread filters:** `toggleAllUnreadFilters()`, `toggleTabUnreadFilter()` in `src/renderer/services/unreadFilters.ts`
 - **Scheduled Tasks (clock-driven Cue subs):** `src/shared/cue/scheduled-tasks.ts`
 - **Whether two subscriptions are the same visual trigger:** `triggerGroupKey(sub)` in `src/shared/cue/trigger-group-key.ts`
+- **How big a pipeline is on the canvas:** `pipelineCardBounds(nodes, opts?)`, `nodeFootprintWidth()` in `src/renderer/components/CuePipelineEditor/utils/nodeFootprint.ts`
 - **Which pipelines belong to an agent:** `pipelinesForSession()`, `pipelineInvolvesSession()` in `src/renderer/components/CuePipelineEditor/utils/pipelineMembership.ts`
 - **How much work happened in a group chat:** `computeGroupChatActivity(entries)`, `elapsedTimeMs` in `src/shared/groupChatActivity.ts`
 - **How big a tab's conversation is and how long it ran:** `computeTabConversationStats()`, `formatConversationDuration()` in `src/shared/tabConversationStats.ts`
