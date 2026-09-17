@@ -449,3 +449,57 @@ describe('parseUsage / not-logged-in detection', () => {
 		expect(result?.session.percent).toBe(0);
 	});
 });
+
+/**
+ * The /usage retry added for #1595 re-sends into a live TUI, and
+ * `TuiDriver.getScreenCapture()` is an ACCUMULATOR - a retry's panel arrives
+ * APPENDED to the previous one rather than replacing it. These tests pin the
+ * parser behavior the retry leans on, because the obvious "fix" (clear the
+ * capture between attempts) would break it.
+ */
+describe('parseUsage / stacked /usage panels (what the retry leans on)', () => {
+	const NOW = '2026-05-15T20:00:00Z';
+	const CONFIG_DIR = '/Users/test/.claude';
+	const panel = () => loadFixture('usage-well-spaced').raw;
+
+	it('reads the LAST panel when a retry appends a fresh one to a stale one', () => {
+		// This is what a successful retry actually looks like on the wire: attempt 1's
+		// panel is still in the buffer and attempt 2's is glued onto the end.
+		// sliceToFinalPanel anchors on the last `Current session` header, so the fresh
+		// numbers win outright and nothing leaks forward from the stale panel.
+		const stale = panel();
+		const fresh = stale.replace('23% used', '91% used').replace('58% used', '99% used');
+
+		const stacked = parseUsage(stale + fresh, NOW, CONFIG_DIR);
+		expect(stacked?.session.percent).toBe(91);
+		expect(stacked?.week_all_models.percent).toBe(99);
+		expect(stacked).toEqual(parseUsage(fresh, NOW, CONFIG_DIR));
+	});
+
+	it('still returns null when the appended retry panel is only half painted', () => {
+		// The failure this retry exists to survive: the panel was still rendering when
+		// the debounce expired. Anchoring on the trailing partial keeps the answer
+		// null rather than quietly re-emitting the previous panel as if it were fresh,
+		// so the loop retries instead of shipping a stale number.
+		const complete = panel();
+		const halfPainted = complete
+			.replace('23% used', '91% used')
+			.split('Current week (all models)')[0];
+
+		expect(parseUsage(complete, NOW, CONFIG_DIR)).not.toBeNull();
+		expect(parseUsage(complete + halfPainted, NOW, CONFIG_DIR)).toBeNull();
+	});
+
+	it('keeps reading a differential repaint that carries no fresh section header', () => {
+		// Why the capture must NOT be cleared between attempts. Claude repaints by
+		// cursor-addressing, so a re-render can deliver only the cells that changed -
+		// here a bare percentage with no `Current session` header behind it. Against
+		// the accumulated buffer that still resolves; against a cleared one it is
+		// anchorless fragments, and every retry would parse to null.
+		const base = panel();
+		const differentialRepaint = '\n47% used\n';
+
+		expect(parseUsage(base + differentialRepaint, NOW, CONFIG_DIR)).not.toBeNull();
+		expect(parseUsage(differentialRepaint, NOW, CONFIG_DIR)).toBeNull();
+	});
+});
