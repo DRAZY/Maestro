@@ -118,7 +118,7 @@ describe('web-desktop electron-shim webFrame zoom', () => {
 });
 
 describe('web-desktop electron-shim desktop navigation sync', () => {
-	it('routes desktop active-session packets through the renderer remote-selection event', () => {
+	it('never routes the desktop active-session packet: focus is per client', () => {
 		const listener = vi.fn();
 		ipcRenderer.on('remote:selectSession', listener);
 
@@ -126,11 +126,11 @@ describe('web-desktop electron-shim desktop navigation sync', () => {
 			data: JSON.stringify({ type: 'active_session_changed', sessionId: 'session-2' }),
 		});
 
-		expect(listener).toHaveBeenCalledWith({ senderFrame: null }, 'session-2');
+		expect(listener).not.toHaveBeenCalled();
 		ipcRenderer.removeListener('remote:selectSession', listener);
 	});
 
-	it('routes desktop active-tab packets through the renderer remote-selection event', () => {
+	it('routes tabs_changed as an inventory snapshot without the activeTabChanged flag', () => {
 		const listener = vi.fn();
 		ipcRenderer.on('remote:selectTab', listener);
 		const aiTabs = [
@@ -155,13 +155,7 @@ describe('web-desktop electron-shim desktop navigation sync', () => {
 			}),
 		});
 
-		expect(listener).toHaveBeenCalledWith(
-			{ senderFrame: null },
-			'session-2',
-			'tab-3',
-			aiTabs,
-			true
-		);
+		expect(listener).toHaveBeenCalledWith({ senderFrame: null }, 'session-2', 'tab-3', aiTabs);
 		ipcRenderer.removeListener('remote:selectTab', listener);
 	});
 });

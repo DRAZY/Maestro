@@ -8,20 +8,10 @@ export function createTabRemoteApi() {
 		 * Subscribe to remote tab selection from web interface
 		 */
 		onRemoteSelectTab: (
-			callback: (
-				sessionId: string,
-				tabId: string,
-				aiTabs?: AITabData[],
-				activeTabChanged?: boolean
-			) => void
+			callback: (sessionId: string, tabId: string, aiTabs?: AITabData[]) => void
 		): (() => void) => {
-			const handler = (
-				_: unknown,
-				sessionId: string,
-				tabId: string,
-				aiTabs?: AITabData[],
-				activeTabChanged?: boolean
-			) => callback(sessionId, tabId, aiTabs, activeTabChanged === true);
+			const handler = (_: unknown, sessionId: string, tabId: string, aiTabs?: AITabData[]) =>
+				callback(sessionId, tabId, aiTabs);
 			ipcRenderer.on('remote:selectTab', handler);
 			return () => ipcRenderer.removeListener('remote:selectTab', handler);
 		},

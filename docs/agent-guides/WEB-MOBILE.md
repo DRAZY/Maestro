@@ -111,7 +111,22 @@ Two rules follow, and both are load-bearing:
   freshly opened tab), then the shared value (a first visit should land where the
   desktop is). Writing still reports to the shared store as well, which is what
   plugin `session.activated` events and the CLI's current-agent answer are built
-  on.
+  on. The same rule holds LIVE, not just on load: the web-desktop shim
+  (`src/web-desktop/electron-shim.ts`) does not route the desktop's
+  `active_session_changed` packet, and it drops the `activeTabChanged` flag off
+  `tabs_changed`, which is an inventory snapshot and never a navigation request.
+  With several operators connected, the desktop user switching agents used to
+  yank every phone along with it.
+- **One-shot turn side effects run in the desktop renderer only.** Every
+  `safeSend` is fanned out to every browser, and a web-desktop client's
+  `ownsSession` is permit-all, so with three phones on the LAN one finished turn
+  wrote four History rows, four `query_events` rows and spawned four synopses.
+  `useOwnedSideEffectGate()` (`src/renderer/hooks/agent/internal/useOwnedSessionGate.ts`)
+  is false on web-desktop; the exit and error listeners still flip the tab idle
+  there but skip the History entry, synopsis, stats row, git refresh, queue
+  dequeue and spoken notification. A browser's own queued items still send,
+  through `useQueueProcessing`'s idle drain, which is why the exit reducer holds
+  the queue on a non-owning client instead of dequeuing without dispatching.
 
 ### Server-Injected Config
 

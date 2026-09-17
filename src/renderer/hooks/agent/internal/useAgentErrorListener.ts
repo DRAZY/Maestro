@@ -37,7 +37,7 @@ import { logger } from '../../../utils/logger';
 import { removeHiddenProgressLog } from './helpers/exitTabCleanup';
 import { getErrorTitleForType } from './helpers/errorTitles';
 import { isLimitError } from '../../../../shared/types';
-import { useOwnedSessionGate } from './useOwnedSessionGate';
+import { useOwnedSessionGate, useOwnedSideEffectGate } from './useOwnedSessionGate';
 import {
 	scheduleRetryForError,
 	getRetryEntry,
@@ -59,6 +59,7 @@ export interface UseAgentErrorListenerDeps {
 
 export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 	const ownedGate = useOwnedSessionGate();
+	const sideEffectGate = useOwnedSideEffectGate();
 	useEffect(() => {
 		const getSessions = () => useSessionStore.getState().sessions;
 		const { openModal } = useModalStore.getState();
@@ -67,6 +68,9 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 			// Window scoping: only the owning window handles the error (and pauses
 			// its batch). Events are broadcast to all windows.
 			if (!ownedGate.current?.(sessionId)) return;
+			// The History entry below is written once app-wide, by the desktop
+			// renderer; a web-desktop client renders the error but never records it.
+			const ownsSideEffects = sideEffectGate.current?.(sessionId) ?? true;
 			const agentError: AgentError = {
 				type: error.type as AgentError['type'],
 				message: error.message,
@@ -414,7 +418,7 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 
 					const session = getSessions().find((s) => s.id === actualSessionId);
 
-					if (deps.addHistoryEntryRef.current && session) {
+					if (ownsSideEffects && deps.addHistoryEntryRef.current && session) {
 						const errorTitle = getErrorTitleForType(agentError.type);
 						const errorExplanation = [
 							`**Auto Run Error: ${errorTitle}**`,
@@ -512,6 +516,7 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 	}, [
 		deps.activeHiddenToolRef,
 		deps.addHistoryEntryRef,
+		sideEffectGate,
 		deps.getBatchStateRef,
 		deps.pauseBatchOnErrorRef,
 		ownedGate,

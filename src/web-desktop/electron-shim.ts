@@ -208,24 +208,20 @@ class BridgeClient {
 			if (msg.type === 'bridge.event') {
 				channel = msg.channel as string;
 				args = (msg.args as unknown[]) ?? [];
-			} else if (msg.type === 'active_session_changed' && typeof msg.sessionId === 'string') {
-				// Desktop navigation still uses the original web-client packets. Route
-				// them through the renderer's existing remote-selection listeners so the
-				// full web-desktop UI follows the active agent without a second state path.
-				channel = 'remote:selectSession';
-				args = [msg.sessionId];
 			} else if (
 				msg.type === 'tabs_changed' &&
 				typeof msg.sessionId === 'string' &&
 				typeof msg.activeTabId === 'string'
 			) {
+				// A tabs_changed packet is an INVENTORY snapshot, never a navigation
+				// request. Which agent and which tab a browser client is looking at is
+				// that client's own choice (see activeSessionPersistence), so the
+				// desktop's `active_session_changed` packet is deliberately NOT routed
+				// and the snapshot's `activeTabChanged` flag is deliberately dropped:
+				// with several operators connected, the desktop user switching agents
+				// used to yank every phone along with it.
 				channel = 'remote:selectTab';
-				args = [
-					msg.sessionId,
-					msg.activeTabId,
-					Array.isArray(msg.aiTabs) ? msg.aiTabs : undefined,
-					msg.activeTabChanged === true,
-				];
+				args = [msg.sessionId, msg.activeTabId, Array.isArray(msg.aiTabs) ? msg.aiTabs : undefined];
 			} else if (msg.type === 'autorun_state' && typeof msg.sessionId === 'string') {
 				// Auto Run is renderer-owned in-memory state, so it never crosses the
 				// bridge as a `bridge.event` the way `process:*` does - the owning

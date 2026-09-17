@@ -457,8 +457,7 @@ interface MaestroAPI {
 			callback: (
 				sessionId: string,
 				tabId: string,
-				aiTabs?: import('../main/web-server/types').AITabData[],
-				activeTabChanged?: boolean
+				aiTabs?: import('../main/web-server/types').AITabData[]
 			) => void
 		) => () => void;
 		onRemoteNewTab: (

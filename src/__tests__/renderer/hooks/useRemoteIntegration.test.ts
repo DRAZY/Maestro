@@ -82,8 +82,7 @@ describe('useRemoteIntegration', () => {
 					state: 'idle' | 'busy';
 					thinkingStartTime?: number | null;
 					hasUnread?: boolean;
-				}>,
-				activeTabChanged?: boolean
+				}>
 		  ) => void)
 		| undefined;
 	let onRemoteNewTabHandler:
@@ -1117,7 +1116,7 @@ describe('useRemoteIntegration', () => {
 			]);
 		});
 
-		it('applies a genuine desktop tab selection only in the session already being viewed', () => {
+		it('keeps the browser on its own tab when the desktop changes selection in the viewed session', () => {
 			const tab1 = createMockTab({ id: 'tab-1' });
 			const tab2 = createMockTab({ id: 'tab-2' });
 			const session = createMockSession({
@@ -1130,11 +1129,11 @@ describe('useRemoteIntegration', () => {
 			renderHook(() => useRemoteIntegration(deps));
 
 			act(() => {
-				onRemoteSelectTabHandler?.('session-1', 'tab-2', [tab1, tab2], true);
+				onRemoteSelectTabHandler?.('session-1', 'tab-2', [tab1, tab2]);
 			});
 
 			expect(deps.setActiveSessionId).not.toHaveBeenCalled();
-			expect(useSessionStore.getState().sessions[0].activeTabId).toBe('tab-2');
+			expect(useSessionStore.getState().sessions[0].activeTabId).toBe('tab-1');
 		});
 
 		it('repairs a removed active tab with a visible tab instead of a hidden consult', () => {
@@ -1151,7 +1150,7 @@ describe('useRemoteIntegration', () => {
 			renderHook(() => useRemoteIntegration(deps));
 
 			act(() => {
-				onRemoteSelectTabHandler?.('session-1', hiddenTab.id, [hiddenTab, visibleTab], false);
+				onRemoteSelectTabHandler?.('session-1', hiddenTab.id, [hiddenTab, visibleTab]);
 			});
 
 			expect(useSessionStore.getState().sessions[0].activeTabId).toBe('visible-tab');

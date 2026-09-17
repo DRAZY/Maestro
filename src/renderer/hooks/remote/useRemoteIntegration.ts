@@ -541,7 +541,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 
 		// Handle explicit Web -> Desktop tab selection and Web-Desktop inventory sync.
 		const unsubscribeSelectTab = window.maestro.process.onRemoteSelectTab(
-			(sessionId, tabId, remoteTabs, activeTabChanged) => {
+			(sessionId, tabId, remoteTabs) => {
 				const currentActiveId = activeSessionIdRef.current;
 				const isInventorySync = remoteTabs !== undefined;
 
@@ -602,12 +602,9 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 							: updatedSession;
 					}
 
-					// Only a real desktop tab-selection change may move the browser's visible
-					// tab, and only when the browser is already viewing that session. Metadata
-					// changes (busy/unread/name/starred) retain the browser's local focus.
-					if (activeTabChanged && currentActiveId === sessionId && targetExists) {
-						return { ...updatedSession, ...aiTabFocusFields(tabId) };
-					}
+					// An inventory snapshot never moves the browser's visible tab, even
+					// when the desktop's own selection changed: focus belongs to the
+					// person holding this client, not to whoever is at the desktop.
 
 					// If the browser's remembered AI tab was removed, repair the dormant id
 					// without clearing a currently focused file/terminal/browser surface.
@@ -648,8 +645,10 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 				if (newTabId && !background) {
 					setActiveSessionId(sessionId);
 					// The inventory poll broadcasts `activeTabChanged` ONLY for a tab
-					// selection it was told about, and a browser client ignores a new
-					// active tab without that flag. Creating a foreground tab from the
+					// selection it was told about. Web-desktop clients no longer act on
+					// the flag (focus is per client), but it still rides the
+					// `tabs_changed` packet for any consumer of the wire format.
+					// Creating a foreground tab from the
 					// web interface therefore added the chip on the phone and left the
 					// user on the old conversation, which reads as the button doing
 					// nothing. A foreground create IS a selection, so say so.
