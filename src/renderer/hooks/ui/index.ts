@@ -33,6 +33,10 @@ export type {
 export { useScrollIntoView } from './useScrollIntoView';
 export { useStickToBottom } from './useStickToBottom';
 
+// Edge auto-scroll while an HTML5 drag hovers a scrollable container
+export { useDragAutoScroll } from './useDragAutoScroll';
+export type { UseDragAutoScrollOptions } from './useDragAutoScroll';
+
 // Hover tooltip management
 export { useHoverTooltip } from './useHoverTooltip';
 
