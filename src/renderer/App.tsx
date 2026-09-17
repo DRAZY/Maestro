@@ -162,7 +162,7 @@ import {
 	selectActiveGroupChatStagedImages,
 } from './stores/groupChatStore';
 import { useBatchStore } from './stores/batchStore';
-import { registerBatchResumer } from './stores/retryStore';
+import { registerBatchResumer } from './services/batchResumer';
 // All session state is read directly from useSessionStore in MaestroConsoleInner.
 import {
 	useSessionStore,

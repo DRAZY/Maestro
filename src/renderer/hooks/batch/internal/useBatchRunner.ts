@@ -17,6 +17,8 @@ import { useSessionStore, selectSessionById } from '../../../stores/sessionStore
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { countUnfinishedTasks, findPendingHitlGate, uncheckAllTasks } from '../batchUtils';
 import { detectHaltMarker } from '../../../../shared/autorunMarkers';
+import { resolveAutoResumePolicy } from '../../../../shared/autorunAutoResume';
+import { clearAutoResume } from '../../../stores/autoRunResumeStore';
 import { DEFAULT_BATCH_STATE, type BatchAction } from '../batchReducer';
 import { createLoopSummaryEntry } from './batchLoopSummary';
 import {
@@ -335,6 +337,11 @@ export function useBatchRunner({
 					return;
 				}
 
+				// A previous run on this session may have exhausted its auto-resume
+				// attempts. Starting fresh must not inherit that, or the new run gets
+				// no automatic resume at all.
+				clearAutoResume(sessionId);
+
 				// Initialize batch run state using START_BATCH action directly
 				// (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
 				const lockedDocuments = documents.map((d) => d.filename);
@@ -359,6 +366,9 @@ export function useBatchRunner({
 						// parity with the CLI batch processor. Only the model is stored:
 						// SynopsisData.sessionConfig has no effort field.
 						runModelOverride: config.model || undefined,
+						// Resolved once, here, so the run keeps the auto-resume terms it was
+						// launched under even if the user edits the defaults mid-run.
+						autoResumePolicy: resolveAutoResumePolicy(config),
 						startTime: batchStartTime,
 						// Time tracking
 						cumulativeTaskTimeMs: 0, // Sum of actual task durations (most accurate)
@@ -1525,6 +1535,11 @@ export function useBatchRunner({
 					success: prResult.success,
 				});
 			}
+
+			// The run is over however it got here (finished, stopped, halted). Any
+			// pending auto-resume must not fire into a loop that no longer exists,
+			// and the attempt count is spent - the ERR badge clears with it.
+			clearAutoResume(sessionId);
 
 			// Add final Auto Run summary entry
 			// Calculate visibility-aware elapsed time using the extracted time tracking hook

@@ -17,9 +17,12 @@ import { CueIndicator } from './SessionList/CueIndicator';
 import { StartupCommandIndicator } from './SessionList/StartupCommandIndicator';
 import { WizardIndicator } from './SessionList/WizardIndicator';
 import { WindowBadge } from './SessionList/WindowBadge';
+import { AutoRunErrorBadge } from './SessionList/AutoRunErrorBadge';
 import { PluginUiItemsSlot } from './plugins/PluginUiItemsSlot';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSessionHasActiveOutage } from '../stores/retryStore';
+import { useBatchStore } from '../stores/batchStore';
+import { useAutoResumeEntry } from '../stores/autoRunResumeStore';
 import { useSessionIsBeingConsulted } from '../stores/crossAgentInFlightStore';
 import { usePhoneLayout } from '../hooks/ui/useViewportBreakpoint';
 import { COLORBLIND_STATUS_COLORS } from '../constants/colorblindPalettes';
@@ -283,6 +286,14 @@ export const SessionItem = memo(function SessionItem({
 	// Claude Code agents that haven't bound to a provider session yet. A stuck
 	// Agent Resilience outage overrides to pulsing orange (needs attention).
 	const hasActiveOutage = useSessionHasActiveOutage(session.id);
+	// Auto Run stopped on an error. Read straight from the stores rather than
+	// threaded down as props: SessionList renders this row from two call sites
+	// and neither knows about auto-resume. `isInBatch` above cannot stand in -
+	// a paused run is still running, so it is true either way.
+	const autoRunErrorPaused = useBatchStore(
+		(s) => s.batchRunStates[session.id]?.errorPaused === true
+	);
+	const autoResumeEntry = useAutoResumeEntry(session.id);
 	// A cross-agent consult is invisible to `session.state` by design, so the dot
 	// asks the in-flight store directly.
 	const isBeingConsulted = useSessionIsBeingConsulted(session.id);
@@ -447,6 +458,15 @@ export const SessionItem = memo(function SessionItem({
 						/>
 						{/* Inline wizard indicator: shown while /wizard is in dialog or doc-gen phase. */}
 						<WizardIndicator active={wizardActive} generatingDocs={wizardGeneratingDocs} />
+						{/* Auto Run parked on an error: amber while an automatic resume is
+						    still coming, red once only a person can continue it. */}
+						<AutoRunErrorBadge
+							errorPaused={autoRunErrorPaused}
+							attempts={autoResumeEntry?.attempts}
+							maxAttempts={autoResumeEntry?.maxAttempts}
+							nextResumeAt={autoResumeEntry?.nextResumeAt}
+							exhausted={autoResumeEntry?.exhausted}
+						/>
 						{/* Worktree badge to visually mark worktree children */}
 						{variant === 'worktree' && showWorktreePill && <WorktreePill theme={theme} />}
 					</div>

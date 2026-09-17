@@ -503,6 +503,27 @@ How it decides to resume: for Claude it reads your actual plan usage and only re
 
 This survives a full app restart. If you reboot while an agent is limit-paused, Maestro restores the pause and resumes the **agent's conversation** (it continues from its own transcript) and drains any work you had queued. One caveat: the Auto Run / Goal-Driven **loop controller** does not survive a restart - the agent session and its queued messages resume, but the orchestration loop that was stepping through your document does not pick back up automatically. Manually resolving the error, or manually resuming or stopping the agent, always takes precedence and cancels auto-resume for that agent.
 
+## Auto-Resume After an Error
+
+A provider limit is not the only thing that stops a run. An ordinary mid-run failure also parks the run and waits for someone to click **Resume**, which on an unattended overnight run means the run is dead until you notice. Auto-resume is the fallback for that case, and it is configured **per run** in the launch modal, under **If this run hits an error**:
+
+- **Auto-resume after** (on by default) - whether Maestro clicks Resume for you.
+- **Wait** (default 5 minutes) - how long it waits before each attempt.
+- **Max auto-resumes** (default 5) - how many automatic attempts the run gets before it stops trying.
+
+The count is per run, not per error: five failures spread across a long run exhaust it even if each one failed differently. Resolving an error yourself does not buy the run a fresh set of attempts, but it does cancel any resume that was already scheduled.
+
+Quota pauses are deliberately excluded - those belong to [Auto-Resume on Limit](#auto-resume-on-limit), which waits for the window to genuinely reopen instead of spending all five attempts hitting the same wall. Failures that [Agent Resilience](agent-resilience) already recognizes keep their own backoff too; this only picks up what neither of those handles.
+
+### The ERR badge
+
+While a run is stopped on an error, the agent carries an **ERR** badge in the Left Bar:
+
+- **Amber** - another automatic resume is still scheduled. The tooltip says when, and which attempt it is. Leave it alone.
+- **Red, pulsing** - the run is waiting on you, either because the attempts are spent or because this run turned auto-resume off.
+
+The badge disappears when the run continues, so a run that rescued itself leaves nothing behind to chase.
+
 ## Marker Pills
 
 Every Maestro marker is an HTML comment, which means it renders as nothing. That is right for the file - other markdown tools ignore it, and an agent editing the document leaves it alone - but it is wrong for you. Two of the three markers do not merely change how a run behaves, they stop it:

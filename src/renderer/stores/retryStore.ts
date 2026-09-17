@@ -45,6 +45,7 @@ import { useSessionStore, selectSessionById, updateSessionWith } from './session
 import { notifyToast } from './notificationStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from './agentStore';
 import type { AgentError, QueuedItem } from '../types';
+import { registerBatchResumer, getBatchResumer } from '../services/batchResumer';
 
 // ============================================================================
 // Types
@@ -257,16 +258,12 @@ async function forgetPersistedSnapshot(key: string): Promise<void> {
 }
 
 /**
- * Resumer for Auto Run batches, registered once by App. Resolves the batch's
- * error-resolution promise with 'resume' so the loop re-reads the doc and
- * re-dispatches the current task. Null until registered (e.g. in tests).
+ * Resuming a parked Auto Run is not this store's idea alone - the auto-resume
+ * coordinator does it too - so the callback registry lives in
+ * `services/batchResumer` and both ask it. Re-exported here because App and the
+ * existing tests have always registered through this module.
  */
-let batchResumer: ((sessionId: string) => void) | null = null;
-
-/** Wire the Auto Run resume callback so batch retries can continue the run. */
-export function registerBatchResumer(fn: ((sessionId: string) => void) | null): void {
-	batchResumer = fn;
-}
+export { registerBatchResumer };
 
 /**
  * Supplies the `ProcessQueuedItemDeps` a replay needs (conductor profile and the
@@ -525,7 +522,7 @@ export function scheduleRetryForError(
 		logger.warn('[retry] No prompt snapshot to resend; falling back to modal', undefined, { key });
 		return false;
 	}
-	if (mode === 'batch-resume' && !batchResumer) {
+	if (mode === 'batch-resume' && !getBatchResumer()) {
 		// No resume hook wired - fall back to the batch's manual error controls.
 		logger.warn('[retry] No batch resumer registered; falling back', undefined, { key });
 		return false;
@@ -799,7 +796,8 @@ async function fireRetry(key: string): Promise<void> {
 			// The batch loop is parked at its error-resolution await; resuming it
 			// re-reads the doc and re-dispatches the current task itself. Works for
 			// goal-based and spec-driven runs alike.
-			if (batchResumer) batchResumer(entry.sessionId);
+			const resumer = getBatchResumer();
+			if (resumer) resumer(entry.sessionId);
 			else removeEntry(key);
 			return;
 		}

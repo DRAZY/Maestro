@@ -549,6 +549,13 @@ export interface BatchRunConfig {
 	// override above, then the agent's settings. Run-scoped like `model`;
 	// absent means the markers apply as usual.
 	ignoreModelHints?: boolean;
+	// Auto-resume after an agent error pauses the run. All three are optional and
+	// absence means the documented default (ON, 5 minutes, 5 attempts) - see
+	// `resolveAutoResumePolicy` in shared/autorunAutoResume.ts, which is the only
+	// place that turns these into a policy.
+	autoResumeOnError?: boolean;
+	autoResumeAfterMin?: number;
+	maxAutoResumes?: number;
 	// Goal-Driven mode. Its presence is the discriminator that selects goal mode
 	// over the document/task-driven spec mode. When set, the run pursues a free-text
 	// goal instead of checking off `- [ ]` tasks. See src/shared/goalDriven/types.ts.
@@ -619,6 +626,11 @@ export interface BatchRunState {
 	// the session. Read by the exit-path synopsis so per-task synopses spawn under
 	// the same model as the run's tasks, matching the CLI batch processor.
 	runModelOverride?: string;
+	// Resolved auto-resume policy for this run, stored so the agent-error
+	// listener can read it back through `getBatchStateRef` at the moment a
+	// failure lands. `null` means the run opted out. Resolved once at run start
+	// rather than per error so a run keeps the terms it was launched under.
+	autoResumePolicy?: import('../../shared/autorunAutoResume').AutoResumePolicy | null;
 	sessionIds: string[]; // Claude session IDs from each iteration
 	startTime?: number; // Timestamp when batch run started
 	cumulativeTaskTimeMs?: number; // Sum of actual task durations (most accurate work time measure)

@@ -43,6 +43,7 @@ import {
 	getRetryEntry,
 	persistDispatchSnapshotForAuth,
 } from '../../../stores/retryStore';
+import { scheduleAutoResume } from '../../../stores/autoRunResumeStore';
 import { reportAuthFailure } from '../../../stores/authOutageStore';
 import { maybeAutoResetCodexUsage } from '../../../services/codexAutoReset';
 import type { AgentError, GroupChatMessage, LogEntry, SessionState } from '../../../types';
@@ -415,6 +416,17 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 						batchState.currentDocumentIndex,
 						currentDoc ? `Processing ${currentDoc}` : undefined
 					);
+
+					// Auto Run auto-resume: the LAST resort, reached only because
+					// `willAutoRetryBatch` above already declined - Agent Resilience did
+					// not recognise this failure, so nothing else is going to un-park
+					// the run. Schedules the run's configured wait and counts the
+					// attempt against its ceiling; when it declines (opted out, a limit
+					// error the limit coordinator owns, or attempts exhausted) the run
+					// stays paused and the ERR badge asks for a human.
+					if (!willAutoRetryBatch) {
+						scheduleAutoResume(actualSessionId, batchState.autoResumePolicy, agentError);
+					}
 
 					const session = getSessions().find((s) => s.id === actualSessionId);
 
