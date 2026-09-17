@@ -27,6 +27,7 @@ import {
 	useRetryStore,
 } from '../../../renderer/stores/retryStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
+import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from '../../../renderer/stores/agentStore';
 import { availabilityDelayMs } from '../../../shared/retryClassification';
 import { createMockSession } from '../../helpers/mockSession';
@@ -89,7 +90,9 @@ beforeEach(() => {
 	vi.setSystemTime(NOW);
 	useRetryStore.setState({ retries: {}, outages: {} });
 	useSessionStore.setState({ sessions: [] } as any);
-	processQueuedItem = vi.fn().mockResolvedValue(undefined);
+	// `true` = "a dispatch went out". A mock resolving undefined states the
+	// opposite, and `fireRetry` reads that as a prompt that was never sent.
+	processQueuedItem = vi.fn().mockResolvedValue(true);
 	useAgentStore.setState({ processQueuedItem } as any);
 	registerBatchResumer(null);
 });
@@ -202,6 +205,75 @@ describe('firing the retry', () => {
 		// The scheduled timer must not also fire.
 		vi.advanceTimersByTime(availabilityDelayMs(0));
 		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// `startProviderWatch` has always refused to fire an in-flight entry ("a
+	// resend is already on its way"). `retryNow` did not, and the card's Try Now
+	// button survives an early fire because nothing moves `nextRetryAt` - so
+	// re-pointing the provider and then clicking Try Now put the same prompt on
+	// the wire twice.
+	it('retryNow refuses to fire a resend that is already in flight', () => {
+		setupSession('s9b', 't1');
+		seedSnapshot('s9b', 't1');
+		scheduleRetryForError('s9b', 't1', overload());
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+		expect(getRetryEntry('s9b', 't1')?.status).toBe('in-flight');
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// The reported sequence adapted to this branch. `rc` fires the resend early
+	// when the user re-points the provider mid-outage; there is no provider watch
+	// here, so the only early fire is Try Now itself - and the card leaves that
+	// button live for the whole countdown, so a second press lands on a resend
+	// already running. Same double dispatch, one press later.
+	it('Try now pressed twice during a quota outage dispatches exactly once', () => {
+		setupSession('s9d', 't1', { toolType: 'claude-code' });
+		seedSnapshot('s9d', 't1');
+		scheduleRetryForError('s9d', 't1', quota());
+
+		const scheduled = getRetryEntry('s9d', 't1')!;
+		expect(scheduled.status).toBe('scheduled');
+		expect(scheduled.nextRetryAt).toBeGreaterThan(NOW);
+
+		retryNow('s9d', 't1');
+		const fired = getRetryEntry('s9d', 't1')!;
+		expect(fired.status).toBe('in-flight');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+
+		// The outage record is unchanged, which is why the card kept drawing a live
+		// countdown - and an enabled button - over a resend already on the wire.
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBe(scheduled.nextRetryAt);
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBeGreaterThan(Date.now());
+
+		retryNow('s9d', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// `processQueuedItem` RESOLVES without dispatching when the item's tab is
+	// gone. The prompt exists only in the dispatch snapshot, so reading that as a
+	// send destroys it silently and leaves the entry in-flight forever.
+	it('ends the outage and names the prompt when the dispatch never ran', async () => {
+		setupSession('s9c', 't1');
+		seedSnapshot('s9c', 't1');
+		scheduleRetryForError('s9c', 't1', overload());
+		const outageId = getRetryEntry('s9c', 't1')!.outageId;
+		processQueuedItem.mockResolvedValueOnce(false);
+
+		retryNow('s9c', 't1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Not stranded in-flight: nothing would ever have settled it.
+		expect(getRetryEntry('s9c', 't1')).toBeUndefined();
+		expect(getOutage(outageId)?.status).toBe('stopped');
+
+		// And the user is told which message was not sent.
+		const toast = useNotificationStore.getState().toasts.at(-1);
+		expect(toast?.message).toContain('hi');
+		expect(toast?.sessionId).toBe('s9c');
 	});
 
 	it('retryNow is a no-op when there is no active retry', () => {

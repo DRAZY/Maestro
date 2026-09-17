@@ -7,6 +7,7 @@ import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
 import type { Session, Group, Theme, Shortcut } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
 import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useCenterFlashStore } from '../../../renderer/stores/centerFlashStore';
 import { useFileExplorerStore } from '../../../renderer/stores/fileExplorerStore';
 import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
@@ -212,6 +213,9 @@ describe('QuickActionsModal', () => {
 		useFileExplorerStore.setState({
 			fileTreeFilterOpen: false,
 		});
+		// The reveal half of a jump reads agents and groups straight from the
+		// session store (services/agentNavigation), not from props.
+		useSessionStore.setState({ sessions: [], groups: [] } as never);
 		// Reset group chat run state (drives the jumper's LIVE bucket)
 		useGroupChatStore.setState({
 			groupChatState: 'idle',
@@ -440,14 +444,12 @@ describe('QuickActionsModal', () => {
 				sessions: [session],
 				groups: [group],
 			});
+			useSessionStore.setState({ sessions: [session], groups: [group] } as never);
 			render(<QuickActionsModal {...props} />);
 
 			fireEvent.click(screen.getByText('Jump to: Test Session'));
 
-			expect(props.setGroups).toHaveBeenCalled();
-			const setGroupsFn = props.setGroups.mock.calls[0][0];
-			const result = setGroupsFn([group]);
-			expect(result[0].collapsed).toBe(false);
+			expect(useSessionStore.getState().groups[0].collapsed).toBe(false);
 		});
 
 		describe('bookmarked-agent jump routing', () => {
@@ -457,13 +459,15 @@ describe('QuickActionsModal', () => {
 				const session = createMockSession({ groupId: 'group-1', bookmarked: true });
 				const group = createMockGroup({ collapsed: true });
 				const props = createDefaultProps({ sessions: [session], groups: [group] });
+				useSessionStore.setState({ sessions: [session], groups: [group] } as never);
 				render(<QuickActionsModal {...props} />);
 
 				fireEvent.click(screen.getByText('Jump to: Test Session'));
 
 				expect(props.setActiveSessionId).toHaveBeenCalledWith('session-1');
 				expect(useUIStore.getState().bookmarksCollapsed).toBe(false);
-				expect(props.setGroups).not.toHaveBeenCalled();
+				// The group stays collapsed - the bookmark row is the lighter reveal.
+				expect(useSessionStore.getState().groups[0].collapsed).toBe(true);
 			});
 
 			it('leaves bookmarks collapsed when the parent group is already expanded', () => {
@@ -472,13 +476,14 @@ describe('QuickActionsModal', () => {
 				const session = createMockSession({ groupId: 'group-1', bookmarked: true });
 				const group = createMockGroup({ collapsed: false });
 				const props = createDefaultProps({ sessions: [session], groups: [group] });
+				useSessionStore.setState({ sessions: [session], groups: [group] } as never);
 				render(<QuickActionsModal {...props} />);
 
 				fireEvent.click(screen.getByText('Jump to: Test Session'));
 
 				expect(props.setActiveSessionId).toHaveBeenCalledWith('session-1');
 				expect(useUIStore.getState().bookmarksCollapsed).toBe(true);
-				expect(props.setGroups).not.toHaveBeenCalled();
+				expect(useSessionStore.getState().groups[0].collapsed).toBe(false);
 			});
 
 			it('does nothing extra when bookmarks section is already expanded', () => {
@@ -487,13 +492,15 @@ describe('QuickActionsModal', () => {
 				const session = createMockSession({ groupId: 'group-1', bookmarked: true });
 				const group = createMockGroup({ collapsed: true });
 				const props = createDefaultProps({ sessions: [session], groups: [group] });
+				useSessionStore.setState({ sessions: [session], groups: [group] } as never);
 				render(<QuickActionsModal {...props} />);
 
 				fireEvent.click(screen.getByText('Jump to: Test Session'));
 
 				expect(props.setActiveSessionId).toHaveBeenCalledWith('session-1');
 				expect(useUIStore.getState().bookmarksCollapsed).toBe(false);
-				expect(props.setGroups).not.toHaveBeenCalled();
+				// The group stays collapsed - the bookmark row is the lighter reveal.
+				expect(useSessionStore.getState().groups[0].collapsed).toBe(true);
 			});
 		});
 
@@ -791,9 +798,9 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.getByText('View Git Diff')).toBeInTheDocument();
-			expect(screen.getByText('View Git Log')).toBeInTheDocument();
-			expect(screen.getByText('Open Repository in Browser')).toBeInTheDocument();
+			expect(screen.getByText('Git: View Diff')).toBeInTheDocument();
+			expect(screen.getByText('Git: View Log')).toBeInTheDocument();
+			expect(screen.getByText('Git: Open Repository in Browser')).toBeInTheDocument();
 		});
 
 		it('does not render git actions for non-git repo', () => {
@@ -802,8 +809,8 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.queryByText('View Git Diff')).not.toBeInTheDocument();
-			expect(screen.queryByText('View Git Log')).not.toBeInTheDocument();
+			expect(screen.queryByText('Git: View Diff')).not.toBeInTheDocument();
+			expect(screen.queryByText('Git: View Log')).not.toBeInTheDocument();
 		});
 
 		it('handles View Git Diff action', async () => {
@@ -811,7 +818,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			// The palette now routes through useGitAgentActions, which opens the
 			// viewer via the modal store rather than a prop setter.
@@ -830,7 +837,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps({ sessions: [session] });
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			await waitFor(() => {
 				expect(gitService.getDiff).toHaveBeenCalledWith(
@@ -846,7 +853,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			await waitFor(() => {
 				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
@@ -861,7 +868,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps({ sessions: [session] });
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			await waitFor(() => {
 				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
@@ -875,7 +882,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			await waitFor(() => {
 				expect(gitService.getDiff).toHaveBeenCalledWith('/different/path', undefined, undefined);
@@ -886,7 +893,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Log'));
+			fireEvent.click(screen.getByText('Git: View Log'));
 
 			expect(useModalStore.getState().isOpen('gitLog')).toBe(true);
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -896,19 +903,19 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.getByText('View Git Log')).toBeInTheDocument();
-			expect(screen.getByText('View Git Diff')).toBeInTheDocument();
-			expect(screen.getByText('Git Pull')).toBeInTheDocument();
-			expect(screen.getByText('Git Push')).toBeInTheDocument();
-			expect(screen.getByText('Change Branch')).toBeInTheDocument();
-			expect(screen.getByText('Configure Worktrees')).toBeInTheDocument();
+			expect(screen.getByText('Git: View Log')).toBeInTheDocument();
+			expect(screen.getByText('Git: View Diff')).toBeInTheDocument();
+			expect(screen.getByText('Git: Pull')).toBeInTheDocument();
+			expect(screen.getByText('Git: Push')).toBeInTheDocument();
+			expect(screen.getByText('Git: Change Branch')).toBeInTheDocument();
+			expect(screen.getByText('Git: Configure Worktrees')).toBeInTheDocument();
 		});
 
 		it('handles Git Pull action', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Git Pull'));
+			fireEvent.click(screen.getByText('Git: Pull'));
 
 			expect(useModalStore.getState().getData('gitCommandRunner')?.operation).toBe('pull');
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -918,7 +925,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Git Push'));
+			fireEvent.click(screen.getByText('Git: Push'));
 
 			expect(useModalStore.getState().getData('gitCommandRunner')?.operation).toBe('push');
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -928,7 +935,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Change Branch'));
+			fireEvent.click(screen.getByText('Git: Change Branch'));
 
 			expect(useModalStore.getState().isOpen('branchSwitcher')).toBe(true);
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -938,7 +945,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Configure Worktrees'));
+			fireEvent.click(screen.getByText('Git: Configure Worktrees'));
 
 			expect(useModalStore.getState().isOpen('worktreeConfig')).toBe(true);
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -949,7 +956,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Open Repository in Browser'));
+			fireEvent.click(screen.getByText('Git: Open Repository in Browser'));
 
 			await waitFor(() => {
 				expect(gitService.getRemoteBrowserUrl).toHaveBeenCalledWith('/home/user/project');
@@ -1727,7 +1734,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('View Git Diff'));
+			fireEvent.click(screen.getByText('Git: View Diff'));
 
 			await waitFor(() => {
 				expect(props.setGitDiffPreview).not.toHaveBeenCalled();
@@ -1745,7 +1752,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Open Repository in Browser'));
+			fireEvent.click(screen.getByText('Git: Open Repository in Browser'));
 
 			await waitFor(() => {
 				expect(window.maestro.shell.openExternal).not.toHaveBeenCalled();
@@ -1766,7 +1773,7 @@ describe('QuickActionsModal', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Open Repository in Browser'));
+			fireEvent.click(screen.getByText('Git: Open Repository in Browser'));
 
 			await waitFor(() => {
 				expect(consoleSpy).toHaveBeenCalledWith(
@@ -1926,7 +1933,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.getByText('Create Worktree')).toBeInTheDocument();
+			expect(screen.getByText('Git: Create Worktree')).toBeInTheDocument();
 		});
 
 		it('calls onQuickCreateWorktree with active session and closes modal', () => {
@@ -1938,7 +1945,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Create Worktree'));
+			fireEvent.click(screen.getByText('Git: Create Worktree'));
 
 			expect(onQuickCreateWorktree).toHaveBeenCalledWith(session);
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -1965,7 +1972,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			fireEvent.click(screen.getByText('Create Worktree'));
+			fireEvent.click(screen.getByText('Git: Create Worktree'));
 
 			// Should resolve to parent, not the child
 			expect(onQuickCreateWorktree).toHaveBeenCalledWith(parentSession);
@@ -1979,7 +1986,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.queryByText('Create Worktree')).not.toBeInTheDocument();
+			expect(screen.queryByText('Git: Create Worktree')).not.toBeInTheDocument();
 		});
 
 		it('does not show Create Worktree when callback is not provided', () => {
@@ -1988,7 +1995,7 @@ describe('QuickActionsModal', () => {
 			});
 			render(<QuickActionsModal {...props} />);
 
-			expect(screen.queryByText('Create Worktree')).not.toBeInTheDocument();
+			expect(screen.queryByText('Git: Create Worktree')).not.toBeInTheDocument();
 		});
 	});
 

@@ -19,6 +19,7 @@ import {
 	formatDurationWords,
 	formatActiveTime,
 	formatElapsedTime,
+	formatTurnDuration,
 	DURATION_MS,
 	DURATION_LADDER_DAYS,
 	DURATION_LADDER_HOURS,
@@ -298,6 +299,33 @@ describe('shared/duration', () => {
 			expect(formatElapsedTime(30 * SECOND)).toBe('30s');
 			expect(formatElapsedTime(5 * MINUTE + 12 * SECOND)).toBe('5m 12s');
 			expect(formatElapsedTime(HOUR + 10 * MINUTE)).toBe('1h 10m');
+		});
+	});
+
+	describe('formatTurnDuration', () => {
+		it('stops at minutes, so a reply is never timed to the second', () => {
+			expect(formatTurnDuration(25 * MINUTE + 41 * SECOND)).toBe('25m');
+			expect(formatTurnDuration(2 * HOUR + 15 * MINUTE + 9 * SECOND)).toBe('2h 15m');
+		});
+
+		it('reads as instant below a minute rather than printing 0m', () => {
+			expect(formatTurnDuration(0)).toBe('<1m');
+			expect(formatTurnDuration(45 * SECOND)).toBe('<1m');
+			expect(formatTurnDuration(-5000)).toBe('<1m');
+			expect(formatTurnDuration(Number.NaN)).toBe('<1m');
+		});
+
+		it('keeps all three rungs on an absurdly long turn', () => {
+			expect(formatTurnDuration(5 * DAY + 6 * HOUR + 25 * MINUTE)).toBe('5d 6h 25m');
+		});
+
+		it('counts past a week in days, never weeks or months', () => {
+			expect(formatTurnDuration(40 * DAY)).toBe('40d');
+		});
+
+		it('drops a zero rung instead of padding it', () => {
+			expect(formatTurnDuration(3 * HOUR)).toBe('3h');
+			expect(formatTurnDuration(2 * DAY + 30 * MINUTE)).toBe('2d 30m');
 		});
 	});
 

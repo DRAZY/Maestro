@@ -151,6 +151,7 @@ import { useLayerStack } from './contexts/LayerStackContext';
 import { notifyToast } from './stores/notificationStore';
 import { useModalActions, useModalStore } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
+import { GitShortcutActionsBridge } from './components/GitShortcutActionsBridge';
 import { InputProvider, useInputContext } from './contexts/InputContext';
 import { useGroupChatStore } from './stores/groupChatStore';
 import { useBatchStore } from './stores/batchStore';
@@ -414,8 +415,6 @@ function MaestroConsoleInner() {
 	const settings = useSettings();
 	const {
 		conductorProfile,
-		fontFamily,
-		fontSize,
 		activeThemeId,
 		customThemeColors,
 		enterToSendAI,
@@ -2900,8 +2899,8 @@ function MaestroConsoleInner() {
 				style={{
 					backgroundColor: theme.colors.bgMain,
 					color: theme.colors.textMain,
-					fontFamily: fontFamily,
-					fontSize: `${fontSize}px`,
+					fontFamily: 'var(--maestro-font-interface, ui-monospace, Menlo, monospace)',
+					fontSize: 'var(--maestro-size-interface, 14px)',
 				}}
 			>
 				{/* External file drops are handled per-region, not globally: the main
@@ -3571,6 +3570,9 @@ function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
 	return (
 		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{/* Renders nothing - holds the git-status subscription the keyboard
+			    shortcuts for pull/push/branch/PR need, so App doesn't have to. */}
+			<GitShortcutActionsBridge />
 			{children}
 		</GitStatusProvider>
 	);

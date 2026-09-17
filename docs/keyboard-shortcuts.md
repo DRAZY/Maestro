@@ -78,25 +78,36 @@ surface too, so a chord you chose yourself behaves the same as the default.
 
 ## Panel Shortcuts
 
-| Action                         | macOS         | Windows/Linux  |
-| ------------------------------ | ------------- | -------------- |
-| Go to Files Tab                | `Cmd+Shift+F` | `Ctrl+Shift+F` |
-| Go to History Tab              | `Cmd+Shift+H` | `Ctrl+Shift+H` |
-| Go to Auto Run Tab             | `Cmd+Shift+1` | `Ctrl+Shift+1` |
-| Toggle Edit/Preview (Markdown) | `Cmd+E`       | `Ctrl+E`       |
-| Run Auto Run                   | `Cmd+Shift+2` | `Ctrl+Shift+2` |
-| Auto Run Expanded Preview      | `Cmd+Shift+3` | `Ctrl+Shift+3` |
-| Insert Checkbox (Auto Run)     | `Cmd+L`       | `Ctrl+L`       |
-| View Git Diff                  | `Cmd+Shift+D` | `Ctrl+Shift+D` |
-| View Git Log                   | `Cmd+Shift+G` | `Ctrl+Shift+G` |
-| Refresh Files, Git, History    | `Opt+Cmd+R`   | `Alt+Ctrl+R`   |
-| Fuzzy File Search              | `Cmd+G`       | `Ctrl+G`       |
+| Action                         | macOS                 | Windows/Linux         |
+| ------------------------------ | --------------------- | --------------------- |
+| Go to Files Tab                | `Cmd+Shift+F`         | `Ctrl+Shift+F`        |
+| Go to History Tab              | `Cmd+Shift+H`         | `Ctrl+Shift+H`        |
+| Go to Auto Run Tab             | `Cmd+Shift+1`         | `Ctrl+Shift+1`        |
+| Toggle Edit/Preview (Markdown) | `Cmd+E`               | `Ctrl+E`              |
+| Run Auto Run                   | `Cmd+Shift+2`         | `Ctrl+Shift+2`        |
+| Auto Run Expanded Preview      | `Cmd+Shift+3`         | `Ctrl+Shift+3`        |
+| Insert Checkbox (Auto Run)     | `Cmd+L`               | `Ctrl+L`              |
+| Git: View Diff                 | `Cmd+Shift+D`         | `Ctrl+Shift+D`        |
+| Git: View Log                  | `Cmd+Shift+G`         | `Ctrl+Shift+G`        |
+| Git: Pull                      | unassigned by default | unassigned by default |
+| Git: Push                      | unassigned by default | unassigned by default |
+| Git: Change Branch             | unassigned by default | unassigned by default |
+| Git: Create Pull Request       | unassigned by default | unassigned by default |
+| Refresh Files, Git, History    | `Opt+Cmd+R`           | `Alt+Ctrl+R`          |
+| Fuzzy File Search              | `Cmd+G`               | `Ctrl+G`              |
 
 `Cmd+E` toggles edit and preview on a markdown File Preview, in the Memories
 viewer (`Cmd+Shift+M`), where the pane opens on the rendered document, and on
 the Maestro Prompts tab in Settings, where it opens on the source. Inside the
 Memories viewer, `Cmd+G` graphs the memories and `Cmd+U` toggles the unlinked
 filter, in place of their usual meanings.
+
+**Git: Pull**, **Git: Push**, **Git: Change Branch**, and **Git: Create Pull Request** ship
+unbound. They run against the active agent's repository, exactly as the branch
+pill's dropdown and the command palette (`Cmd+K`) do, and two of them write to a
+remote, so Maestro does not claim four chords for them out of the box. Bind any
+of them in **Settings** -> **Shortcuts** and the chord appears on the matching
+branch-pill row and palette entry.
 
 `Opt+Cmd+R` reloads the file tree, git status, worktree list, and history for
 the active agent in one press. When a File Preview is open it re-reads that file
@@ -297,7 +308,7 @@ In AI mode, use `@` to reference files in your prompts:
 | -------------------------------- | ---------------------------------- | ---------------------------------- |
 | Navigate Agents                  | `Up/Down Arrow` while in sidebar   | `Up/Down Arrow` while in sidebar   |
 | Select Agent                     | `Enter` while in sidebar           | `Enter` while in sidebar           |
-| Filter Sessions (in Left Panel)  | `Cmd+F`                            | `Ctrl+F`                           |
+| Filter Agents (in Left Panel)    | `Cmd+F`                            | `Ctrl+F`                           |
 | Navigate Files                   | `Up/Down Arrow` while in file tree | `Up/Down Arrow` while in file tree |
 | Preview Fonts (Settings)         | `Up/Down Arrow` on a font picker   | `Up/Down Arrow` on a font picker   |
 | Extend File Selection            | `Shift+Up/Down Arrow` in file tree | `Shift+Up/Down Arrow` in file tree |
@@ -535,7 +546,7 @@ frame it first.
 Most shortcuts can be remapped to fit your workflow:
 
 1. Open **Settings** (`Cmd+,` / `Ctrl+,`) → **Shortcuts** tab
-2. Find the action you want to remap
+2. Find the action you want to remap. The search box matches on the action name, and names are written so that the obvious word finds the whole family: type `git` for every git action, `tab` for the tab commands, `agent` for the agent ones, `unread`, `font`, `image`, `media`. Related actions share a `Family: Action` name (`Git: Pull`, `Media: Next Track`), which also keeps them together in the list instead of scattered alphabetically. The same names and the same search work in the command palette (`Cmd+K`) and the shortcuts sheet (`Cmd+/`)
 3. Click the current key binding (shows the shortcut like `⌘ K` or `Ctrl+K`)
 4. Press your desired key combination
 5. The new binding is saved immediately
@@ -567,7 +578,7 @@ When a default binding has to move to free a combo for a new action, Maestro mig
 | Action                    | Was           | Now           | Freed for                        |
 | ------------------------- | ------------- | ------------- | -------------------------------- |
 | Focus Active Tab          | `Opt+Cmd+F`   | `Opt+Cmd+Up`  | Search Messages (All Agent Tabs) |
-| Move Session to Group     | `Cmd+Shift+M` | `Opt+Cmd+M`   | Open Memory Viewer               |
+| Move Agent to Group       | `Cmd+Shift+M` | `Opt+Cmd+M`   | Open Memory Viewer               |
 | Auto Run Expanded Preview | `Cmd+Shift+E` | `Cmd+Shift+3` | Edit Last Queued Message         |
 
 If `Opt+Cmd+F` still focuses the active tab instead of opening cross-tab search, you had a custom binding on it: open **Settings** → **Shortcuts**, clear it from **Focus Active Tab**, and the new default takes over.

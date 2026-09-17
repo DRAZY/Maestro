@@ -12,7 +12,9 @@ import { DebugPackageModal } from './DebugPackageModal';
 import { DebugApplicationStatsModal } from './DebugApplicationStatsModal';
 import { DebugAgentProbeModal } from './DebugAgentProbeModal';
 import { ProfilingCaptureModal } from './ProfilingCaptureModal';
+import { useProfilingAutoStop } from '../hooks/ui/useProfilingAutoStop';
 import { WindowsWarningModal } from './WindowsWarningModal';
+import { OnboardingSeriesHost } from './OnboardingSeriesHost';
 import { AppOverlays } from './AppOverlays';
 import { GitPillModals } from './GitPillModals';
 import { PlaygroundPanel } from './PlaygroundPanel';
@@ -223,11 +225,17 @@ function AppStandaloneModalsInner({
 	recordTourComplete,
 	recordTourSkip,
 }: AppStandaloneModalsProps) {
+	// Ends a performance capture before its trace buffer overflows. Lives here
+	// because it has to be mounted for the whole life of the app - a recording
+	// runs with the command palette closed.
+	useProfilingAutoStop();
+
 	// Self-source modal open states from stores
 	const {
 		debugPackageModalOpen,
 		windowsWarningModalOpen,
 		setWindowsWarningModalOpen,
+		openSettings,
 		setDebugPackageModalOpen,
 		debugApplicationStatsOpen,
 		setDebugApplicationStatsOpen,
@@ -293,6 +301,16 @@ function AppStandaloneModalsInner({
 				onOpenDebugPackage={() => setDebugPackageModalOpen(true)}
 				useBetaChannel={enableBetaUpdates}
 				onSetUseBetaChannel={setEnableBetaUpdates}
+			/>
+
+			{/* --- FIRST-RUN SERIES: typography -> theme -> updates -> agent powers ---
+			    One step on screen at a time; see OnboardingSeriesHost. */}
+			<OnboardingSeriesHost
+				theme={theme}
+				themes={THEMES as unknown as Record<string, Theme>}
+				isReturningUser={sessions.length > 0}
+				onOpenSettings={(tab) => openSettings(tab)}
+				hasActiveAgent={Boolean(activeSession)}
 			/>
 
 			{/* --- CELEBRATION OVERLAYS --- */}

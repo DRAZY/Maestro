@@ -71,7 +71,7 @@ export function buildNewTabCommands({
 	if (onNewTab) {
 		commands.push({
 			id: 'newAiChat',
-			label: 'New AI Chat',
+			label: 'New AI Chat Tab',
 			subtext: 'Open a new AI chat tab in the active agent',
 			shortcut: newTabShortcut,
 			action: () => {
@@ -84,7 +84,7 @@ export function buildNewTabCommands({
 	if (onNewFileTab) {
 		commands.push({
 			id: 'newFileTab',
-			label: 'New File',
+			label: 'New File Tab',
 			subtext: 'Open a new file tab in the active agent',
 			shortcut: newFileTabShortcut,
 			action: () => {
@@ -97,7 +97,7 @@ export function buildNewTabCommands({
 	if (onNewBrowserTab) {
 		commands.push({
 			id: 'newBrowserTab',
-			label: 'New Browser',
+			label: 'New Browser Tab',
 			subtext: 'Open a new browser tab in the active agent',
 			shortcut: newBrowserTabShortcut,
 			action: () => {
@@ -110,7 +110,7 @@ export function buildNewTabCommands({
 	if (onNewTerminalTab) {
 		commands.push({
 			id: 'newTerminalTab',
-			label: 'New Terminal',
+			label: 'New Terminal Tab',
 			subtext: 'Open a new terminal tab in the active agent',
 			shortcut: newTerminalTabShortcut,
 			action: () => {

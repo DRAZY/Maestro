@@ -29,6 +29,7 @@ import { create } from 'zustand';
 import {
 	classifyRetryableError,
 	availabilityDelayMs,
+	tokenExhaustionDelayMs,
 	tokenExhaustionResetAt,
 	type RetryStrategy,
 	type ClassifiableError,
@@ -333,6 +334,21 @@ export function hasPendingRetry(sessionId: string, tabId: string): boolean {
 }
 
 /**
+ * The live status of this tab's retry, or `undefined` when nothing is pending.
+ *
+ * For UI that must not offer an action the machinery forbids. The persistent
+ * outage RECORD a transcript card renders carries `nextRetryAt` and nothing
+ * about what is happening right now, so a card deriving its state from that
+ * countdown alone cannot see a retry that fired EARLY - and every early fire
+ * (the user re-pointing the provider, a Try Now) leaves `nextRetryAt` where it
+ * was. The result was a live countdown, and an enabled Try Now, sitting over a
+ * resend already on the wire.
+ */
+export function useRetryStatus(sessionId: string, tabId: string): RetryStatus | undefined {
+	return useRetryStore((s) => s.retries[keyFor(sessionId, tabId)]?.status);
+}
+
+/**
  * Whether the given agent+error should be auto-retried, honoring the per-agent
  * resilience toggles. Returns the strategy, or null to fall back to the modal.
  */
@@ -392,10 +408,16 @@ export function scheduleRetryForError(
 	const outageId = existing?.outageId ?? generateId();
 	const startedAt = existing?.startedAt ?? now;
 
+	// Token exhaustion POLLS rather than sleeping to the parsed reset: the wait
+	// can end for reasons the provider's notice cannot know about (the user
+	// re-points the agent at another account, the plan rolls over early, the
+	// message named the wrong window). The parsed time still matters - it is what
+	// keeps us from arriving a poll interval late - it just is not the only
+	// moment we look. See tokenExhaustionDelayMs.
 	const nextRetryAt =
 		strategy === 'availability'
 			? now + availabilityDelayMs(attempt)
-			: tokenExhaustionResetAt(error, now);
+			: now + tokenExhaustionDelayMs(attempt, tokenExhaustionResetAt(error, now), now);
 
 	clearTimer(key);
 	const entry: RetryEntry = {
@@ -476,6 +498,47 @@ function replayItem(entry: RetryEntry, item: QueuedItem): QueuedItem {
 	return { ...item, turnSettings: captureQueuedTurnSettings(tab, session) };
 }
 
+/**
+ * A resend resolved without ever reaching the provider.
+ *
+ * `processQueuedItem` aborts - and RESOLVES rather than throwing - when the tab
+ * an item names is gone, which a wait measured in minutes makes ordinary: the
+ * user closes the tab while the countdown runs. The prompt exists ONLY in the
+ * dispatch snapshot, so nothing sends it, nothing shows it, no process exit will
+ * settle the entry, and no throw reaches the catch below. The turn is destroyed
+ * silently and the entry sits in-flight forever.
+ *
+ * So end the outage and SAY what was not sent. The prompt is deliberately not
+ * re-queued onto another tab: that would deliver the message into a conversation
+ * the user never addressed it to. Surfacing the text and letting the human press
+ * send is the answer the post-restart replay gives, for the same reason.
+ */
+function reportUndeliverableRetry(entry: RetryEntry, item: QueuedItem): void {
+	logger.warn('[retry] Resend dispatched nothing; ending outage', undefined, {
+		key: entry.key,
+		tabId: entry.tabId,
+	});
+
+	// Nothing is running behind this entry, so its busy state is ours to clear -
+	// the same call `cancelRetry` makes when it ends a retry with no live resend
+	// behind it.
+	updateSessionWith(entry.sessionId, (s) => settleTabThinkingState(s, entry.tabId));
+
+	resolveOutage(entry.outageId, 'stopped');
+	removeEntry(entry.key);
+
+	const text = item.type === 'command' ? item.command : item.text;
+	notifyToast({
+		color: 'yellow',
+		title: 'Message not re-sent',
+		message: text
+			? `The tab it was waiting for is gone, so it was never sent: "${truncateForToast(text)}"`
+			: 'The tab this message was waiting for is gone, so it was never sent.',
+		sessionId: entry.sessionId,
+		dismissible: true,
+	});
+}
+
 /** Fire a scheduled retry now: mark in-flight and re-run the failed work. */
 async function fireRetry(key: string): Promise<void> {
 	const entry = useRetryStore.getState().retries[key];
@@ -510,9 +573,10 @@ async function fireRetry(key: string): Promise<void> {
 			removeEntry(key);
 			return;
 		}
-		await useAgentStore
+		const dispatched = await useAgentStore
 			.getState()
 			.processQueuedItem(entry.sessionId, replayItem(entry, snapshot.item), snapshot.deps);
+		if (!dispatched) reportUndeliverableRetry(entry, snapshot.item);
 	} catch (error) {
 		// A dispatch-time throw is itself a failure; leave the entry in-flight so
 		// the incoming agent-error (or a manual action) drives the next step.
@@ -523,7 +587,8 @@ async function fireRetry(key: string): Promise<void> {
 /** User asked to retry immediately: cancel the timer and fire now. */
 export function retryNow(sessionId: string, tabId: string): void {
 	const key = keyFor(sessionId, tabId);
-	if (!useRetryStore.getState().retries[key]) return;
+	const entry = useRetryStore.getState().retries[key];
+	if (!entry || entry.status !== 'scheduled') return;
 	clearTimer(key);
 	void fireRetry(key);
 }

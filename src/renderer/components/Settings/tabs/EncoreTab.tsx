@@ -30,6 +30,8 @@ import type { Theme, AgentConfig, ToolType } from '../../../types';
 import { AgentConfigPanel } from '../../shared/AgentConfigPanel';
 import { AGENT_TILES } from '../../Wizard/screens/AgentSelectionScreen';
 import { isBetaAgent } from '../../../../shared/agentMetadata';
+import { pickFirstAvailableProvider } from '../../../../shared/directorNotesProvider';
+import { ToggleSwitchTrack } from '../../ui/ToggleSwitch';
 import { SYMPHONY_REGISTRY_URL } from '../../../../shared/symphony-constants';
 import { DEFAULT_CUE_SETTINGS, type CueSettings } from '../../../../shared/cue';
 import { IDEAL_END_STATE_MAX_LENGTH } from '../../../../shared/directorNotesEndState';
@@ -201,6 +203,14 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 		if (!tile.supported) return false;
 		return ac.detectedAgents.some((a: AgentConfig) => a.id === tile.id);
 	});
+	// Undefined counts as on, so an install that predates this setting gets the
+	// auto behavior rather than a silently-pinned provider.
+	const dnAutoProvider = directorNotesSettings.autoSelectProvider !== false;
+	// Which provider auto would land on right now. Shown in the helper text so the
+	// ghosted dropdown is not the only clue about what will actually run.
+	// `ac.detectedAgents` is already filtered to available, non-hidden agents.
+	const dnAutoPick = pickFirstAvailableProvider(ac.detectedAgents.map((a: AgentConfig) => a.id));
+	const dnAutoPickName = AGENT_TILES.find((t) => t.id === dnAutoPick)?.name ?? dnAutoPick;
 	const dnSelectedAgentConfig = ac.detectedAgents.find(
 		(a) => a.id === directorNotesSettings.provider
 	);
@@ -316,10 +326,10 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 					Encore Features
 				</h3>
 				<p className="text-xs" style={{ color: theme.colors.textDim }}>
-					Optional features that extend Maestro's capabilities. Enable the ones you want. Disabled
-					features are completely hidden from shortcuts, menus, and the command palette.
-					Contributors building new features should consider gating them here to keep the core
-					experience focused.
+					Features that extend Maestro's capabilities. They ship on; turn off the ones you don't
+					want. Disabled features are completely hidden from shortcuts, menus, and the command
+					palette. Contributors should gate a new feature here and leave it off until it earns a
+					place in the core experience.
 				</p>
 			</div>
 
@@ -1054,13 +1064,46 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 						style={{ borderColor: theme.colors.border }}
 					>
 						{/* Provider Selection */}
-						<div className="pt-4">
+						<div className="pt-4" data-setting-id="encore-director-notes-provider">
 							<div
 								className="block text-xs font-bold opacity-70 uppercase mb-2"
 								style={{ color: theme.colors.textMain }}
 							>
 								Synopsis Provider
 							</div>
+
+							{/* Auto-selection. On by default; turning it off un-ghosts the
+							    picker below and pins the synopsis to one provider. */}
+							<button
+								type="button"
+								onClick={() =>
+									setDirectorNotesSettings({
+										...directorNotesSettings,
+										autoSelectProvider: !dnAutoProvider,
+									})
+								}
+								className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+								role="switch"
+								aria-checked={dnAutoProvider}
+								aria-label="Use the first available provider for Director's Notes"
+							>
+								<div>
+									<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+										Use the first available provider
+									</div>
+									<div
+										className="text-xs opacity-70 mt-0.5"
+										style={{ color: theme.colors.textDim }}
+									>
+										{dnAutoProvider
+											? dnAutoPickName
+												? `Picked at generation time. Right now that is ${dnAutoPickName}.`
+												: 'Picked at generation time. No supported provider is installed.'
+											: 'Off - the synopsis always runs on the provider selected below.'}
+									</div>
+								</div>
+								<ToggleSwitchTrack checked={dnAutoProvider} theme={theme} />
+							</button>
 
 							{ac.isDetecting ? (
 								<div className="flex items-center gap-2 py-2">
@@ -1081,12 +1124,17 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 									Droid.
 								</div>
 							) : (
-								<div className="flex items-center gap-2">
+								<div
+									className={`flex items-center gap-2 transition-opacity ${
+										dnAutoProvider ? 'opacity-40' : ''
+									}`}
+								>
 									<div className="relative flex-1">
 										<select
 											value={directorNotesSettings.provider}
 											onChange={(e) => handleDnAgentChange(e.target.value as ToolType)}
-											className="w-full px-3 py-2 pr-10 rounded-lg border outline-none appearance-none cursor-pointer text-sm"
+											disabled={dnAutoProvider}
+											className="w-full px-3 py-2 pr-10 rounded-lg border outline-none appearance-none text-sm disabled:cursor-not-allowed enabled:cursor-pointer"
 											style={{
 												backgroundColor: theme.colors.bgMain,
 												borderColor: theme.colors.border,
@@ -1112,7 +1160,8 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 
 									<button
 										onClick={ac.toggleConfigExpanded}
-										className="flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-colors hover:bg-white/5"
+										disabled={dnAutoProvider}
+										className="flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-colors enabled:hover:bg-white/5 disabled:cursor-not-allowed"
 										style={{
 											borderColor: ac.isConfigExpanded ? theme.colors.accent : theme.colors.border,
 											color: ac.isConfigExpanded ? theme.colors.accent : theme.colors.textDim,
@@ -1134,84 +1183,87 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 								</div>
 							)}
 
-							{ac.isConfigExpanded && dnSelectedAgentConfig && dnSelectedTile && (
-								<div
-									className="mt-3 p-4 rounded-lg border"
-									style={{
-										backgroundColor: theme.colors.bgActivity,
-										borderColor: theme.colors.border,
-									}}
-								>
-									<div className="flex items-center justify-between mb-3">
-										<span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
-											{dnSelectedTile.name} Configuration
-										</span>
-										{ac.hasCustomization && (
-											<div className="flex items-center gap-1">
-												<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
-												<span className="text-xs" style={{ color: theme.colors.success }}>
-													Customized
-												</span>
-											</div>
-										)}
+							{!dnAutoProvider &&
+								ac.isConfigExpanded &&
+								dnSelectedAgentConfig &&
+								dnSelectedTile && (
+									<div
+										className="mt-3 p-4 rounded-lg border"
+										style={{
+											backgroundColor: theme.colors.bgActivity,
+											borderColor: theme.colors.border,
+										}}
+									>
+										<div className="flex items-center justify-between mb-3">
+											<span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
+												{dnSelectedTile.name} Configuration
+											</span>
+											{ac.hasCustomization && (
+												<div className="flex items-center gap-1">
+													<Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+													<span className="text-xs" style={{ color: theme.colors.success }}>
+														Customized
+													</span>
+												</div>
+											)}
+										</div>
+										<AgentConfigPanel
+											theme={theme}
+											agent={dnSelectedAgentConfig}
+											customPath={ac.customPath}
+											onCustomPathChange={ac.setCustomPath}
+											onCustomPathBlur={persistDnCustomConfig}
+											customArgs={ac.customArgs}
+											onCustomArgsChange={ac.setCustomArgs}
+											onCustomArgsBlur={persistDnCustomConfig}
+											customEnvVars={ac.customEnvVars}
+											onEnvVarKeyChange={(oldKey, newKey, value) => {
+												const newVars = { ...ac.customEnvVars };
+												delete newVars[oldKey];
+												newVars[newKey] = value;
+												ac.setCustomEnvVars(newVars);
+											}}
+											onEnvVarValueChange={(key, value) => {
+												ac.setCustomEnvVars({ ...ac.customEnvVars, [key]: value });
+											}}
+											onEnvVarRemove={(key) => {
+												const newVars = { ...ac.customEnvVars };
+												delete newVars[key];
+												ac.setCustomEnvVars(newVars);
+											}}
+											onEnvVarAdd={() => {
+												let newKey = 'NEW_VAR';
+												let counter = 1;
+												while (ac.customEnvVars[newKey]) {
+													newKey = `NEW_VAR_${counter}`;
+													counter++;
+												}
+												ac.setCustomEnvVars({ ...ac.customEnvVars, [newKey]: '' });
+											}}
+											onEnvVarsBlur={persistDnCustomConfig}
+											agentConfig={ac.agentConfig}
+											onConfigChange={(key, value) => {
+												const newConfig = { ...ac.agentConfig, [key]: value };
+												ac.setAgentConfig(newConfig);
+												ac.agentConfigRef.current = newConfig;
+											}}
+											onConfigBlur={async () => {
+												if (directorNotesSettings.provider) {
+													await ac.saveAgentConfig(directorNotesSettings.provider);
+												}
+											}}
+											availableModels={ac.availableModels}
+											loadingModels={ac.loadingModels}
+											onRefreshModels={ac.refreshModels}
+											dynamicOptions={ac.dynamicOptions}
+											loadingDynamicOptions={ac.loadingDynamicOptions}
+											onRefreshAgent={ac.refreshAgent}
+											refreshingAgent={ac.refreshingAgent}
+											compact
+											showBuiltInEnvVars
+										/>
 									</div>
-									<AgentConfigPanel
-										theme={theme}
-										agent={dnSelectedAgentConfig}
-										customPath={ac.customPath}
-										onCustomPathChange={ac.setCustomPath}
-										onCustomPathBlur={persistDnCustomConfig}
-										customArgs={ac.customArgs}
-										onCustomArgsChange={ac.setCustomArgs}
-										onCustomArgsBlur={persistDnCustomConfig}
-										customEnvVars={ac.customEnvVars}
-										onEnvVarKeyChange={(oldKey, newKey, value) => {
-											const newVars = { ...ac.customEnvVars };
-											delete newVars[oldKey];
-											newVars[newKey] = value;
-											ac.setCustomEnvVars(newVars);
-										}}
-										onEnvVarValueChange={(key, value) => {
-											ac.setCustomEnvVars({ ...ac.customEnvVars, [key]: value });
-										}}
-										onEnvVarRemove={(key) => {
-											const newVars = { ...ac.customEnvVars };
-											delete newVars[key];
-											ac.setCustomEnvVars(newVars);
-										}}
-										onEnvVarAdd={() => {
-											let newKey = 'NEW_VAR';
-											let counter = 1;
-											while (ac.customEnvVars[newKey]) {
-												newKey = `NEW_VAR_${counter}`;
-												counter++;
-											}
-											ac.setCustomEnvVars({ ...ac.customEnvVars, [newKey]: '' });
-										}}
-										onEnvVarsBlur={persistDnCustomConfig}
-										agentConfig={ac.agentConfig}
-										onConfigChange={(key, value) => {
-											const newConfig = { ...ac.agentConfig, [key]: value };
-											ac.setAgentConfig(newConfig);
-											ac.agentConfigRef.current = newConfig;
-										}}
-										onConfigBlur={async () => {
-											if (directorNotesSettings.provider) {
-												await ac.saveAgentConfig(directorNotesSettings.provider);
-											}
-										}}
-										availableModels={ac.availableModels}
-										loadingModels={ac.loadingModels}
-										onRefreshModels={ac.refreshModels}
-										dynamicOptions={ac.dynamicOptions}
-										loadingDynamicOptions={ac.loadingDynamicOptions}
-										onRefreshAgent={ac.refreshAgent}
-										refreshingAgent={ac.refreshingAgent}
-										compact
-										showBuiltInEnvVars
-									/>
-								</div>
-							)}
+								)}
 
 							<p className="text-xs mt-2" style={{ color: theme.colors.textDim }}>
 								The AI agent used to generate synopsis summaries

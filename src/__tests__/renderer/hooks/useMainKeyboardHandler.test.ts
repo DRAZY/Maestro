@@ -5,6 +5,8 @@ import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';
 import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
+import { FONT_ZOOM_MAX, FONT_ZOOM_MIN } from '../../../shared/typography';
+import { publishGitShortcutActions } from '../../../renderer/services/gitShortcutActions';
 
 /**
  * Creates a minimal mock context with all required handler functions.
@@ -1605,12 +1607,11 @@ describe('useMainKeyboardHandler', () => {
 				expect(mockSetSessions).toHaveBeenCalled();
 				expect(useSettingsStore.getState().fontSize).toBe(20);
 			});
-
-			it('should reset font size on Cmd+Shift+0', () => {
+			it('should reset the font zoom on Cmd+Shift+0', () => {
 				const { result } = renderHook(() => useMainKeyboardHandler());
 
-				// Set font size to non-default
-				useSettingsStore.setState({ fontSize: 20 });
+				// The shortcut resets the zoom multiplier, not the stored sizes.
+				useSettingsStore.setState({ fontSize: 20, fontZoom: 1.5 });
 
 				result.current.keyboardHandlerRef.current = createUnifiedTabContext({
 					isShortcut: (_e: KeyboardEvent, actionId: string) => actionId === 'fontSizeReset',
@@ -1628,8 +1629,8 @@ describe('useMainKeyboardHandler', () => {
 					);
 				});
 
-				// Cmd+Shift+0 should reset font size
-				expect(useSettingsStore.getState().fontSize).toBe(14);
+				expect(useSettingsStore.getState().fontZoom).toBe(1);
+				expect(useSettingsStore.getState().fontSize).toBe(20);
 			});
 		});
 
@@ -2611,12 +2612,111 @@ describe('useMainKeyboardHandler', () => {
 
 			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(false);
 		});
-	});
 
-	describe('font size shortcuts', () => {
+		// The old guard read `activeElement?.closest(...) !== null`, which is
+		// `undefined !== null` when nothing is focused. That is TRUE, so an unfocused
+		// document claimed the caret was in Auto Run and swallowed the toggle.
+		it('toggles when nothing at all is focused', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const activeElement = vi
+				.spyOn(document, 'activeElement', 'get')
+				.mockReturnValue(null as unknown as Element);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				activeFocus: 'main',
+				activeRightTab: 'files',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(true);
+			activeElement.mockRestore();
+		});
+
+		// `activeFocus`/`activeRightTab` say which panel was last SELECTED, not where
+		// the caret is. Reading the chat with the right panel parked on Auto Run must
+		// not disable the toggle.
+		it('toggles when the caret is in the chat but the right panel is parked on Auto Run', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const composer = document.createElement('textarea');
+			document.body.appendChild(composer);
+			const activeElement = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(composer);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				activeFocus: 'right',
+				activeRightTab: 'autorun',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).toHaveBeenCalledWith(true);
+			activeElement.mockRestore();
+			composer.remove();
+		});
+
+		// The guard still has to do its job: the Auto Run editor owns Cmd+E.
+		it('does not toggle when the caret really is inside the Auto Run panel', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			const mockSetChatRawTextMode = vi.fn();
+			const panel = document.createElement('div');
+			panel.setAttribute('data-tour', 'autorun-panel');
+			const editor = document.createElement('textarea');
+			panel.appendChild(editor);
+			document.body.appendChild(panel);
+			const activeElement = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(editor);
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, id: string) => id === 'toggleMarkdownMode',
+				chatRawTextMode: false,
+				setChatRawTextMode: mockSetChatRawTextMode,
+				// Deliberately the opposite of the DOM, to prove the DOM decides.
+				activeFocus: 'main',
+				activeRightTab: 'files',
+				activeBatchRunState: null,
+				activeSession: { id: 'session-1', activeFileTabId: null, inputMode: 'ai' },
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })
+				);
+			});
+
+			expect(mockSetChatRawTextMode).not.toHaveBeenCalled();
+			activeElement.mockRestore();
+			panel.remove();
+		});
+	});
+	describe('font zoom shortcuts', () => {
+		// Cmd+= / Cmd+- move `fontZoom`, a multiplier over every surface size,
+		// rather than the interface size directly. Each surface now carries its
+		// own size, and pushing the base around would compress those differences
+		// on the way up and lose them at the clamp.
 		beforeEach(() => {
-			// Reset font size to default before each test
-			useSettingsStore.setState({ fontSize: 14 });
+			useSettingsStore.setState({ fontSize: 14, fontZoom: 1, terminalFontSize: 0 });
 		});
 
 		it('should increase font size with Cmd+=', () => {
@@ -2638,7 +2738,10 @@ describe('useMainKeyboardHandler', () => {
 			});
 
 			expect(preventDefaultSpy).toHaveBeenCalled();
-			expect(useSettingsStore.getState().fontSize).toBe(16);
+			expect(useSettingsStore.getState().fontZoom).toBe(1.1);
+			// The stored size is untouched, which is what makes the zoom
+			// perfectly reversible.
+			expect(useSettingsStore.getState().fontSize).toBe(14);
 		});
 
 		it('should increase font size with Cmd++', () => {
@@ -2658,7 +2761,7 @@ describe('useMainKeyboardHandler', () => {
 				);
 			});
 
-			expect(useSettingsStore.getState().fontSize).toBe(16);
+			expect(useSettingsStore.getState().fontZoom).toBe(1.1);
 		});
 
 		it('should decrease font size with Cmd+-', () => {
@@ -2680,14 +2783,37 @@ describe('useMainKeyboardHandler', () => {
 			});
 
 			expect(preventDefaultSpy).toHaveBeenCalled();
-			expect(useSettingsStore.getState().fontSize).toBe(12);
+			expect(useSettingsStore.getState().fontZoom).toBe(0.9);
 		});
 
-		it('should reset font size to default (14) with Cmd+Shift+0', () => {
+		it('should keep the proportions between surfaces while zooming', () => {
+			// The whole reason zoom is a multiplier: a user who set the terminal
+			// smaller than the interface keeps that relationship.
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			useSettingsStore.setState({ fontSize: 16, terminalFontSize: 12, fontZoom: 1 });
+
+			result.current.keyboardHandlerRef.current = createMockContext({
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+			});
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', { key: '=', metaKey: true, bubbles: true })
+				);
+			});
+
+			const state = useSettingsStore.getState();
+			expect(state.fontSize).toBe(16);
+			expect(state.terminalFontSize).toBe(12);
+			expect(state.fontZoom).toBeGreaterThan(1);
+		});
+
+		it('should reset the zoom with Cmd+Shift+0, keeping custom surface sizes', () => {
 			const { result } = renderHook(() => useMainKeyboardHandler());
 
-			// Set font size to something other than default
-			useSettingsStore.setState({ fontSize: 20 });
+			// Custom sizes are a Settings preference, not zoom state - wiping
+			// them from a keystroke would be unrecoverable.
+			useSettingsStore.setState({ fontSize: 20, terminalFontSize: 11, fontZoom: 1.5 });
 
 			result.current.keyboardHandlerRef.current = createMockContext({
 				isShortcut: (_e: KeyboardEvent, actionId: string) => actionId === 'fontSizeReset',
@@ -2707,13 +2833,15 @@ describe('useMainKeyboardHandler', () => {
 			});
 
 			expect(preventDefaultSpy).toHaveBeenCalled();
-			expect(useSettingsStore.getState().fontSize).toBe(14);
+			expect(useSettingsStore.getState().fontZoom).toBe(1);
+			expect(useSettingsStore.getState().fontSize).toBe(20);
+			expect(useSettingsStore.getState().terminalFontSize).toBe(11);
 		});
 
-		it('should not exceed maximum font size (24)', () => {
+		it('should not exceed the maximum zoom', () => {
 			const { result } = renderHook(() => useMainKeyboardHandler());
 
-			useSettingsStore.setState({ fontSize: 24 });
+			useSettingsStore.setState({ fontZoom: FONT_ZOOM_MAX });
 
 			result.current.keyboardHandlerRef.current = createMockContext({
 				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
@@ -2729,13 +2857,13 @@ describe('useMainKeyboardHandler', () => {
 				);
 			});
 
-			expect(useSettingsStore.getState().fontSize).toBe(24);
+			expect(useSettingsStore.getState().fontZoom).toBe(FONT_ZOOM_MAX);
 		});
 
-		it('should not go below minimum font size (10)', () => {
+		it('should not go below the minimum zoom', () => {
 			const { result } = renderHook(() => useMainKeyboardHandler());
 
-			useSettingsStore.setState({ fontSize: 10 });
+			useSettingsStore.setState({ fontZoom: FONT_ZOOM_MIN });
 
 			result.current.keyboardHandlerRef.current = createMockContext({
 				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
@@ -2751,10 +2879,10 @@ describe('useMainKeyboardHandler', () => {
 				);
 			});
 
-			expect(useSettingsStore.getState().fontSize).toBe(10);
+			expect(useSettingsStore.getState().fontZoom).toBe(FONT_ZOOM_MIN);
 		});
 
-		it('should work when modal is open (font size is a benign viewing preference)', () => {
+		it('should work when a modal is open (zoom is a benign viewing preference)', () => {
 			const { result } = renderHook(() => useMainKeyboardHandler());
 
 			result.current.keyboardHandlerRef.current = createMockContext({
@@ -2773,7 +2901,7 @@ describe('useMainKeyboardHandler', () => {
 				);
 			});
 
-			expect(useSettingsStore.getState().fontSize).toBe(16);
+			expect(useSettingsStore.getState().fontZoom).toBe(1.1);
 		});
 
 		it('should not trigger with Alt modifier (avoids conflict with session jump)', () => {
@@ -2796,6 +2924,91 @@ describe('useMainKeyboardHandler', () => {
 
 			// Font size should remain unchanged with Alt held
 			expect(useSettingsStore.getState().fontSize).toBe(14);
+		});
+	});
+
+	describe('git branch-pill shortcuts', () => {
+		/**
+		 * The four chords read their actions from the module the bridge publishes
+		 * to, so these tests publish a stub action set instead of rendering the
+		 * whole git context.
+		 */
+		function publishStub(overrides: Record<string, unknown> = {}) {
+			const actions = {
+				isGitRepo: true,
+				canCreatePR: true,
+				pull: vi.fn(),
+				push: vi.fn(),
+				switchBranch: vi.fn(),
+				createPR: vi.fn(),
+				...overrides,
+			};
+			publishGitShortcutActions(actions as never);
+			return actions;
+		}
+
+		function press(id: string, ctxOverrides: Record<string, unknown> = {}) {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+			result.current.keyboardHandlerRef.current = createMockContext({
+				isShortcut: (_e: KeyboardEvent, shortcutId: string) => shortcutId === id,
+				activeSessionId: 'test-session',
+				activeSession: { id: 'test-session', name: 'Test', inputMode: 'ai' },
+				activeGroupChatId: null,
+				recordShortcutUsage: vi.fn().mockReturnValue({ newLevel: null }),
+				...ctxOverrides,
+			});
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8', bubbles: true }));
+			});
+		}
+
+		afterEach(() => {
+			publishGitShortcutActions(null);
+		});
+
+		it('fires pull, push, branch switch, and PR from their chords', () => {
+			const pull = publishStub();
+			press('gitPull');
+			expect(pull.pull).toHaveBeenCalled();
+
+			const push = publishStub();
+			press('gitPush');
+			expect(push.push).toHaveBeenCalled();
+
+			const branch = publishStub();
+			press('gitChangeBranch');
+			expect(branch.switchBranch).toHaveBeenCalled();
+
+			const pr = publishStub();
+			press('gitCreatePR');
+			expect(pr.createPR).toHaveBeenCalled();
+		});
+
+		it('does nothing on an agent that is not a git repo', () => {
+			const actions = publishStub({ isGitRepo: false, canCreatePR: false });
+			press('gitPull');
+			press('gitPush');
+			press('gitChangeBranch');
+			press('gitCreatePR');
+
+			expect(actions.pull).not.toHaveBeenCalled();
+			expect(actions.push).not.toHaveBeenCalled();
+			expect(actions.switchBranch).not.toHaveBeenCalled();
+			expect(actions.createPR).not.toHaveBeenCalled();
+		});
+
+		it('withholds Create Pull Request when there is no branch to open it from', () => {
+			// A repo with no resolved branch has no PR source - the same reason the
+			// pill menu omits the row.
+			const actions = publishStub({ canCreatePR: false });
+			press('gitCreatePR');
+			expect(actions.createPR).not.toHaveBeenCalled();
+		});
+
+		it('stays out of group chats, which have no repo of their own', () => {
+			const actions = publishStub();
+			press('gitPull', { activeGroupChatId: 'room-1' });
+			expect(actions.pull).not.toHaveBeenCalled();
 		});
 	});
 

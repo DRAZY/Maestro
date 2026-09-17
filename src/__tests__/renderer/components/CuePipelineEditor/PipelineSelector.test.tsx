@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { PipelineSelector } from '../../../../renderer/components/CuePipelineEditor/PipelineSelector';
+import {
+	PipelineSelector,
+	pipelineMenuDefaultSize,
+} from '../../../../renderer/components/CuePipelineEditor/PipelineSelector';
 import { useSettingsStore } from '../../../../renderer/stores/settingsStore';
 import { PIPELINE_COLORS, type CuePipeline } from '../../../../shared/cue-pipeline-types';
 
@@ -190,14 +193,28 @@ describe('PipelineSelector', () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
 
-		function openMenu() {
-			render(<PipelineSelector {...defaultProps} />);
+		function openMenu(pipelines: CuePipeline[] = mockPipelines) {
+			render(<PipelineSelector {...defaultProps} pipelines={pipelines} />);
 			fireEvent.click(screen.getByRole('button', { name: /All Pipelines/i }));
 			return screen.getByTestId('pipeline-selector-menu');
 		}
 
-		it('opens at the default size', () => {
-			expect(openMenu()).toHaveStyle({ width: '220px', height: '320px' });
+		it('opens tall enough for ten pipelines plus the two fixed rows', () => {
+			// 11 rows of 32 (ten pipelines + All Pipelines), two 1px rules, and the
+			// 32px New Pipeline footer.
+			expect(openMenu()).toHaveStyle({ height: '386px' });
+		});
+
+		it('opens at the floor width when every name is short', () => {
+			expect(openMenu()).toHaveStyle({ width: '220px' });
+		});
+
+		it('opens wide enough for the longest pipeline name', () => {
+			const longName = 'Nightly Dependency Audit And Report';
+			const menu = openMenu([...mockPipelines, { ...mockPipelines[0], id: 'p3', name: longName }]);
+
+			expect(menu.style.width).toBe(`${pipelineMenuDefaultSize([longName]).width}px`);
+			expect(parseInt(menu.style.width, 10)).toBeGreaterThan(220);
 		});
 
 		it('tracks the cursor 1:1 while dragging and remembers the size', () => {
@@ -208,13 +225,13 @@ describe('PipelineSelector', () => {
 
 			// Anchored at its top-left, so the menu grows by exactly the drag delta.
 			expect(menu.style.width).toBe('280px');
-			expect(menu.style.height).toBe('360px');
+			expect(menu.style.height).toBe('426px');
 
 			fireEvent.mouseUp(document);
 
 			expect(useSettingsStore.getState().modalSizes['cue-pipeline-selector']).toEqual({
 				width: 280,
-				height: 360,
+				height: 426,
 			});
 		});
 
@@ -246,7 +263,27 @@ describe('PipelineSelector', () => {
 			fireEvent.doubleClick(screen.getByTestId('modal-resize-grip'));
 
 			expect(useSettingsStore.getState().modalSizes['cue-pipeline-selector']).toBeUndefined();
-			expect(menu).toHaveStyle({ width: '220px', height: '320px' });
+			expect(menu).toHaveStyle({ width: '220px', height: '386px' });
+		});
+	});
+	describe('pipelineMenuDefaultSize', () => {
+		it('always leaves room for the All Pipelines row itself', () => {
+			expect(pipelineMenuDefaultSize([]).width).toBe(220);
+		});
+
+		it('grows with the longest name, not the number of names', () => {
+			const one = pipelineMenuDefaultSize(['Nightly Dependency Audit And Report']);
+			const many = pipelineMenuDefaultSize(['a', 'b', 'Nightly Dependency Audit And Report', 'c']);
+
+			expect(many).toEqual(one);
+		});
+
+		it('caps the width so one pathological name cannot size the menu to the screen', () => {
+			expect(pipelineMenuDefaultSize(['x'.repeat(500)]).width).toBe(460);
+		});
+
+		it('is the same height regardless of how many pipelines exist', () => {
+			expect(pipelineMenuDefaultSize([]).height).toBe(pipelineMenuDefaultSize(['a', 'b']).height);
 		});
 	});
 });

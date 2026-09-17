@@ -62,6 +62,7 @@ import { TemplateAutocompleteDropdown } from '../TemplateAutocompleteDropdown';
 import type { AutoRunProps, AutoRunHandle } from './types';
 import { FontScaleControl } from '../ui/FontScaleControl';
 import { useFontScale } from '../../hooks/ui/useFontScale';
+import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { findHumanOnlyTasks } from '../../hooks/batch/batchUtils';
 import { toggleTaskCheckboxAtLine } from '../../utils/markdownTasks';
 import { useAutoRunContentSync } from '../../hooks/batch/useAutoRunContentSync';
@@ -75,9 +76,6 @@ import { logger } from '../../utils/logger';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
-
-/** Unzoomed font size of the rendered preview, in px. */
-const PREVIEW_BASE_FONT_SIZE = 13;
 
 // Inner implementation component
 const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInner(
@@ -608,6 +606,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// restores the size that mode was left at.
 	const previewFontScale = useFontScale('autoRun.previewFontScale');
 	const editFontScale = useFontScale('autoRun.editFontScale');
+	// The panel reads and edits a Markdown document, so it is the File Preview /
+	// File Editor surfaces - not a font size of its own. The zoom controls above
+	// multiply on top, the same two-knob split FilePreview uses.
+	const previewTypography = useSurfaceTypography('filePreview');
+	const editorTypography = useSurfaceTypography('fileEditor');
 	const activeFontScale = mode === 'edit' ? editFontScale : previewFontScale;
 
 	// Disable Bionify while search is active so search highlights remain visible
@@ -833,6 +836,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								readOnly={isLocked}
 								showLineNumbers={showLineNumbers}
 								fontScale={editFontScale.fontScale}
+								fontFamily={editorTypography.fontFamily}
+								baseFontPx={editorTypography.fontSize}
 								className={isLocked ? 'opacity-70 cursor-not-allowed' : ''}
 							/>
 							{/* Template Variable Autocomplete Dropdown */}
@@ -873,7 +878,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								color: theme.colors.textMain,
 								// The prose styles size everything else in `em`, so scaling the
 								// container carries headings, code, and lists with it.
-								fontSize: `${PREVIEW_BASE_FONT_SIZE * previewFontScale.fontScale}px`,
+								fontFamily: previewTypography.fontFamily,
+								fontSize: `${Math.round(previewTypography.fontSize * previewFontScale.fontScale * 10) / 10}px`,
 							}}
 						>
 							<style>{proseStyles}</style>
