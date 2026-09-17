@@ -6,6 +6,7 @@ import {
 	Clock,
 	Award,
 	Server,
+	User,
 	ChevronDown,
 	ChevronRight,
 } from 'lucide-react';
@@ -302,11 +303,12 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 				)
 			)}
 
-			{/* Footer Row - Time, Cost, Token Source, Achievement Action, and Remote Origin */}
+			{/* Footer Row - Time, Cost, Token Source, Achievement Action, Sender, and Remote Origin */}
 			{(entry.elapsedTimeMs !== undefined ||
 				(entry.usageStats && entry.usageStats.totalCostUsd > 0) ||
 				tokenPill ||
 				entry.achievementAction ||
+				entry.userName ||
 				entry.hostname) && (
 				<div
 					className="flex items-center gap-3 mt-2 pt-2 border-t"
@@ -367,10 +369,25 @@ export const HistoryEntryItem = memo(function HistoryEntryItem({
 							View Achievements
 						</button>
 					)}
+					{/* Sender pill - shown for turns a logged-in browser sent */}
+					{entry.userName && (
+						<span
+							className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs font-mono font-bold ${entry.achievementAction ? '' : 'ml-auto'}`}
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								color: theme.colors.textDim,
+								border: `1px solid ${theme.colors.border}`,
+							}}
+							title={`Sent by ${entry.userName}`}
+						>
+							<User className="w-2.5 h-2.5" />
+							{entry.userDisplayName ?? entry.userName}
+						</span>
+					)}
 					{/* Remote hostname pill - shown for entries from other hosts */}
 					{entry.hostname && (
 						<span
-							className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs font-mono font-bold ${entry.achievementAction ? '' : 'ml-auto'}`}
+							className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs font-mono font-bold ${entry.achievementAction || entry.userName ? '' : 'ml-auto'}`}
 							style={{
 								backgroundColor: theme.colors.bgActivity,
 								color: theme.colors.textDim,

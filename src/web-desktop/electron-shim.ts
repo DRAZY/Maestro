@@ -18,6 +18,7 @@ import { captureException } from './sentry-shim';
 // bundle that reads it. See the note in that file about the two rival shapes
 // this replaced.
 import '../shared/webClientConfig';
+import { WEB_LOGIN_PATHS, WEB_LOGIN_WS_CLOSE_CODE } from '../shared/webLogin';
 
 type Listener = (event: { senderFrame: null }, ...args: unknown[]) => void;
 
@@ -46,6 +47,23 @@ interface PendingInvoke {
 
 interface BridgeConfig {
 	wsUrl: string;
+}
+
+/**
+ * The path token this page was served under.
+ *
+ * Read live rather than captured at module load: the config object is injected
+ * by the server just above the bundle's own script, but the fallback has to
+ * work for a page loaded without it (dev, a file:// load), and `pathname`'s
+ * first segment IS the token for every URL the server serves.
+ */
+function currentToken(): string {
+	const fromConfig = window.__MAESTRO_CONFIG__?.securityToken;
+	if (typeof fromConfig === 'string' && fromConfig) return fromConfig;
+	const parts = String(window.location?.pathname ?? '')
+		.split('/')
+		.filter(Boolean);
+	return parts[0] ?? '';
 }
 
 function getWsUrl(): string {
@@ -247,7 +265,21 @@ class BridgeClient {
 				}
 			}
 		});
-		this.ws.addEventListener('close', () => {
+		this.ws.addEventListener('close', (ev?: CloseEvent) => {
+			// The server refused this socket because Web Login is on and the
+			// browser holds no valid session. Reconnecting cannot fix that - it
+			// would spin against the wall once a second forever, with the page
+			// looking merely slow - so go and get a session instead. This is also
+			// the path a REVOKED account takes: the server closes live sockets with
+			// the same code when an account is deleted, disabled, or has its
+			// password reset.
+			if (ev?.code === WEB_LOGIN_WS_CLOSE_CODE) {
+				this.stopHeartbeat();
+				const token = currentToken();
+				console.warn('[bridge] login required - going to the login page');
+				window.location.href = `/${token}/${WEB_LOGIN_PATHS.page}`;
+				return;
+			}
 			console.warn('[bridge] WebSocket closed - reconnecting in 1s');
 			// Stop probing a socket that is gone; `open` restarts it. Without this
 			// the interval outlives every socket it was started for and a long

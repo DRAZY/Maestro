@@ -914,6 +914,91 @@ describe('HistoryPanel', () => {
 			});
 		});
 
+		it('should hide the sender picker when every entry came from the desktop', async () => {
+			const entry = createMockEntry({ id: 'e1', summary: 'Desktop only' });
+			mockHistoryGetAll.mockResolvedValue([entry]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Desktop only')).toBeInTheDocument();
+			});
+
+			expect(screen.queryByText('All Senders')).not.toBeInTheDocument();
+		});
+
+		it('should show the sender picker and narrow the list when an account is selected', async () => {
+			const desktopEntry = createMockEntry({ id: 'e1', summary: 'Desktop task' });
+			const webEntry = createMockEntry({
+				id: 'e2',
+				summary: 'Phone task',
+				userName: 'pedram',
+				userDisplayName: 'Pedram A',
+			});
+			mockHistoryGetAll.mockResolvedValue([desktopEntry, webEntry]);
+
+			render(<HistoryPanel session={createMockSession()} theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Desktop task')).toBeInTheDocument();
+				expect(screen.getByText('Phone task')).toBeInTheDocument();
+			});
+
+			const trigger = await screen.findByText('All Senders');
+			fireEvent.click(trigger);
+
+			// The popover row carries a parenthesized count; the footer pill on
+			// the entry renders the bare display name, so this matcher is unique
+			// to the popover.
+			const webOption = await screen.findByText(/Pedram A \(\d+\)/);
+			fireEvent.click(webOption);
+
+			await waitFor(() => {
+				expect(screen.queryByText('Desktop task')).not.toBeInTheDocument();
+				expect(screen.getByText('Phone task')).toBeInTheDocument();
+			});
+		});
+
+		it('should match the sender username and display name in search', async () => {
+			const desktopEntry = createMockEntry({ id: 'e1', summary: 'Desktop task' });
+			const webEntry = createMockEntry({
+				id: 'e2',
+				summary: 'Phone task',
+				userName: 'pedram',
+				userDisplayName: 'Pedram A',
+			});
+			mockHistoryGetAll.mockResolvedValue([desktopEntry, webEntry]);
+
+			const { container } = render(
+				<HistoryPanel session={createMockSession()} theme={mockTheme} />
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('Desktop task')).toBeInTheDocument();
+			});
+
+			const listContainer = container.querySelector('[tabIndex="0"]');
+			if (listContainer) {
+				fireEvent.keyDown(listContainer, { key: 'f', metaKey: true });
+			}
+
+			const searchInput = await screen.findByPlaceholderText('Filter history...');
+			fireEvent.change(searchInput, { target: { value: 'pedram' } });
+
+			await waitFor(() => {
+				expect(screen.queryByText('Desktop task')).not.toBeInTheDocument();
+				expect(screen.getByText('Phone task')).toBeInTheDocument();
+			});
+
+			// The display name is what the pill draws, so typing that has to
+			// find the same row.
+			fireEvent.change(searchInput, { target: { value: 'Pedram A' } });
+
+			await waitFor(() => {
+				expect(screen.getByText('Phone task')).toBeInTheDocument();
+			});
+		});
+
 		it('should be case-insensitive in search', async () => {
 			const entry = createMockEntry({ summary: 'UPPERCASE Summary' });
 			mockHistoryGetAll.mockResolvedValue([entry]);

@@ -37,6 +37,7 @@ import {
 	registerParquetHandlers,
 	registerAttachmentsHandlers,
 	registerWebHandlers,
+	registerWebLoginHandlers,
 	registerLeaderboardHandlers,
 	registerNotificationsHandlers,
 	registerSymphonyHandlers,
@@ -101,6 +102,10 @@ export function setupIpcHandlers(deps: IpcBootstrapDependencies): void {
 		createWebServer: deps.createWebServer,
 		settingsStore: deps.settingsStore,
 	});
+
+	// Web Login account management - desktop-only, the bridge refuses every
+	// `webLogin:*` channel. See src/main/ipc/handlers/webLogin.ts.
+	registerWebLoginHandlers();
 
 	// Git operations - extracted to src/main/ipc/handlers/git.ts
 	registerGitHandlers({

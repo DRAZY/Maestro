@@ -23,6 +23,11 @@ export interface QueryEvent {
 	/** Whether this query came from a worktree session (child of a parent agent) */
 	isWorktree?: boolean;
 	/**
+	 * Web Login account that sent the turn (username). Absent for turns typed at
+	 * the desktop, which is every turn when Web Login is off.
+	 */
+	userName?: string;
+	/**
 	 * Per-turn token and cost usage, when the provider reported any.
 	 *
 	 * These are DELTAS for the single turn this row represents, not the running
@@ -286,4 +291,4 @@ export interface UsageExportResult {
 /**
  * Database schema version for migrations
  */
-export const STATS_DB_VERSION = 10;
+export const STATS_DB_VERSION = 12;

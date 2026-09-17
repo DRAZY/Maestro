@@ -26,6 +26,12 @@ import {
 	primeOmpModelCatalog,
 	computeOmpCatalogKey,
 } from '../../../../main/agents/omp-model-catalog';
+import { runAsActingUser } from '../../../../main/web-server/auth/acting-user';
+import {
+	noteTurnActor,
+	resolveTurnActor,
+	resetTurnActors,
+} from '../../../../main/web-server/auth/turn-attribution';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -647,6 +653,93 @@ describe('process IPC handlers', () => {
 					}),
 				})
 			);
+		});
+
+		/**
+		 * Web Login turn attribution.
+		 *
+		 * Spawn is the ONLY point where the account that asked for the turn is in
+		 * scope: the History entry and the stats row are written later by the
+		 * DESKTOP renderer's exit listener, where `getActingUser()` is undefined.
+		 * So the spawn notes the actor for the exit-time lookup and stamps the
+		 * username into the agent's environment.
+		 */
+		describe('Web Login turn attribution', () => {
+			afterEach(() => {
+				resetTurnActors();
+			});
+
+			it('notes the acting user and stamps it into the agent env', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue({ id: 'opencode', requiresPty: false });
+				mockProcessManager.spawn.mockReturnValue({ pid: 2100, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await runAsActingUser({ id: 'u1', username: 'pedram', displayName: 'Pedram A' }, () =>
+					handler!({} as any, {
+						sessionId: 'agent-web-ai-tab-1',
+						tabId: 'tab-1',
+						toolType: 'opencode',
+						cwd: '/test',
+						command: 'opencode',
+						args: [],
+					})
+				);
+
+				expect(resolveTurnActor('agent-web', 'tab-1')).toEqual({
+					id: 'u1',
+					username: 'pedram',
+					displayName: 'Pedram A',
+				});
+				expect(mockProcessManager.spawn).toHaveBeenCalledWith(
+					expect.objectContaining({
+						customEnvVars: expect.objectContaining({ MAESTRO_QUERY_USER: 'pedram' }),
+					})
+				);
+			});
+
+			it('adds no query-user var for a desktop spawn', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue({ id: 'opencode', requiresPty: false });
+				mockProcessManager.spawn.mockReturnValue({ pid: 2101, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'agent-desktop-ai-tab-1',
+					tabId: 'tab-1',
+					toolType: 'opencode',
+					cwd: '/test',
+					command: 'opencode',
+					args: [],
+				});
+
+				const spawned = mockProcessManager.spawn.mock.calls[0][0] as {
+					customEnvVars?: Record<string, string>;
+				};
+				expect(spawned.customEnvVars?.MAESTRO_QUERY_USER).toBeUndefined();
+			});
+
+			it('clears a browser actor when the desktop starts the next turn', async () => {
+				// Otherwise a phone's earlier turn is credited to a later one
+				// typed at the keyboard.
+				noteTurnActor('agent-clear', 'tab-1', {
+					id: 'u1',
+					username: 'pedram',
+					displayName: 'Pedram A',
+				});
+				mockAgentDetector.getAgent.mockResolvedValue({ id: 'opencode', requiresPty: false });
+				mockProcessManager.spawn.mockReturnValue({ pid: 2102, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'agent-clear-ai-tab-1',
+					tabId: 'tab-1',
+					toolType: 'opencode',
+					cwd: '/test',
+					command: 'opencode',
+					args: [],
+				});
+
+				expect(resolveTurnActor('agent-clear', 'tab-1')).toBeUndefined();
+			});
 		});
 
 		it('should NOT apply readOnlyEnvOverrides when readOnlyMode is false', async () => {

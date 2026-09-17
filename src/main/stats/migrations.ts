@@ -106,6 +106,11 @@ function getMigrations(): Migration[] {
 			description: 'Add wizard_runs table for Auto Run wizard usage tracking',
 			up: (db) => migrateV11(db),
 		},
+		{
+			version: 12,
+			description: 'Add user_name column to query_events for Web Login turn attribution',
+			up: (db) => migrateV12(db),
+		},
 	];
 }
 
@@ -402,6 +407,23 @@ function migrateV11(db: Database.Database): void {
 	runStatements(db, CREATE_WIZARD_RUNS_SQL);
 	runStatements(db, CREATE_WIZARD_RUNS_INDEXES_SQL);
 	logger.debug('Created wizard_runs table', LOG_CONTEXT);
+}
+
+/**
+ * Migration v12: Add user_name to query_events for Web Login turn attribution.
+ *
+ * Nullable with no default, like the v9 token columns: NULL means "nobody was
+ * signed in for this turn" (the desktop, or Web Login switched off), which is a
+ * different fact from an account named the empty string. Guarded by hasColumn
+ * for the same reason as v5 - a partially applied run must be safe to repeat.
+ */
+function migrateV12(db: Database.Database): void {
+	if (!hasColumn(db, 'query_events', 'user_name')) {
+		db.prepare('ALTER TABLE query_events ADD COLUMN user_name TEXT').run();
+	}
+	db.prepare('CREATE INDEX IF NOT EXISTS idx_query_user_name ON query_events(user_name)').run();
+
+	logger.debug('Added user_name column to query_events table', LOG_CONTEXT);
 }
 
 /**

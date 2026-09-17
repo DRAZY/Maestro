@@ -15,6 +15,7 @@ import type { Shortcut } from '../../shared/shortcut-types';
 import type { CadenzaPayload } from '../../shared/cadenza-types';
 import type { MovementPayload, MovementStateSnapshot } from '../../shared/movement-types';
 import type { AgentDelegationNotice } from '../../shared/agentDelegation';
+import type { WebActingUser } from '../../shared/webLogin';
 import type {
 	ConcertoDesignerAction,
 	ConcertoDesignerActionResult,
@@ -216,6 +217,20 @@ export interface WebClient {
 	id: string;
 	connectedAt: number;
 	subscribedSessionId?: string;
+	/**
+	 * The Web Login account behind this socket, resolved once at the upgrade
+	 * from the session cookie. Undefined when the gate is off and for
+	 * `maestro-cli` (admitted by its secret, not signed in), both of which mean
+	 * "the desktop" to `getActingUser()`. Every bridge dispatch from this client
+	 * runs in this user's acting context.
+	 */
+	user?: WebActingUser;
+	/**
+	 * The session the account was resolved from. Revocation is keyed on THIS,
+	 * not on the account: a password reset or a logout removes the session
+	 * while the account stays, and the socket must still go.
+	 */
+	sessionId?: string;
 }
 
 /**

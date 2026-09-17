@@ -303,7 +303,7 @@ let singleton: WebUserStore | null = null;
 export function getWebUserStore(): WebUserStore {
 	if (!singleton) {
 		// Lazy require so the module stays importable (and testable) without Electron.
-		 
+
 		const { app } = require('electron') as typeof import('electron');
 		singleton = new WebUserStore(path.join(app.getPath('userData'), WEB_USERS_FILE));
 	}

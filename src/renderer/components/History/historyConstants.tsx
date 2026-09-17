@@ -137,6 +137,7 @@ export const estimateHistoryRowHeight = (entry: {
 	usageStats?: { totalCostUsd?: number };
 	achievementAction?: string;
 	hostname?: string;
+	userName?: string;
 	cueEventType?: string;
 	cueGroup?: { runCount: number };
 }): number => {
@@ -145,6 +146,7 @@ export const estimateHistoryRowHeight = (entry: {
 		entry.elapsedTimeMs !== undefined ||
 		(entry.usageStats && (entry.usageStats.totalCostUsd ?? 0) > 0) ||
 		!!entry.achievementAction ||
+		!!entry.userName ||
 		!!entry.hostname;
 	if (hasFooter) height += ESTIMATED_ROW_HEIGHT_FOOTER;
 	// The group's tally line and the "Triggered by:" subtitle are the same

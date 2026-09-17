@@ -47,12 +47,14 @@ import {
 	installWebContentsBridgeHook,
 	uninstallWebContentsBridgeHook,
 } from '../../../../main/web-server/handlers/bridgeHandlers';
+import { getActingUser } from '../../../../main/web-server/auth/acting-user';
 
-function makeClient() {
+function makeClient(user?: { id: string; username: string; displayName: string }) {
 	return {
 		id: 'test-client',
 		socket: { readyState: 1, send: vi.fn() } as unknown as WebSocket,
 		connectedAt: Date.now(),
+		...(user ? { user } : {}),
 	};
 }
 
@@ -280,5 +282,163 @@ describe('broadcastBridgeEvent', () => {
 
 		broadcastBridgeEvent('process:data', ['session-1', 'hello']);
 		expect(broadcastToAll).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * Web Login: who a bridge call is acting as, and what it may not call.
+ *
+ * Most handlers strip the event (`withIpcErrorLogging`) and every bridge call
+ * carries the same shared FAKE_EVENT, so nothing in a handler's arguments says
+ * which account asked. Rather than threading a user through hundreds of handler
+ * signatures, the dispatch runs inside an AsyncLocalStorage context.
+ */
+describe('handleBridgeInvoke acting user', () => {
+	it('makes the client account visible to the handler it dispatches', async () => {
+		let seen: unknown;
+		invokeHandlers.set('history:add', async () => {
+			seen = getActingUser();
+			return 'ok';
+		});
+
+		const client = makeClient({ id: 'u1', username: 'ada', displayName: 'Ada' });
+		await handleBridgeInvoke(
+			client,
+			{ type: 'bridge.invoke', requestId: 1, channel: 'history:add' },
+			vi.fn()
+		);
+
+		expect(seen).toEqual({ id: 'u1', username: 'ada', displayName: 'Ada' });
+	});
+
+	it('survives an await inside the handler', async () => {
+		// The whole reason this is AsyncLocalStorage rather than a module-level
+		// variable: a handler that awaits must still read the same account after
+		// the continuation, and two clients can be in flight at once.
+		let seen: unknown;
+		invokeHandlers.set('slow', async () => {
+			await new Promise((r) => setTimeout(r, 1));
+			seen = getActingUser();
+		});
+
+		await handleBridgeInvoke(
+			makeClient({ id: 'u2', username: 'grace', displayName: 'Grace' }),
+			{ type: 'bridge.invoke', requestId: 2, channel: 'slow' },
+			vi.fn()
+		);
+
+		expect(seen).toMatchObject({ username: 'grace' });
+	});
+
+	it('reads undefined for a client with no account, which means the desktop', async () => {
+		// Loopback callers (maestro-cli) and every client while the gate is off.
+		let seen: unknown = 'unset';
+		invokeHandlers.set('history:add', async () => {
+			seen = getActingUser();
+		});
+
+		await handleBridgeInvoke(
+			makeClient(),
+			{ type: 'bridge.invoke', requestId: 3, channel: 'history:add' },
+			vi.fn()
+		);
+
+		expect(seen).toBeUndefined();
+	});
+
+	it('carries the account into a send-style listener too', async () => {
+		let seen: unknown;
+		sendListeners.set('tabs:aiTabClosed', () => {
+			seen = getActingUser();
+		});
+
+		await handleBridgeInvoke(
+			makeClient({ id: 'u1', username: 'ada', displayName: 'Ada' }),
+			{ type: 'bridge.invoke', requestId: 4, channel: 'tabs:aiTabClosed' },
+			vi.fn()
+		);
+
+		expect(seen).toMatchObject({ username: 'ada' });
+	});
+
+	it('leaves no context behind for the next call', async () => {
+		invokeHandlers.set('noop', async () => undefined);
+		await handleBridgeInvoke(
+			makeClient({ id: 'u1', username: 'ada', displayName: 'Ada' }),
+			{ type: 'bridge.invoke', requestId: 5, channel: 'noop' },
+			vi.fn()
+		);
+
+		expect(getActingUser()).toBeUndefined();
+	});
+});
+
+/**
+ * Account administration cannot ride the bridge. The desktop is the
+ * administrator: a browser that could call `webLogin:createUser` could mint
+ * itself a second account from inside the session the gate was meant to
+ * constrain, and the same channels read the file holding every password hash.
+ */
+describe('handleBridgeInvoke denied channels', () => {
+	it('refuses a webLogin channel without dispatching it', async () => {
+		const handler = vi.fn(async () => ['everyone']);
+		invokeHandlers.set('webLogin:listUsers', handler);
+
+		const send = vi.fn();
+		await handleBridgeInvoke(
+			makeClient({ id: 'u1', username: 'ada', displayName: 'Ada' }),
+			{ type: 'bridge.invoke', requestId: 9, channel: 'webLogin:listUsers' },
+			send
+		);
+
+		expect(handler).not.toHaveBeenCalled();
+		const payload = send.mock.calls[0][1] as Record<string, unknown>;
+		expect(payload).toMatchObject({ requestId: 9, ok: false });
+		expect(String(payload.error)).toContain('not available over the web interface');
+	});
+
+	it('refuses every channel in the namespace, including ones added later', async () => {
+		// Matching is by PREFIX so a new webLogin channel is denied the moment it
+		// is registered, rather than being exposed until somebody extends a list.
+		for (const channel of ['webLogin:createUser', 'webLogin:deleteUser', 'webLogin:somethingNew']) {
+			const handler = vi.fn(async () => 'leaked');
+			invokeHandlers.set(channel, handler);
+			const send = vi.fn();
+			await handleBridgeInvoke(
+				makeClient(),
+				{ type: 'bridge.invoke', requestId: channel, channel },
+				send
+			);
+			expect(handler).not.toHaveBeenCalled();
+			expect((send.mock.calls[0][1] as Record<string, unknown>).ok).toBe(false);
+		}
+	});
+
+	it('refuses a denied send-style channel too', async () => {
+		const listener = vi.fn();
+		sendListeners.set('webLogin:notify', listener);
+
+		const send = vi.fn();
+		await handleBridgeInvoke(
+			makeClient(),
+			{ type: 'bridge.invoke', requestId: 10, channel: 'webLogin:notify' },
+			send
+		);
+
+		expect(listener).not.toHaveBeenCalled();
+		expect((send.mock.calls[0][1] as Record<string, unknown>).ok).toBe(false);
+	});
+
+	it('leaves every other namespace alone', async () => {
+		invokeHandlers.set('settings:get', async () => 'dracula');
+
+		const send = vi.fn();
+		await handleBridgeInvoke(
+			makeClient(),
+			{ type: 'bridge.invoke', requestId: 11, channel: 'settings:get' },
+			send
+		);
+
+		expect(send.mock.calls[0][1]).toMatchObject({ ok: true, result: 'dracula' });
 	});
 });

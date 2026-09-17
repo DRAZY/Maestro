@@ -25,6 +25,9 @@ import {
 	buildCallerIdentityEnv,
 	withoutCallerIdentityEnv,
 } from '../../../../shared/agentDelegation';
+import { QUERY_USER_ENV_VAR } from '../../../../shared/webLogin';
+import { getActingUser } from '../../../web-server/auth/acting-user';
+import { noteTurnActor } from '../../../web-server/auth/turn-attribution';
 import { REGEX_AI_SUFFIX } from '../../../constants';
 import { addBreadcrumb, captureException } from '../../../utils/sentry';
 import { isWebContentsAvailable } from '../../../utils/safe-send';
@@ -276,6 +279,27 @@ export async function handleProcessSpawn(
 			...(effectiveCustomEnvVars || {}),
 			...buildCallerIdentityEnv(baseSessionId, config.tabId),
 		};
+
+		// Who asked for this turn, when the spawn came from a logged-in browser.
+		// This is the ONLY point where the answer is in scope: the History entry
+		// and the stats row for the turn are written later by the DESKTOP
+		// renderer's exit listener, which owns one-shot turn effects, and by
+		// then no acting user exists. So note it here keyed by agent + tab and
+		// let those handlers look it up (see web-server/auth/turn-attribution).
+		// A desktop-started spawn passes `undefined`, which CLEARS the entry -
+		// deliberately, so a phone's earlier turn is never credited to a later
+		// one typed at the keyboard. A terminal is a shell the user drives, not
+		// an agent turn, so it is neither noted nor stamped.
+		const actingUser = getActingUser();
+		noteTurnActor(baseSessionId, config.tabId, actingUser);
+		if (actingUser) {
+			// Same injection point as the caller identity above, for the same
+			// reason: it has to reach both the local and the SSH env-merge paths.
+			effectiveCustomEnvVars = {
+				...effectiveCustomEnvVars,
+				[QUERY_USER_ENV_VAR]: actingUser.username,
+			};
+		}
 	}
 
 	// MCP plugin-tool bridge: when the plugins feature is on, this agent

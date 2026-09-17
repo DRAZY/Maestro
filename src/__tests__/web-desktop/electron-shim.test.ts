@@ -276,6 +276,33 @@ describe('web-desktop electron-shim bridge reconnect', () => {
 		return next;
 	}
 
+	/**
+	 * Web Login. A socket refused because the browser holds no session cannot be
+	 * fixed by reconnecting - it would spin against the wall once a second
+	 * forever, with the page looking merely slow - so the shim goes and gets a
+	 * session instead. The server sends the same code when an account is
+	 * deleted, disabled, or has its password reset, which is how a revocation
+	 * reaches a browser that is already connected.
+	 */
+	it('goes to the login page on a 4401 close instead of reconnecting', () => {
+		const before = InertWebSocket.instances.length;
+		const current = InertWebSocket.instances[before - 1];
+		window.__MAESTRO_CONFIG__ = { securityToken: 'tok-123' } as never;
+
+		vi.useFakeTimers();
+		try {
+			current.emit('close', { code: 4401 });
+			vi.advanceTimersByTime(5000);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(window.location.href).toBe('/tok-123/login');
+		// No retry was scheduled: a reconnect here is a loop, not a recovery.
+		expect(InertWebSocket.instances.length).toBe(before);
+		delete window.__MAESTRO_CONFIG__;
+	});
+
 	it('resumes in place when the server can replay the gap, and reloads only when it cannot', async () => {
 		const first = InertWebSocket.instances[0];
 		expect(first).toBeDefined();

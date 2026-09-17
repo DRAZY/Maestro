@@ -18,6 +18,8 @@ import { ipcMain } from 'electron';
 import { logger } from '../../utils/logger';
 import type { WebClient } from '../types';
 import type { BroadcastService } from '../services';
+import { runAsActingUser } from '../auth/acting-user';
+import { bridgeDeniedChannelError, isBridgeDeniedChannel } from './bridgeDenyList';
 
 const LOG_CONTEXT = 'WebServer:Bridge';
 
@@ -125,6 +127,20 @@ export async function handleBridgeInvoke(
 		return;
 	}
 
+	// Refused BEFORE any lookup: a denied channel must not be distinguishable
+	// from an unregistered one by timing, and more importantly must not reach a
+	// handler at all. See bridgeDenyList.ts.
+	if (isBridgeDeniedChannel(channel)) {
+		logger.warn(`Refused bridge channel "${channel}" from ${client.id}`, LOG_CONTEXT);
+		send(client, {
+			type: 'bridge.response',
+			requestId,
+			ok: false,
+			error: bridgeDeniedChannelError(channel),
+		});
+		return;
+	}
+
 	const handlers = (ipcMain as unknown as IpcMainInternal)._invokeHandlers;
 	const handler = handlers?.get(channel);
 	if (!handler) {
@@ -150,7 +166,10 @@ export async function handleBridgeInvoke(
 		// listener is strictly less reachable than what is already exposed.
 		if (ipcMain.listenerCount(channel) > 0) {
 			try {
-				ipcMain.emit(channel, FAKE_EVENT, ...args);
+				// Same acting-user context as the invoke path below: a `send`-style
+				// API mutates state too, and a turn started through one has to be
+				// attributed to the account that asked for it.
+				runAsActingUser(client.user, () => ipcMain.emit(channel, FAKE_EVENT, ...args));
 				send(client, { type: 'bridge.response', requestId, ok: true, result: undefined });
 			} catch (err) {
 				const error = err instanceof Error ? err.message : String(err);
@@ -168,7 +187,12 @@ export async function handleBridgeInvoke(
 	}
 
 	try {
-		const result = await handler(FAKE_EVENT, ...args);
+		// The handler runs INSIDE the acting-user context, not beside it: the
+		// context has to be established before the call so every await the
+		// handler performs still reads the same account from `getActingUser()`.
+		// `client.user` is undefined for maestro-cli (admitted by its secret) and
+		// for every client when the gate is off, which reads as "the desktop".
+		const result = await runAsActingUser(client.user, () => handler(FAKE_EVENT, ...args));
 		send(client, {
 			type: 'bridge.response',
 			requestId,

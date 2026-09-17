@@ -15,19 +15,24 @@ vi.mock('../../../../main/web-server/auth/web-user-store', () => ({
 }));
 
 import {
-	isLoopbackRequest,
+	isCliRequest,
 	isWebLoginEnabled,
 	isWebRequestAuthorized,
 	parseCookies,
 	readSessionCookie,
 	resolveWebRequestAuth,
 } from '../../../../main/web-server/auth/web-login-policy';
+import { getCliSecret } from '../../../../main/web-server/auth/cli-secret';
+import { CLI_SECRET_HEADER } from '../../../../shared/webLogin';
 
 const user = { id: 'u1', username: 'pedram', displayName: 'Pedram' };
 
-function req(opts: { cookie?: string; ip?: string }) {
+function req(opts: { cookie?: string; ip?: string; cliSecret?: string }) {
 	return {
-		headers: opts.cookie ? { cookie: opts.cookie } : {},
+		headers: {
+			...(opts.cookie ? { cookie: opts.cookie } : {}),
+			...(opts.cliSecret ? { [CLI_SECRET_HEADER]: opts.cliSecret } : {}),
+		},
 		ip: opts.ip ?? '192.168.1.20',
 		socket: { remoteAddress: opts.ip ?? '192.168.1.20' },
 	} as never;
@@ -55,12 +60,12 @@ describe('parseCookies / readSessionCookie', () => {
 	});
 });
 
-describe('isLoopbackRequest', () => {
-	it('recognizes v4, v6 and mapped loopback', () => {
-		expect(isLoopbackRequest(req({ ip: '127.0.0.1' }))).toBe(true);
-		expect(isLoopbackRequest(req({ ip: '::1' }))).toBe(true);
-		expect(isLoopbackRequest(req({ ip: '::ffff:127.0.0.1' }))).toBe(true);
-		expect(isLoopbackRequest(req({ ip: '10.0.0.5' }))).toBe(false);
+describe('isCliRequest', () => {
+	it("admits only this boot's secret, wherever the request came from", () => {
+		expect(isCliRequest(req({ cliSecret: getCliSecret() }))).toBe(true);
+		expect(isCliRequest(req({ cliSecret: getCliSecret(), ip: '10.0.0.5' }))).toBe(true);
+		expect(isCliRequest(req({ cliSecret: 'not-it' }))).toBe(false);
+		expect(isCliRequest(req({ ip: '127.0.0.1' }))).toBe(false);
 	});
 });
 
@@ -76,7 +81,7 @@ describe('resolveWebRequestAuth / isWebRequestAuthorized', () => {
 	it('authorizes everything when the flag is off, but still names a signed-in user', () => {
 		sessions.set('sid', user);
 		const auth = resolveWebRequestAuth(req({ cookie: 'maestro_web_session=sid' }));
-		expect(auth).toEqual({ required: false, user, loopback: false });
+		expect(auth).toEqual({ required: false, user, sessionId: 'sid', cli: false });
 		expect(isWebRequestAuthorized(auth)).toBe(true);
 		expect(isWebRequestAuthorized(resolveWebRequestAuth(req({})))).toBe(true);
 	});
@@ -90,13 +95,29 @@ describe('resolveWebRequestAuth / isWebRequestAuthorized', () => {
 		sessions.set('sid', user);
 		const auth = resolveWebRequestAuth(req({ cookie: 'maestro_web_session=sid' }));
 		expect(auth.user).toEqual(user);
+		expect(auth.sessionId).toBe('sid');
 		expect(isWebRequestAuthorized(auth)).toBe(true);
 	});
 
-	it('never gates loopback (maestro-cli)', () => {
+	it('reports no sessionId for a cookie that resolves to nobody', () => {
+		settings.set('encoreFeatures', { webLogin: true });
+		const auth = resolveWebRequestAuth(req({ cookie: 'maestro_web_session=stale' }));
+		expect(auth.user).toBeUndefined();
+		expect(auth.sessionId).toBeUndefined();
+	});
+
+	it('never gates maestro-cli presenting the boot secret', () => {
+		settings.set('encoreFeatures', { webLogin: true });
+		const auth = resolveWebRequestAuth(req({ cliSecret: getCliSecret() }));
+		expect(auth.cli).toBe(true);
+		expect(auth.user).toBeUndefined();
+		expect(isWebRequestAuthorized(auth)).toBe(true);
+	});
+
+	it('gates a bare loopback request: the tunnel and any local proxy arrive that way too', () => {
 		settings.set('encoreFeatures', { webLogin: true });
 		const auth = resolveWebRequestAuth(req({ ip: '127.0.0.1' }));
-		expect(auth.loopback).toBe(true);
-		expect(isWebRequestAuthorized(auth)).toBe(true);
+		expect(auth.cli).toBe(false);
+		expect(isWebRequestAuthorized(auth)).toBe(false);
 	});
 });

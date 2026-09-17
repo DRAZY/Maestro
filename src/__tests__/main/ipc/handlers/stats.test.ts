@@ -10,6 +10,8 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { registerStatsHandlers } from '../../../../main/ipc/handlers/stats';
 import * as statsDbModule from '../../../../main/stats';
 import type { StatsDB } from '../../../../main/stats';
+import { runAsActingUser } from '../../../../main/web-server/auth/acting-user';
+import { noteTurnActor, resetTurnActors } from '../../../../main/web-server/auth/turn-attribution';
 
 // Mock electron's ipcMain, BrowserWindow, and app
 vi.mock('electron', () => ({
@@ -277,6 +279,77 @@ describe('stats IPC handlers', () => {
 
 				expect(mockEnqueueQueryEvent).toHaveBeenCalled();
 				expect(mockMainWindow.webContents.send).not.toHaveBeenCalled();
+			});
+
+			/**
+			 * Web Login attribution. The row is written by the DESKTOP renderer's
+			 * exit listener even for a turn a browser sent, so the account comes
+			 * from what the spawn noted (keyed by agent + tab) rather than from
+			 * `getActingUser()`, which is undefined out here.
+			 */
+			describe('Web Login attribution', () => {
+				afterEach(() => {
+					resetTurnActors();
+				});
+
+				const baseEvent = {
+					sessionId: 'session-1',
+					agentType: 'claude-code',
+					source: 'user' as const,
+					startTime: 1,
+					duration: 2,
+					tabId: 'tab-3',
+				};
+
+				it('stamps the account the spawn noted for this agent and tab', async () => {
+					noteTurnActor('session-1', 'tab-3', {
+						id: 'u1',
+						username: 'pedram',
+						displayName: 'Pedram A',
+					});
+
+					await handlers.get('stats:record-query')!({} as any, baseEvent);
+
+					expect(mockEnqueueQueryEvent).toHaveBeenCalledWith(
+						mockStatsDB.database,
+						expect.objectContaining({ userName: 'pedram' })
+					);
+				});
+
+				it('leaves a desktop turn unattributed', async () => {
+					await handlers.get('stats:record-query')!({} as any, baseEvent);
+
+					const recorded = mockEnqueueQueryEvent.mock.calls[0][1] as { userName?: string };
+					expect(recorded.userName).toBeUndefined();
+				});
+
+				it('does not credit a turn from another tab of the same agent', async () => {
+					noteTurnActor('session-1', 'tab-3', {
+						id: 'u1',
+						username: 'pedram',
+						displayName: 'Pedram A',
+					});
+
+					await handlers.get('stats:record-query')!({} as any, { ...baseEvent, tabId: 'tab-9' });
+
+					const recorded = mockEnqueueQueryEvent.mock.calls[0][1] as { userName?: string };
+					expect(recorded.userName).toBeUndefined();
+				});
+
+				it('prefers a live acting user over the noted actor', async () => {
+					noteTurnActor('session-1', 'tab-3', {
+						id: 'u1',
+						username: 'pedram',
+						displayName: 'Pedram A',
+					});
+
+					await runAsActingUser({ id: 'u2', username: 'raza', displayName: 'Raza' }, () =>
+						handlers.get('stats:record-query')!({} as any, baseEvent)
+					);
+
+					const recorded = mockEnqueueQueryEvent.mock.calls[0][1] as { userName?: string };
+					expect(recorded.userName).toBe('raza');
+				});
 			});
 		});
 

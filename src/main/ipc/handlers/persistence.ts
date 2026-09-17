@@ -17,6 +17,7 @@ import * as fs from 'fs/promises';
 import { logger } from '../../utils/logger';
 import { isWebContentsAvailable } from '../../utils/safe-send';
 import { broadcastBridgeEvent } from '../../web-server/handlers/bridgeHandlers';
+import { forgetAgentActors } from '../../web-server/auth/turn-attribution';
 import { getThemeById } from '../../themes';
 import { WebServer } from '../../web-server';
 import {
@@ -654,6 +655,9 @@ export function registerPersistenceHandlers(
 			// invisible to - and resurrectable by - the rest.
 			const removedIds = removeIds.filter((id) => previousMap.has(id));
 			rememberRemovedSessions(removedIds);
+			// A closed agent can never produce another turn, so drop whatever the
+			// spawn path noted about who was driving its tabs.
+			for (const id of removedIds) forgetAgentActors(id);
 			broadcastSessionLifecycle(senderWebContentsIdOf(event), {
 				added: updates.filter((s) => !previousMap.has(s.id) && !removeSet.has(s.id)),
 				removedIds,

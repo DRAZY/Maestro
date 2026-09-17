@@ -27,6 +27,8 @@ import {
 	paginateEntries,
 } from '../../../shared/history';
 import { getHistoryManager } from '../../history-manager';
+import { getActingUser } from '../../web-server/auth/acting-user';
+import { resolveTurnActor } from '../../web-server/auth/turn-attribution';
 import {
 	writeEntryRemote,
 	writeEntryLocal,
@@ -747,7 +749,27 @@ export function registerHistoryHandlers(deps: HistoryHandlerDependencies): void 
 		'history:add',
 		withIpcErrorLogging(
 			handlerOpts('add'),
-			async (entry: HistoryEntry, sharedContext?: SharedHistoryContext) => {
+			async (incoming: HistoryEntry, sharedContext?: SharedHistoryContext) => {
+				// Web Login attribution. The caller almost never knows the answer:
+				// this entry is written by the DESKTOP renderer's exit listener even
+				// when a browser sent the turn, so `getActingUser()` is undefined
+				// here and the account has to come from what the spawn noted (see
+				// web-server/auth/turn-attribution). A call that DOES carry an acting
+				// user came over the bridge, and that user is the answer whatever the
+				// payload claims - a browser must not be able to file its work under
+				// another account. Only the desktop's own calls may name a user
+				// outright. A turn nobody signed in for stays bare.
+				const entry = ((): HistoryEntry => {
+					const acting = getActingUser();
+					if (!acting && incoming.userName) return incoming;
+					const actor = acting ?? resolveTurnActor(incoming.sessionId ?? '', incoming.tabId);
+					if (!actor) return incoming;
+					return {
+						...incoming,
+						userName: actor.username,
+						userDisplayName: actor.displayName,
+					};
+				})();
 				const sessionId = entry.sessionId || ORPHANED_SESSION_ID;
 				const maxEntries = deps.getMaxEntries?.();
 				await historyManager.addEntry(sessionId, entry.projectPath, entry, maxEntries);

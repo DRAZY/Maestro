@@ -8,8 +8,9 @@
 
 import type { FastifyRequest } from 'fastify';
 import { resolveEncoreFeatures } from '../../../shared/encoreFeatureDefaults';
-import { WEB_LOGIN_COOKIE, type WebActingUser } from '../../../shared/webLogin';
+import { CLI_SECRET_HEADER, WEB_LOGIN_COOKIE, type WebActingUser } from '../../../shared/webLogin';
 import { getSettingsStore } from '../../stores/getters';
+import { isCliSecret } from './cli-secret';
 import { getWebUserStore } from './web-user-store';
 
 /** The `webLogin` Encore flag, read live so a toggle takes effect on the next request. */
@@ -47,14 +48,14 @@ export function readSessionCookie(request: Pick<FastifyRequest, 'headers'>): str
 }
 
 /**
- * Loopback callers are never gated: `maestro-cli` connects to
- * `ws://127.0.0.1:<port>/<token>/ws` with no cookie, and a login wall there
- * would silently break every CLI command the moment the flag is turned on.
- * A browser on the same machine is exempt too, which is the desktop owner.
+ * `maestro-cli` is admitted by the per-boot secret it reads from
+ * `cli-server.json` and presents as a header, never by its peer address: the
+ * Cloudflare tunnel and any local reverse proxy hand every remote request to
+ * this server over a loopback connection, so "is it 127.0.0.1?" would admit
+ * exactly the callers the gate exists to stop. See `cli-secret.ts`.
  */
-export function isLoopbackRequest(request: Pick<FastifyRequest, 'ip' | 'socket'>): boolean {
-	const ip = request.ip || request.socket?.remoteAddress || '';
-	return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+export function isCliRequest(request: Pick<FastifyRequest, 'headers'>): boolean {
+	return isCliSecret(request.headers[CLI_SECRET_HEADER]);
 }
 
 export interface WebRequestAuth {
@@ -62,26 +63,29 @@ export interface WebRequestAuth {
 	required: boolean;
 	/** The account behind a valid session cookie, whether or not one is required. */
 	user: WebActingUser | undefined;
-	/** Loopback callers (maestro-cli, a browser on the same machine) are never gated. */
-	loopback: boolean;
+	/** The session cookie value `user` was resolved from; what revocation is keyed on. */
+	sessionId: string | undefined;
+	/** `maestro-cli` presenting this boot's secret. Never gated, never signed in. */
+	cli: boolean;
 }
 
 /**
  * One answer per request. `user` is set whenever a valid session cookie is
  * present, even when login is not required, so attribution keeps working for
  * a browser that signed in before the gate was switched off. A request is
- * AUTHORIZED when `!required || loopback || user`.
+ * AUTHORIZED when `!required || cli || user`.
  */
-export function resolveWebRequestAuth(
-	request: Pick<FastifyRequest, 'headers' | 'ip' | 'socket'>
-): WebRequestAuth {
+export function resolveWebRequestAuth(request: Pick<FastifyRequest, 'headers'>): WebRequestAuth {
+	const sessionId = readSessionCookie(request);
+	const user = getWebUserStore().resolveSession(sessionId);
 	return {
 		required: isWebLoginEnabled(),
-		user: getWebUserStore().resolveSession(readSessionCookie(request)),
-		loopback: isLoopbackRequest(request),
+		user,
+		sessionId: user ? sessionId : undefined,
+		cli: isCliRequest(request),
 	};
 }
 
 export function isWebRequestAuthorized(auth: WebRequestAuth): boolean {
-	return !auth.required || auth.loopback || auth.user !== undefined;
+	return !auth.required || auth.cli || auth.user !== undefined;
 }

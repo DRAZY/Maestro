@@ -23,6 +23,8 @@ import {
 	HistoryFilterToggle,
 	HostSourceFilter,
 	LOCAL_HOST_KEY,
+	UserSourceFilter,
+	DESKTOP_USER_KEY,
 	ESTIMATED_ROW_HEIGHT,
 	estimateHistoryRowHeight,
 	LOOKBACK_OPTIONS,
@@ -131,6 +133,12 @@ export const HistoryPanel = React.memo(
 		// Source/host filter - null means "All Sources". When set, both the
 		// entry list and the activity graph narrow to entries from that host.
 		const [selectedHost, setSelectedHost] = useState<string | null>(null);
+		// Sender filter - null means "All Senders". Unlike the host filter this
+		// one runs purely client-side over the loaded window: there is no
+		// server-side aggregate of Web Login accounts to count against, and the
+		// picker only appears once the window actually holds more than one
+		// sender, so what it offers is exactly what it can narrow.
+		const [selectedUser, setSelectedUser] = useState<string | null>(null);
 		const searchFilterOpen = useUIStore((s) => s.historySearchFilterOpen);
 		const setSearchFilterOpen = useUIStore((s) => s.setHistorySearchFilterOpen);
 		const [graphViewportRange, setGraphViewportRange] = useState<
@@ -424,6 +432,11 @@ export const HistoryPanel = React.memo(
 					if (entryHost !== selectedHost) return false;
 				}
 
+				if (selectedUser !== null) {
+					const entryUser = entry.userName ?? DESKTOP_USER_KEY;
+					if (entryUser !== selectedUser) return false;
+				}
+
 				if (searchFilter) {
 					const searchLower = searchFilter.toLowerCase();
 					const summaryMatch = entry.summary?.toLowerCase().includes(searchLower);
@@ -431,6 +444,12 @@ export const HistoryPanel = React.memo(
 					const sessionIdMatch = entry.agentSessionId?.toLowerCase().includes(searchLower);
 					const sessionNameMatch = entry.sessionName?.toLowerCase().includes(searchLower);
 					const hostnameMatch = entry.hostname?.toLowerCase().includes(searchLower);
+					// Both halves of the sender pill are searchable: the pill draws
+					// the display name, so typing what is on screen has to find the
+					// row, while the username is what the filter and the CLI speak.
+					const userMatch =
+						entry.userName?.toLowerCase().includes(searchLower) ||
+						entry.userDisplayName?.toLowerCase().includes(searchLower);
 					// The trigger name is the most prominent text on a Cue row
 					// (and the whole label on a collapsed one), so a user who
 					// types it expects that row back. Without this, the name is
@@ -443,6 +462,7 @@ export const HistoryPanel = React.memo(
 						!sessionIdMatch &&
 						!sessionNameMatch &&
 						!hostnameMatch &&
+						!userMatch &&
 						!cueTriggerMatch
 					)
 						return false;
@@ -450,7 +470,7 @@ export const HistoryPanel = React.memo(
 
 				return true;
 			});
-		}, [historyEntries, activeFilters, searchFilter, selectedHost]);
+		}, [historyEntries, activeFilters, searchFilter, selectedHost, selectedUser]);
 
 		// Is the user hiding at least one entry type right now? The type filter
 		// runs SERVER-side (see `loadPage`), so `totalCount` is already net of
@@ -494,6 +514,37 @@ export const HistoryPanel = React.memo(
 				setSelectedHost(null);
 			}
 		}, [hostCounts, selectedHost]);
+
+		// Tally senders over the loaded window. There is no server-side
+		// aggregate to prefer here (unlike hosts), so this is always the
+		// client-side count - which is also what the filter narrows, so the
+		// parenthesized numbers and the resulting list cannot disagree.
+		// `DESKTOP_USER_KEY` sorts first, then accounts alphabetically.
+		const { userCounts, userLabels } = useMemo(() => {
+			const raw = new Map<string, number>();
+			const labels = new Map<string, string>();
+			for (const entry of historyEntries) {
+				const key = entry?.userName ?? DESKTOP_USER_KEY;
+				raw.set(key, (raw.get(key) ?? 0) + 1);
+				if (entry?.userName && entry.userDisplayName) {
+					labels.set(entry.userName, entry.userDisplayName);
+				}
+			}
+			const sorted = new Map<string, number>();
+			if (raw.has(DESKTOP_USER_KEY)) sorted.set(DESKTOP_USER_KEY, raw.get(DESKTOP_USER_KEY)!);
+			for (const key of [...raw.keys()].filter((k) => k !== DESKTOP_USER_KEY).sort()) {
+				sorted.set(key, raw.get(key)!);
+			}
+			return { userCounts: sorted, userLabels: labels };
+		}, [historyEntries]);
+
+		// Clear the sender filter if the selected sender falls out of the
+		// loaded window (e.g. session switch, lookback narrowed).
+		useEffect(() => {
+			if (selectedUser !== null && !userCounts.has(selectedUser)) {
+				setSelectedUser(null);
+			}
+		}, [userCounts, selectedUser]);
 
 		// Note: With virtualization, we no longer need to slice entries
 		// The virtualizer handles rendering only visible items efficiently
@@ -1044,6 +1095,21 @@ export const HistoryPanel = React.memo(
 							hostCounts={hostCounts}
 							selectedHost={selectedHost}
 							onSelect={setSelectedHost}
+							theme={theme}
+						/>
+					</div>
+				)}
+
+				{/* Sender picker - only shown when the loaded window contains
+				    more than one sender (a Web Login account plus the desktop,
+				    or several accounts). Same rule as the host picker above. */}
+				{userCounts.size > 1 && (
+					<div className="mt-2 flex-shrink-0">
+						<UserSourceFilter
+							userCounts={userCounts}
+							userLabels={userLabels}
+							selectedUser={selectedUser}
+							onSelect={setSelectedUser}
 							theme={theme}
 						/>
 					</div>

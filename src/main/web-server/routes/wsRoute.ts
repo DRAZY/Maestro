@@ -17,6 +17,8 @@
 
 import { FastifyInstance } from 'fastify';
 import { logger } from '../../utils/logger';
+import { WEB_LOGIN_WS_CLOSE_CODE } from '../../../shared/webLogin';
+import { isWebRequestAuthorized, resolveWebRequestAuth } from '../auth/web-login-policy';
 import type {
 	Theme,
 	WebClient,
@@ -104,6 +106,23 @@ export class WsRoute {
 		server.get(`/${token}/ws`, { websocket: true }, (socket, request) => {
 			const clientId = `web-client-${++this.clientIdCounter}`;
 
+			// The Web Login gate. The bridge is the whole app, so this is the
+			// enforcement point that matters most - a socket minted here can invoke
+			// every registered ipcMain handler. Closed BEFORE `onClientConnect`, so
+			// an unauthorized socket never enters `webClients` and can never be
+			// broadcast to. The dedicated close code is what tells the shim to go to
+			// the login page instead of reconnecting forever against a wall.
+			//
+			// maestro-cli is authorized by the per-boot secret in its upgrade
+			// headers, never by arriving over loopback: the tunnel arrives that
+			// way too.
+			const auth = resolveWebRequestAuth(request);
+			if (!isWebRequestAuthorized(auth)) {
+				logger.warn(`Refused unauthenticated WebSocket upgrade (${clientId})`, LOG_CONTEXT);
+				socket.close(WEB_LOGIN_WS_CLOSE_CODE, 'Login required');
+				return;
+			}
+
 			// Extract sessionId from query string if provided (for session-specific subscriptions)
 			const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
 			const sessionId = url.searchParams.get('sessionId') || undefined;
@@ -129,6 +148,9 @@ export class WsRoute {
 				id: clientId,
 				connectedAt: Date.now(),
 				subscribedSessionId: sessionId,
+				// Resolved once, here: the cookie is only on the upgrade request, so
+				// there is no later point at which a frame can say who sent it.
+				...(auth.user ? { user: auth.user, sessionId: auth.sessionId } : {}),
 			};
 
 			// Notify parent about connection

@@ -63,6 +63,7 @@ import {
 	stopCliDiscoveryWatchdog,
 	WebHandlerDependencies,
 } from './web';
+import { registerWebLoginHandlers } from './webLogin';
 import { registerLeaderboardHandlers, LeaderboardHandlerDependencies } from './leaderboard';
 import { registerNotificationsHandlers } from './notifications';
 import { registerSymphonyHandlers, SymphonyHandlerDependencies } from './symphony';
@@ -140,6 +141,7 @@ export {
 	stopCliDiscoveryWatchdog,
 };
 export type { WebHandlerDependencies };
+export { registerWebLoginHandlers };
 export { registerLeaderboardHandlers };
 export type { LeaderboardHandlerDependencies };
 export { registerNotificationsHandlers };

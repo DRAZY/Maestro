@@ -16,6 +16,8 @@
  * `staticRoutes.ts` - that is the producer, and this is only its type.
  */
 
+import type { WebActingUser } from './webLogin';
+
 export interface MaestroWebClientConfig {
 	/** Security token (UUID) - required in every API and WS URL. */
 	securityToken: string;
@@ -32,6 +34,21 @@ export interface MaestroWebClientConfig {
 	 * served by an older build still satisfies this type.
 	 */
 	concertoToken?: string;
+	/**
+	 * The Web Login account this page was served to, or `null` for the desktop
+	 * and for every client when the gate is off. What the
+	 * renderer draws as "signed in as". Optional so a page served by an older
+	 * build still satisfies this type.
+	 */
+	webLoginUser?: WebActingUser | null;
+	/**
+	 * Whether the `webLogin` Encore flag was on when the page was served. The
+	 * renderer needs this alongside `webLoginUser` because they answer different
+	 * questions: no user with the gate ON cannot happen for a served page (the
+	 * index redirects to the form), and no user with it OFF is the feature
+	 * simply not in use.
+	 */
+	webLoginRequired?: boolean;
 }
 
 declare global {

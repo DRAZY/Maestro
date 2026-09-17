@@ -24,6 +24,8 @@ import { flushTelemetry } from '../../cue/cue-telemetry';
 import { getCueRunTotals, getCueRunTotalsByDay, getRecentCueEvents } from '../../cue/cue-db';
 import { buildUsageExport, countUsageExportRows, writeUsageExport } from '../../stats/usage-export';
 import { enqueueQueryEvent, flushQueryEventsSync } from '../../stats/query-events-buffer';
+import { getActingUser } from '../../web-server/auth/acting-user';
+import { resolveTurnActor } from '../../web-server/auth/turn-attribution';
 import {
 	QueryEvent,
 	AutoRunSession,
@@ -114,8 +116,23 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 				return null;
 			}
 
+			// Web Login attribution. Like the History entry, this row is written
+			// by the DESKTOP renderer's exit listener even when a browser sent
+			// the turn, so `getActingUser()` is undefined here and the account
+			// comes from what the spawn noted (web-server/auth/turn-attribution).
+			// A call carrying an acting user came over the bridge, and that user
+			// wins whatever the payload claims: a browser must not file its turns
+			// under another account. Only the desktop's own calls may name one.
+			const attributed = ((): Omit<QueryEvent, 'id'> => {
+				const acting = getActingUser();
+				if (!acting && event.userName) return event;
+				const username =
+					acting?.username ?? resolveTurnActor(event.sessionId, event.tabId)?.username;
+				return username ? { ...event, userName: username } : event;
+			})();
+
 			const db = getStatsDB();
-			const id = enqueueQueryEvent(db.database, event);
+			const id = enqueueQueryEvent(db.database, attributed);
 			logger.debug(`Buffered query event: ${id}`, LOG_CONTEXT, {
 				sessionId: event.sessionId,
 				agentType: event.agentType,

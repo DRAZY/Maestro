@@ -214,6 +214,7 @@ import type { AgentRunApi } from '../main/preload/agentRun';
 import type { BrowserOp } from '../shared/coworkingBrowser';
 import type { HistoryEntry } from '../shared/types';
 import type { SnoozeCommandRequest, SnoozeCommandResult } from '../shared/snoozeCommands';
+import type { WebUserPublic } from '../shared/webLogin';
 
 interface MaestroAPI {
 	// Context merging API (for session context transfer and grooming)
@@ -1670,6 +1671,23 @@ interface MaestroAPI {
 		clearPersistentToken: () => Promise<{ success: boolean; message?: string }>;
 		/** Fires when a network change moves the LAN address in the web URL. */
 		onUrlChanged: (handler: (data: { url: string }) => void) => () => void;
+	};
+	/**
+	 * Web Login accounts. Desktop-only: the web-desktop bridge refuses every
+	 * `webLogin:*` channel, so a browser holds this namespace and gets nothing
+	 * back from it. Each verb rejects with the store's own user-facing message.
+	 */
+	webLogin: {
+		listUsers: () => Promise<WebUserPublic[]>;
+		createUser: (input: {
+			username: string;
+			password: string;
+			displayName?: string;
+		}) => Promise<WebUserPublic>;
+		setPassword: (id: string, password: string) => Promise<void>;
+		setDisplayName: (id: string, displayName: string) => Promise<WebUserPublic>;
+		setDisabled: (id: string, disabled: boolean) => Promise<WebUserPublic>;
+		deleteUser: (id: string) => Promise<void>;
 	};
 	agents: {
 		detect: (sshRemoteId?: string) => Promise<AgentConfig[]>;

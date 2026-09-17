@@ -53,6 +53,16 @@ export const WEB_LOGIN_PATHS = {
 /** WebSocket close code sent to a client whose session is missing or revoked. */
 export const WEB_LOGIN_WS_CLOSE_CODE = 4401;
 
+/**
+ * Request header `maestro-cli` sends on its WebSocket upgrade, carrying the
+ * per-boot secret from `cli-server.json`. The gate admits it in place of a
+ * session cookie. A browser cannot set a custom header on an upgrade, and a
+ * remote caller cannot read the file, so this is what keeps the CLI working
+ * without waving through everything else that arrives over loopback (the
+ * Cloudflare tunnel does).
+ */
+export const CLI_SECRET_HEADER = 'x-maestro-cli-secret';
+
 /** Environment variable stamped on every agent process a logged-in browser starts. */
 export const QUERY_USER_ENV_VAR = 'MAESTRO_QUERY_USER';
 

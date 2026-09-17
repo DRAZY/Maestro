@@ -444,6 +444,17 @@ export interface HistoryEntry {
 	sourceAgentName?: string;
 	/** Hostname of the machine that created this entry (for shared history) */
 	hostname?: string;
+	/** Web Login account that sent the turn (username). Absent for turns typed at the desktop. */
+	userName?: string;
+	/** Display name of the Web Login account named by {@link userName}. */
+	userDisplayName?: string;
+	/**
+	 * Which AI tab the turn ran in. Carried so the main process can look up the
+	 * account that STARTED the turn (`resolveTurnActor`) - the entry is written
+	 * by the desktop renderer's exit listener, where no acting user is in scope.
+	 * Not the provider session id; that is `agentSessionId`.
+	 */
+	tabId?: string;
 	/**
 	 * Claude-only, per-turn: which interface spent the quota for this turn.
 	 * `interactive` = maestro-p TUI (Max plan), `api` = `claude --print` (per-token).
