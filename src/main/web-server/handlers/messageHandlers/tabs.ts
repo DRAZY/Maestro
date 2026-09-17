@@ -737,6 +737,13 @@ export function handleNewAITabWithPrompt(
 				success: result.success,
 				sessionId,
 				...(result.tabId ? { tabId: result.tabId } : {}),
+				// `queued` distinguishes "the turn is running now" from "the agent
+				// was mid-turn, so the prompt is waiting its place in the queue" -
+				// both are successes, and an automated caller wants to know which.
+				...(result.queued ? { queued: true } : {}),
+				// Carry the renderer's own reason for a refusal. Without it the CLI
+				// can only see a missing tab id and has to guess why.
+				...(result.error ? { error: result.error } : {}),
 				...(callbackId ? { callbackId } : {}),
 				requestId: message.requestId,
 			});
