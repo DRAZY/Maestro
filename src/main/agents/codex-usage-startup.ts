@@ -17,6 +17,7 @@ import type { AgentConfigsData, SessionsData } from '../stores/types';
 import { logger } from '../utils/logger';
 import { captureException } from '../utils/sentry';
 import { resolveCodexHomeKey, setCodexUsageSnapshot } from '../stores/codexUsageStore';
+import { getRememberedQuotaAccountKeys, rememberQuotaAccounts } from '../stores/quotaAccountsStore';
 import { sampleCodexUsage } from './codex-usage-sampler';
 
 const LOG_CONTEXT = '[CodexUsageSampler]';
@@ -92,7 +93,9 @@ export async function discoverCodexHomes(homeDir = os.homedir()): Promise<string
 
 	const homes: string[] = [];
 	for (const entry of entries) {
-		if (!entry.isDirectory()) continue;
+		// A symlinked CODEX_HOME is a normal two-account setup and `isDirectory()`
+		// is false for it; the `auth.json` check below follows the link.
+		if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 		if (!isLikelyCodexAccountDirName(entry.name)) continue;
 		if (ACCOUNT_DIR_EXCLUDE_RE.test(entry.name)) continue;
 		const codexHome = path.join(homeDir, entry.name);
@@ -115,6 +118,16 @@ export async function discoverCodexHomes(homeDir = os.homedir()): Promise<string
 	}
 
 	return homes.sort((a, b) => a.localeCompare(b));
+}
+
+/** True when `<codexHome>/auth.json` exists and is readable (symlinks followed). */
+async function hasReadableAuth(codexHome: string): Promise<boolean> {
+	try {
+		await fs.promises.access(path.join(codexHome, 'auth.json'), fs.constants.R_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function getAgentLevelEnvVars(agentConfigsStore: Store<AgentConfigsData>): Record<string, string> {
@@ -167,6 +180,18 @@ export async function runCodexUsageSampling(deps: CodexUsageSamplingDeps): Promi
 		}
 	}
 
+	// Accounts Maestro has used before but the sweep above cannot see: a
+	// symlinked CODEX_HOME, one outside $HOME, or one whose name trips the
+	// backup/scratch filter. Without this they stop refreshing as soon as their
+	// last agent moves away, and the dashboard row dies at the 24h TTL. Sampling
+	// Codex reads `auth.json` and calls the quota endpoint - no browser flow - so
+	// re-checking a remembered home is safe.
+	for (const codexHomeKey of getRememberedQuotaAccountKeys('codex')) {
+		if (targetsByKey.has(codexHomeKey)) continue;
+		if (!(await hasReadableAuth(codexHomeKey))) continue;
+		targetsByKey.set(codexHomeKey, { codexHome: codexHomeKey, codexHomeKey });
+	}
+
 	if (targetsByKey.size === 0) {
 		const configuredFallbackHome =
 			typeof agentLevelEnvVars.CODEX_HOME === 'string' && agentLevelEnvVars.CODEX_HOME.length > 0
@@ -176,6 +201,10 @@ export async function runCodexUsageSampling(deps: CodexUsageSamplingDeps): Promi
 		const fallbackKey = resolveCodexHomeKey({ CODEX_HOME: fallbackHome });
 		targetsByKey.set(fallbackKey, { codexHome: fallbackHome, codexHomeKey: fallbackKey });
 	}
+
+	// Remember every account this run targeted, so the dashboard keeps its row
+	// after the user moves every agent off it - see `quotaAccountsStore`.
+	rememberQuotaAccounts('codex', targetsByKey.keys());
 
 	logger.info(`Sampling Codex usage for ${targetsByKey.size} account(s)`, LOG_CONTEXT, {
 		accounts: Array.from(targetsByKey.keys()),
