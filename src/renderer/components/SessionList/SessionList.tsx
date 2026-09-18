@@ -10,7 +10,6 @@ import React, {
 } from 'react';
 import { WORDMARK_FONT_STACK } from '../../../shared/fontStack';
 import {
-	Wand2,
 	Plus,
 	ChevronRight,
 	ChevronDown,
@@ -49,6 +48,7 @@ import { getModalActions, useModalStore } from '../../stores/modalStore';
 import { SessionContextMenu } from './SessionContextMenu';
 import { GroupContextMenu } from './GroupContextMenu';
 import { WizardIndicator } from './WizardIndicator';
+import { BusyWand } from './BusyWand';
 import { HamburgerMenuContent } from './HamburgerMenuContent';
 import { CollapsedSessionPillRows } from './CollapsedSessionPill';
 import { EscCloseButton } from '../ui/EscCloseButton';
@@ -1169,11 +1169,11 @@ function SessionListInner(props: SessionListProps) {
 								title="Switch agent"
 								aria-label="Switch agent"
 							>
-								<Wand2
-									className={`w-5 h-5${isAnyBusy ? ' wand-sparkle-active' : ''}${
-										profilingActive ? ' wand-profiling-active' : ''
-									}`}
-									style={{ color: theme.colors.accent }}
+								<BusyWand
+									busy={isAnyBusy}
+									profiling={profilingActive}
+									sizeClass="w-5 h-5"
+									color={theme.colors.accent}
 								/>
 							</button>
 							{showWordmark && (
@@ -1322,11 +1322,11 @@ function SessionListInner(props: SessionListProps) {
 					// Floating Media Player" from the Command Palette.
 					<div className="w-full flex flex-col items-center gap-2 relative z-30" ref={menuRef}>
 						<GhostIconButton onClick={() => setMenuOpen(!menuOpen)} padding="p-2" title="Menu">
-							<Wand2
-								className={`w-6 h-6${isAnyBusy ? ' wand-sparkle-active' : ''}${
-									profilingActive ? ' wand-profiling-active' : ''
-								}`}
-								style={{ color: theme.colors.accent }}
+							<BusyWand
+								busy={isAnyBusy}
+								profiling={profilingActive}
+								sizeClass="w-6 h-6"
+								color={theme.colors.accent}
 							/>
 						</GhostIconButton>
 						{/* Menu Overlay for Collapsed Sidebar */}

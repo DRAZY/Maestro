@@ -910,6 +910,88 @@ svg.wand-sparkle-active {
 	}
 }
 
+/* Sparkle glints - the twinkle, restored, and this time composited.
+   `wand-breathe` above is the baseline everywhere. These are the extra layer of
+   detail, and they are OVERLAY ELEMENTS rather than SVG paths, which is the
+   entire point: a regular positioned element composites `transform` and
+   `opacity` off the main thread, where an SVG <path> cannot. The original
+   design intent (sparkles vanishing and reappearing with a little drift) is
+   fully back, and the half-pixel drift that once cost ~720 forced layouts per
+   second is now genuinely free.
+
+   Cost check, because the last round of this comment got it wrong. Rejecting
+   overlays as "trading one kind of waste for another" overstated it: a glint is
+   ~6 CSS px square, so its layer is 12x12x4 = 576 bytes at DPR 2. Three of them
+   is under 2KB of GPU memory and zero main-thread work. That is not comparable
+   to six nodes recalculating style forever.
+
+   The count and the placement both matter:
+   - THREE glints, not six. Past three nobody perceives individual sparkles at
+     20px, so the rest would be layers bought for nothing.
+   - Percentage positions, never coordinates derived from Lucide's path data,
+     which moves on a version bump.
+   - Only on the Left Bar HEADER wand, which is one element on screen. The
+     WizardIndicator wand is 12px and renders once per agent row, so glints
+     there would be invisible AND multiply by the agent count. That one breathes
+     and nothing more. */
+.wand-glints {
+	position: relative;
+	display: inline-flex;
+}
+
+.wand-glint {
+	position: absolute;
+	width: 30%;
+	height: 30%;
+	border-radius: 50%;
+	/* currentColor, so the glints track the theme accent the wrapper carries. */
+	background: radial-gradient(circle, currentColor 0%, transparent 68%);
+	opacity: 0;
+	/* Never intercept the click: the header wand is the "switch agent" button. */
+	pointer-events: none;
+	will-change: transform, opacity;
+}
+
+@keyframes wand-glint {
+	0%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.5);
+	}
+	40% {
+		opacity: 0.9;
+		transform: translate(0.5px, -0.5px) scale(1);
+	}
+	70% {
+		opacity: 0;
+		transform: translate(-0.5px, 0.5px) scale(0.6);
+	}
+}
+
+.wand-glint-1 {
+	top: 0;
+	left: 4%;
+	animation: wand-glint 2.4s ease-in-out infinite;
+}
+.wand-glint-2 {
+	top: 16%;
+	right: 0;
+	animation: wand-glint 2.4s ease-in-out 0.8s infinite;
+}
+.wand-glint-3 {
+	bottom: 8%;
+	right: 20%;
+	animation: wand-glint 2.4s ease-in-out 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* A glint is nothing BUT motion, so there is no static form worth holding a
+	   layer for. `wand-sparkle-active`'s dimmed state carries "busy" instead. */
+	.wand-glint {
+		display: none;
+	}
+}
+
 /* Performance-profiling indicator: while a trace is being captured the wand
    glows recording-red so it's unmistakable that profiling is on. The red is
    forced over the inline theme accent for this debug-only state.
