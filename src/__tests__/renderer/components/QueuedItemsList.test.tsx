@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { QueuedItemsList } from '../../../renderer/components/QueuedItemsList';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import { mockTheme } from '../../helpers/mockTheme';
 import type { QueuedItem } from '../../../renderer/types';
 
@@ -255,6 +256,43 @@ describe('QueuedItemsList turn setting pills', () => {
 		setup({ executionQueue: [item({ turnSettings: {} })] });
 		expect(screen.queryByTestId('turn-model-pill')).not.toBeInTheDocument();
 		expect(screen.queryByTestId('turn-effort-pill')).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * A queued message is the user's own chat message waiting its turn, so it reads
+ * the way it will read once sent: markdown rendered, with the same Cmd+E global
+ * toggle (chatRawTextMode) dropping back to the raw source.
+ */
+describe('QueuedItemsList markdown rendering', () => {
+	afterEach(() => {
+		useSettingsStore.setState({ chatRawTextMode: false });
+	});
+
+	it('renders a queued message as markdown', () => {
+		useSettingsStore.setState({ chatRawTextMode: false });
+		const { container } = setup({
+			executionQueue: [item({ text: '# Heading\n\n**bold**' })],
+		});
+		expect(container.querySelector('h1')).toHaveTextContent('Heading');
+		expect(container.querySelector('strong')).toHaveTextContent('bold');
+	});
+
+	it('shows the raw source when chat raw-text mode is on', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const { container } = setup({
+			executionQueue: [item({ text: '# Heading' })],
+		});
+		expect(container.querySelector('h1')).toBeNull();
+		expect(screen.getByText('# Heading')).toBeInTheDocument();
+	});
+
+	it('leaves a queued slash command as plain text', () => {
+		const { container } = setup({
+			executionQueue: [item({ type: 'command', command: '/review', commandArgs: '**not bold**' })],
+		});
+		expect(container.querySelector('strong')).toBeNull();
+		expect(screen.getByText('**not bold**')).toBeInTheDocument();
 	});
 });
 
