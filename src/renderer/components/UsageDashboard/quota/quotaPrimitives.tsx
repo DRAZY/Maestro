@@ -12,6 +12,7 @@ import { formatFutureTime, formatTimestamp } from '../../../../shared/formatters
 import {
 	formatLastRefreshed,
 	isSampleBehindLatest,
+	isSampleExpired,
 	QUOTA_REFRESH_OPTIONS,
 	resolveQuotaFillColor,
 } from './quotaFormatting';
@@ -284,6 +285,10 @@ export const QuotaSharedAccountBadge = memo(function QuotaSharedAccountBadge({
  * using it runs over SSH, or the probe failed). The chip prints when that row
  * was actually read. A clock time rather than an age, so it stays true without
  * a ticking re-render.
+ *
+ * It also prints for any sample older than a day even when no row is newer -
+ * the state of an account whose agents have all moved elsewhere, whose row the
+ * panel keeps so the user can watch for its reset.
  */
 export const QuotaStaleSampleBadge = memo(function QuotaStaleSampleBadge({
 	sampledAt,
@@ -298,7 +303,10 @@ export const QuotaStaleSampleBadge = memo(function QuotaStaleSampleBadge({
 	testId?: string;
 	theme: Theme;
 }) {
-	if (!sampledAt || !isSampleBehindLatest(sampledAt, latestSampledAtMs)) return null;
+	if (!sampledAt) return null;
+	if (!isSampleBehindLatest(sampledAt, latestSampledAtMs) && !isSampleExpired(sampledAt)) {
+		return null;
+	}
 	const color = theme.colors.warning ?? theme.colors.accent;
 
 	return (

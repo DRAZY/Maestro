@@ -13,7 +13,7 @@
  *   - the "N agents" chip is a button only when there are agents to show
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { ClaudePlanUsage } from '../../../../renderer/components/UsageDashboard/ClaudePlanUsage';
 import { useClaudeUsageStore } from '../../../../renderer/stores/claudeUsageStore';
@@ -535,6 +535,15 @@ describe('ClaudePlanUsage - stale row chip', () => {
 		weekSonnetOnly: { percent: 87, resetsAt: '2026-05-22T00:00:00.000Z' },
 	});
 
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-05-15T02:05:00.000Z'));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it('flags only the row whose sample trails the newest by more than five minutes', () => {
 		seedSnapshots({
 			'/Users/me/.claude-work': snapshotAt('/Users/me/.claude-work', '2026-05-15T02:00:00.000Z'),
@@ -547,6 +556,21 @@ describe('ClaudePlanUsage - stale row chip', () => {
 		expect(screen.getByTestId('claude-plan-stale-side')).toHaveTextContent('stale, read');
 		expect(screen.queryByTestId('claude-plan-stale-work')).toBeNull();
 		expect(screen.queryByTestId('claude-plan-stale-near')).toBeNull();
+	});
+
+	it('flags a day-old row even when no other row is newer', () => {
+		// The retained-snapshot case: an account nobody runs agents against keeps
+		// its row so the user can watch for the reset, and every row is equally
+		// old, so nothing "trails the newest". The bars still are not current.
+		seedSnapshots({
+			'/Users/me/.claude-work': snapshotAt('/Users/me/.claude-work', '2026-05-13T02:00:00.000Z'),
+			'/Users/me/.claude-side': snapshotAt('/Users/me/.claude-side', '2026-05-13T02:01:00.000Z'),
+		});
+
+		render(<ClaudePlanUsage theme={theme} showAllAccounts autoRefresh={false} />);
+
+		expect(screen.getByTestId('claude-plan-stale-work')).toHaveTextContent('stale, read');
+		expect(screen.getByTestId('claude-plan-stale-side')).toHaveTextContent('stale, read');
 	});
 });
 
