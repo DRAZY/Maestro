@@ -1204,18 +1204,18 @@ describe('AgentOverviewCards', () => {
 		it('ships a column floor wide enough to hold an ordinary agent name', () => {
 			renderGrid();
 
-			expect(columns()).toBe('repeat(auto-fill, minmax(260px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(260px, 100%), 1fr))');
 		});
 
 		it('widens the tiles on + and narrows them on -', () => {
 			renderGrid();
 
 			fireEvent.keyDown(window, { key: '+' });
-			expect(columns()).toBe('repeat(auto-fill, minmax(286px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(286px, 100%), 1fr))');
 
 			fireEvent.keyDown(window, { key: '-' });
 			fireEvent.keyDown(window, { key: '-' });
-			expect(columns()).toBe('repeat(auto-fill, minmax(234px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(234px, 100%), 1fr))');
 		});
 
 		it('leaves the tiles alone when the key carries a modifier', () => {
@@ -1223,7 +1223,7 @@ describe('AgentOverviewCards', () => {
 			renderGrid();
 
 			fireEvent.keyDown(window, { key: '+', metaKey: true });
-			expect(columns()).toBe('repeat(auto-fill, minmax(260px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(260px, 100%), 1fr))');
 		});
 
 		it('remembers the size across a remount, and 0 puts it back', () => {
@@ -1233,10 +1233,10 @@ describe('AgentOverviewCards', () => {
 			unmount();
 
 			renderGrid();
-			expect(columns()).toBe('repeat(auto-fill, minmax(286px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(286px, 100%), 1fr))');
 
 			fireEvent.keyDown(window, { key: '0' });
-			expect(columns()).toBe('repeat(auto-fill, minmax(260px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(260px, 100%), 1fr))');
 		});
 
 		it('zooms from the control beside the sort pills as well', () => {
@@ -1244,7 +1244,7 @@ describe('AgentOverviewCards', () => {
 
 			fireEvent.click(screen.getByRole('button', { name: 'Increase tile size' }));
 
-			expect(columns()).toBe('repeat(auto-fill, minmax(286px, 1fr))');
+			expect(columns()).toBe('repeat(auto-fill, minmax(min(286px, 100%), 1fr))');
 			// A tile width has no meaningful percentage, so the control shows only
 			// the two buttons; `0` is still the way back.
 			expect(screen.queryByRole('button', { name: 'Reset tile size' })).toBeNull();
