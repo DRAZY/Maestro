@@ -71,7 +71,9 @@ function toolActivityText(activity: ToolActivityEntry): string {
 }
 
 /**
- * One tool call as a single scannable line: status glyph, verb, target.
+ * One tool call: a muted timestamp-and-status line, then the call itself on a
+ * line of its own - verb, then target. Same two-line shape as a thought block,
+ * so the two row kinds scan as one column rather than two layouts.
  *
  * The verb is our prose and stays in the interface font; a literal target (a
  * path, a command, a glob) renders as inline code, which is what it is. That
@@ -115,24 +117,35 @@ function ToolActivityRow({
 				: theme.colors.textDim;
 
 	return (
-		<div className="flex items-start gap-2 text-xs-plus leading-snug">
-			<span
-				className="font-mono shrink-0 select-none pt-px"
+		<div data-testid="thought-stream-tool-row">
+			{/* Metadata line: when it happened and how it ended. It sits ABOVE the
+			    content rather than beside it, matching the thought rows, because a
+			    timestamp gutter costs the same left third of the panel on every row
+			    and the thing being squeezed into what is left is a shell command -
+			    the one kind of text here that cannot be re-wrapped without becoming
+			    hard to read. The status glyph rides this line for the same reason:
+			    anything on the content line narrows the content line. */}
+			<div
+				className="flex items-center gap-1.5 text-2xs font-mono mb-1 select-none"
 				style={{ color: theme.colors.textDim }}
-				title={new Date(activity.timestamp).toLocaleString()}
 			>
-				{formatThoughtTime(activity.timestamp)}
-			</span>
-			<span className="shrink-0 pt-0.5" style={{ color }}>
-				{status === 'running' ? (
-					<Loader2 className="w-3 h-3 animate-spin" aria-label="running" />
-				) : status === 'failed' ? (
-					<AlertTriangle className="w-3 h-3" aria-label="failed" />
-				) : (
-					<Check className="w-3 h-3" aria-label="completed" />
-				)}
-			</span>
-			<span className="min-w-0 break-words" style={{ color: theme.colors.textMain }}>
+				<span title={new Date(activity.timestamp).toLocaleString()}>
+					{formatThoughtTime(activity.timestamp)}
+				</span>
+				<span className="flex items-center" style={{ color }}>
+					{status === 'running' ? (
+						<Loader2 className="w-3 h-3 animate-spin" aria-label="running" />
+					) : status === 'failed' ? (
+						<AlertTriangle className="w-3 h-3" aria-label="failed" />
+					) : (
+						<Check className="w-3 h-3" aria-label="completed" />
+					)}
+				</span>
+			</div>
+			<div
+				className="text-xs-plus leading-snug break-words"
+				style={{ color: theme.colors.textMain }}
+			>
 				{highlightQuery(verb, query, theme)}
 				{target && ' '}
 				{target &&
@@ -141,7 +154,7 @@ function ToolActivityRow({
 					) : (
 						highlightQuery(target, query, theme)
 					))}
-			</span>
+			</div>
 		</div>
 	);
 }

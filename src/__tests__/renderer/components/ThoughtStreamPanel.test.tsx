@@ -58,9 +58,16 @@ function renderPanel() {
  * is an inline-code chip, so `getByText` on the joined string finds nothing.
  * Matching on the row element's textContent keeps these assertions about what
  * the user reads rather than about how it is marked up.
+ *
+ * Rows are found by `data-testid`, not by their layout classes: the row was a
+ * single flex line until the timestamp moved onto its own line above the
+ * content, and a selector written against that layout turned a pure styling
+ * change into five failures that said nothing about behaviour.
  */
 function toolRow(line: string): HTMLElement | null {
-	const rows = Array.from(document.querySelectorAll<HTMLElement>('div.flex.items-start'));
+	const rows = Array.from(
+		document.querySelectorAll<HTMLElement>('[data-testid="thought-stream-tool-row"]')
+	);
 	return rows.find((row) => (row.textContent ?? '').includes(line)) ?? null;
 }
 
