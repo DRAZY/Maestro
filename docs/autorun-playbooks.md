@@ -28,7 +28,7 @@ Use markdown checkboxes in your documents:
 
 **Tip**: Press `Cmd+L` (Mac) or `Ctrl+L` (Windows/Linux) to quickly insert a new checkbox at your cursor position.
 
-**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is executing that document, matching its disabled editor.
+**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is actively driving that document, matching its disabled editor. A **paused** run is the exception: when the engine parks on an agent error or a human-in-the-loop gate it is waiting on you rather than working, so the checkboxes and the editor both open back up until you click Resume.
 
 ### Task Granularity: Two Approaches
 
