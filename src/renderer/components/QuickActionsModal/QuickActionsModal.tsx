@@ -1,5 +1,6 @@
 import React, { memo, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { buildTipOrder, pickRandomTip } from '../../../shared/didYouKnow';
 import type { QuickAction, QuickActionsModalProps } from './types';
 import { usePhoneLayout } from '../../hooks/ui/useViewportBreakpoint';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
@@ -759,6 +760,11 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setSettingsTab,
 			setShortcutsHelpOpen,
 			setAboutModalOpen,
+			onOpenDidYouKnow: () => {
+				const { didYouKnowSeed, didYouKnowSeenTipIds } = useSettingsStore.getState();
+				const tip = pickRandomTip(buildTipOrder(didYouKnowSeed), didYouKnowSeenTipIds);
+				useModalStore.getState().openModal('didYouKnow', { startTipId: tip?.id });
+			},
 			onOpenLeaderboardRegistration: () => openModal('leaderboard'),
 			isLeaderboardRegistered,
 			setFeedbackModalOpen,
@@ -779,6 +785,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 				processMonitor: shortcuts.processMonitor,
 				openThemeSettings: shortcuts.openThemeSettings,
 				openLeaderboard: shortcuts.openLeaderboard,
+				didYouKnow: shortcuts.didYouKnow,
 			},
 		}),
 		...buildGitWorktreeCommands({
