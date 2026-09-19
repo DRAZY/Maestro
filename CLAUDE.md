@@ -55,6 +55,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 
 - **ID generation:** `generateId()`, `generateUUID()` in `src/renderer/utils/ids.ts`
 - **Shuffling a list:** `shuffle()`, `shuffleWithSeed(array, seed)` in `src/shared/shuffle.ts`
+- **Cutting a spotlight hole in an overlay:** `getElementRect()`, `getSpotlightClipPath()` in `src/renderer/utils/spotlight.ts`
 - **Format file size:** `formatSize()` in `src/shared/formatters.ts`
 - **Format numbers:** `formatNumber()`, `formatCount()` in `src/shared/formatters.ts`
 - **Format tokens:** `formatTokens()`, `formatTokensCompact()` in `src/shared/formatters.ts`
