@@ -6,6 +6,10 @@ icon: sparkles
 
 ## Power Features
 
+<Note>
+The Settings tab is called **Plugins** in v0.18.x and later. On **v0.17.4** and earlier it is called **Encore Features**.
+</Note>
+
 - 🌳 **[Git Worktrees](./git-worktrees)** - Run AI agents in parallel on isolated branches. Create worktree sub-agents from the git branch menu, each operating in their own directory. Work interactively in the main repo while sub-agents process tasks independently - then create PRs with one click. True parallel development without conflicts.
 - 🤖 **[Auto Run & Playbooks](./autorun-playbooks)** - File-system-based task runner that processes markdown checklists through AI agents. Create Playbooks (collections of Auto Run documents) for repeatable workflows, run in loops, and track progress with full history. Each task gets its own AI session for clean conversation context.
 - 🏪 **[Playbook Exchange](./playbook-exchange)** - Browse and import community-contributed playbooks directly into your Auto Run folder. Categories, search, and one-click import get you started with proven workflows for security audits, code reviews, documentation, and more.

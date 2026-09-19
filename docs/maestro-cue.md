@@ -8,6 +8,7 @@ Maestro Cue is an event-driven automation engine that watches for things happeni
 
 <Note>
 Maestro Cue is an **Encore Feature** and is on by default. Turn it off in **Settings > Plugins** to hide the shortcut and modal and stop the automation engine.
+The Settings tab is called **Plugins** in v0.18.x and later. On **v0.17.4** and earlier it is called **Encore Features**.
 </Note>
 
 ## What Can Cue Do?

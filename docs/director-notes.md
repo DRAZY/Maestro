@@ -8,6 +8,7 @@ Director's Notes is your bird's-eye view of everything happening across all your
 
 <Note>
 Director's Notes is an **Encore Feature** and is on by default. Turn it off in **Settings > Plugins** to remove the shortcut, menu entry, and command palette action.
+The Settings tab is called **Plugins** in v0.18.x and later. On **v0.17.4** and earlier it is called **Encore Features**.
 </Note>
 
 ![Encore Features settings panel](./screenshots/encore-features.png)
