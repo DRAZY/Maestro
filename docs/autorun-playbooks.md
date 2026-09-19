@@ -33,7 +33,7 @@ Use markdown checkboxes in your documents:
 
 **Tip**: Press `Cmd+L` (Mac) or `Ctrl+L` (Windows/Linux) to quickly insert a new checkbox at your cursor position.
 
-**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is executing that document, matching its disabled editor.
+**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is actively driving that document, matching its disabled editor. A **paused** run is the exception: when the engine parks on an agent error or a human-in-the-loop gate it is waiting on you rather than working, so the checkboxes and the editor both open back up until you click Resume.
 
 ### Task Granularity: Two Approaches
 
@@ -248,6 +248,34 @@ There is no minimize. It used to mean "hide the panel but keep capturing," which
 Once a run finishes, the Right Panel's run card goes away and takes its **View Thoughts** button with it. The buffer outlives the run, so a **Thoughts** button appears at the bottom of the Auto Run panel for as long as there is something buffered to read.
 
 Capture is in-memory only - it does not survive an app restart, and it is bounded on three axes so a fleet of agents running all day can't grow memory without limit: timeline entries per agent, characters per agent, and how many agents keep a buffer at all (the least recently active is dropped first, and the agent you have open is never dropped). Trimming within an agent is noted as "trimmed" in the panel header. Running several Auto Runs at once? Each agent buffers independently; opening the panel for one agent never mixes in another's thoughts.
+
+## Steering a Run in Flight
+
+You do not have to stop a run to change its direction. Type into the composer while the run is going and press Enter: the message becomes a **steering note** and is delivered at the start of the next task.
+
+A steering note is not a conversation turn. It spawns no agent of its own and costs no extra run time - it rides in front of a task prompt that was going to be sent anyway, in a block the agent is told to treat as newer than the document and newer than its instructions. The agent is asked to begin its synopsis with `[steered]` when it acts on one.
+
+Use it for the things you notice while watching:
+
+- `Important notice: Maestro error - stop touching the Cue engine and fix the build first.`
+- `The API changed. Use the v3 endpoint for the rest of these tasks.`
+- `Do not commit anything else until I say so.`
+
+**Where to see it.** A steering note appears in the transcript as your message with a compass badge: amber while it is waiting, green once a task has picked it up. The Auto Run pill above the composer shows how many notes are still waiting. Click the amber badge to take a note back before any task sees it.
+
+**What it applies to.** The note goes to the next task and stays in force for the rest of the run wherever it still makes sense. It is delivered once - a later task does not get a repeat - so if the change is permanent, also edit the document.
+
+**When Enter does something else instead.** Steering is what a plain write-mode message does during a run. These keep their own meaning:
+
+| You do this                                | What happens                                                                                         |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Read-only mode is on                       | The message runs right now as a parallel read-only turn. Asking a question does not steer.           |
+| Force Send (`Cmd+Shift+Enter`)             | Bypasses the run entirely and sends now.                                                             |
+| The message has staged images              | Queued instead. A task prompt is text, so an image has nowhere to ride along, and queueing keeps it. |
+| The agent's provider is in an outage retry | Queued behind the retry. A note cannot talk past a quota wall.                                       |
+| A slash command                            | Queued for after the run, as before.                                                                 |
+
+Notes belong to the run they were typed during. Anything still waiting when the run ends is discarded rather than ambushing a later run.
 
 ## Session Isolation
 
