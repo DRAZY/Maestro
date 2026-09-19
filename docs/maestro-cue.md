@@ -29,7 +29,7 @@ Cue is on out of the box. Maestro automatically scans all your active agents for
 To turn Cue off entirely:
 
 1. Open **Settings** (`Cmd+,` / `Ctrl+,`)
-2. Navigate to the **Encore Features** tab
+2. Navigate to the **Plugins** tab
 3. Toggle **Maestro Cue** off
 
 ## Quick Start
