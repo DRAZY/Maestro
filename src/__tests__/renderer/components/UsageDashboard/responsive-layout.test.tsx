@@ -1000,6 +1000,43 @@ describe('UsageDashboard Responsive Layout', () => {
 	});
 });
 
+// 48px of side padding is a seventh of a phone screen, spent on nothing. The
+// tab strip keeps its `px-6` because its first chip wants the indent; the
+// charts and cards do not.
+vi.mock('../../../../renderer/hooks/ui/useViewportBreakpoint', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../../../renderer/hooks/ui/useViewportBreakpoint')>()),
+	usePhoneLayout: vi.fn(() => false),
+}));
+import { usePhoneLayout } from '../../../../renderer/hooks/ui/useViewportBreakpoint';
+
+describe('UsageDashboard content padding', () => {
+	// The suite above scopes its theme and close handler inside its own describe.
+	const theme = createTheme();
+	const onClose = vi.fn();
+
+	afterEach(() => {
+		vi.mocked(usePhoneLayout).mockReturnValue(false);
+	});
+
+	it('keeps the roomy padding on desktop', async () => {
+		vi.mocked(usePhoneLayout).mockReturnValue(false);
+		render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+		const scroller = await screen.findByTestId('usage-dashboard-scroller');
+		expect(scroller).toHaveClass('p-6');
+		expect(scroller).not.toHaveClass('px-3');
+	});
+
+	it('trims it on a phone', async () => {
+		vi.mocked(usePhoneLayout).mockReturnValue(true);
+		render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+		const scroller = await screen.findByTestId('usage-dashboard-scroller');
+		expect(scroller).toHaveClass('px-3', 'py-4');
+		expect(scroller).not.toHaveClass('p-6');
+	});
+});
+
 // Cleanup
 afterAll(() => {
 	global.ResizeObserver = originalResizeObserver;

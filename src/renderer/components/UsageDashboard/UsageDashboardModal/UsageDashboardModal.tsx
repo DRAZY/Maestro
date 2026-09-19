@@ -512,6 +512,7 @@ export function UsageDashboardModal({
 					// wants the indent; the charts and cards do not.
 					className={`flex-1 overflow-y-auto scrollbar-thin ${phone ? 'px-3 py-4' : 'p-6'}`}
 					style={{ backgroundColor: theme.colors.bgMain }}
+					data-testid="usage-dashboard-scroller"
 				>
 					<TokenSeriesProvider timeRange={timeRange}>{renderTabContent()}</TokenSeriesProvider>
 				</div>

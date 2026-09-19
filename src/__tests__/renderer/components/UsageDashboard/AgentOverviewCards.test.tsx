@@ -1252,3 +1252,61 @@ describe('AgentOverviewCards', () => {
 		});
 	});
 });
+
+// The toolbar's two selects, filter box and active-only switch add up to ~780px
+// of fixed width. On a 390px phone they ran off the right edge and took the
+// whole tab into a horizontal scroll; on desktop they already fit, and giving
+// them a shrinkable basis there would rearrange a toolbar nobody asked to move.
+vi.mock('../../../../renderer/hooks/ui/useViewportBreakpoint', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../../../renderer/hooks/ui/useViewportBreakpoint')>()),
+	usePhoneLayout: vi.fn(() => false),
+}));
+import { usePhoneLayout } from '../../../../renderer/hooks/ui/useViewportBreakpoint';
+
+describe('AgentOverviewCards toolbar width', () => {
+	beforeEach(() => {
+		installLocalStorageMock();
+		vi.mocked(usePhoneLayout).mockReturnValue(false);
+	});
+
+	/** The filter cluster: the selects, the search box and the active-only switch. */
+	function filterCluster(): HTMLElement {
+		const input = screen.getByTestId('agent-overview-filter-input');
+		const cluster = input.closest('div')?.parentElement;
+		if (!cluster) throw new Error('filter cluster not found');
+		return cluster;
+	}
+
+	it('keeps the desktop toolbar on one unwrapped row at its fixed widths', () => {
+		render(
+			<AgentOverviewCards
+				sessions={[buildSession({ id: 's1', name: 'Alpha' })]}
+				data={buildData()}
+				theme={theme}
+			/>
+		);
+
+		expect(filterCluster()).not.toHaveClass('flex-wrap');
+		// A fixed width, not a shrinkable basis - the desktop row already fits.
+		expect(screen.getByTestId('agent-overview-filter-input').parentElement).toHaveStyle({
+			width: '260px',
+		});
+	});
+
+	it('lets the toolbar pack and wrap on a phone', () => {
+		vi.mocked(usePhoneLayout).mockReturnValue(true);
+		render(
+			<AgentOverviewCards
+				sessions={[buildSession({ id: 's1', name: 'Alpha' })]}
+				data={buildData()}
+				theme={theme}
+			/>
+		);
+
+		expect(filterCluster()).toHaveClass('flex-wrap');
+		// Shrinkable, and capped at the desktop width so it cannot grow past it.
+		const search = screen.getByTestId('agent-overview-filter-input').parentElement;
+		expect(search).toHaveStyle({ minWidth: '0', maxWidth: '260px' });
+		expect(search?.style.flex).toBe('1 1 180px');
+	});
+});

@@ -504,6 +504,8 @@ It owns the active-segment coloring, the seam borders, `role="radiogroup"` + `ro
 
 For a bar that must shrink, give an option a `shortLabel`. Both forms render, the short one `hidden`; the HOST's container query swaps them by targeting `.segmented-label-full` / `.segmented-label-short`, because only the host knows what else shares its row. `GroupChatHeader` and its `groupchatheader` block in `index.css` are the reference.
 
+**A bar wider than its row scrolls sideways; it does not clip.** The container was `overflow-hidden` (which is what rounds the corners), so a five-segment bar on a phone simply lost its last two options - invisible AND unclickable, with no scrollbar to hint they were there. It is now `overflow-x-auto overflow-y-hidden no-scrollbar` with `shrink-0` segments. Two things are load-bearing: `overflow-y-hidden` must accompany `overflow-x: auto` (alone, `overflow-y` computes to `auto` and adds a vertical bar), and the segments do NOT shrink, because a squeezed segment reads as a different label rather than a narrower one. So the host still owns the shrink decision via `shortLabel` - this is only the floor that stops an option disappearing.
+
 **This is not `<RadioGroup>`.** That primitive renders the same semantics as stacked, description-carrying list rows for settings panes. `SegmentedControl` is the compact toolbar form for short labels where vertical space is scarce. Pick by layout, and do not add a `variant` prop to either one to cover the other.
 
 ### Sortable Table Headers (`<SortableTh>` + `useTableSort`)
