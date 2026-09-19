@@ -164,6 +164,7 @@ describe('browserTabPersistence', () => {
 						isLoading: true,
 						favicon: undefined,
 						webContentsId: 99,
+						requestedUrl: 'https://example.com/pending',
 					},
 					'session-1'
 				)
@@ -172,6 +173,7 @@ describe('browserTabPersistence', () => {
 				url: 'http://localhost:3000/docs',
 				title: 'localhost:3000',
 				partition: 'persist:maestro-browser-session-session-1',
+				requestedUrl: undefined,
 				canGoBack: false,
 				canGoForward: false,
 				isLoading: false,
