@@ -179,7 +179,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	}, [isResumingSession, hasCapability, commandMode]);
 
 	// PERF: Memoize mode-related derived state
-	const { isReadOnlyMode, showQueueingBorder } = useMemo(() => {
+	const { isReadOnlyMode, showQueueingBorder, isSteeringDestination } = useMemo(() => {
 		// Check if we're in read-only mode (manual toggle only - Claude will be in plan mode)
 		// NOTE: Auto Run no longer forces read-only mode. Instead:
 		// - Yellow border shows during Auto Run to indicate queuing will happen for write messages
@@ -193,6 +193,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		return {
 			isReadOnlyMode: readOnly,
 			showQueueingBorder: readOnly || autoRunActive,
+			// Write-mode message during a run = a steering note for the next task
+			// (see useInputProcessing). Read-only keeps its own meaning: a parallel
+			// question that runs right now, so it is NOT steering.
+			isSteeringDestination: autoRunActive && !readOnly,
 		};
 	}, [tabReadOnlyMode, isAutoModeActive, session.inputMode]);
 
@@ -564,6 +568,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							isTerminalMode={isTerminalMode}
 							isCommandModeDraft={isShellCommandDraft}
 							isAiCommandDraft={isAiCommandDraft}
+							isSteeringDestination={isSteeringDestination}
 							awaitingAiCommand={!!aiCommandEntry}
 							inputValue={inputValue}
 							spellCheckEnabled={spellCheckEnabled}

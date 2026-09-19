@@ -6,10 +6,14 @@
  * When AutoRun is active, shows a special AutoRun pill with total elapsed time instead.
  */
 import { memo, useState, useEffect, useRef } from 'react';
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Compass } from 'lucide-react';
 import type { Session, Theme, AITab, BatchRunState, ThinkingItem } from '../types';
 import { formatTokensCompact } from '../utils/formatters';
 import { sleepAwareElapsedSince } from '../services/systemSleep';
+import {
+	selectPendingSteeringNotes,
+	useAutoRunSteeringStore,
+} from '../stores/autoRunSteeringStore';
 
 interface ThinkingStatusPillProps {
 	/** Pre-filtered flat list of (session, tab) pairs - one entry per busy tab across all agents.
@@ -242,6 +246,7 @@ const AutoRunPill = memo(
 	({
 		theme,
 		autoRunState,
+		sessionId,
 		onStop,
 		thinkingItems,
 		namedSessions,
@@ -249,6 +254,8 @@ const AutoRunPill = memo(
 	}: {
 		theme: Theme;
 		autoRunState: BatchRunState;
+		/** The agent this run belongs to - used to count its pending steering notes. */
+		sessionId?: string;
 		onStop?: () => void;
 		thinkingItems?: ThinkingItem[];
 		namedSessions?: Record<string, string>;
@@ -260,6 +267,12 @@ const AutoRunPill = memo(
 		const { isStopping } = autoRunState;
 		const { completed: completedTasks, total: totalTasks } = getAutoRunTaskCounts(autoRunState);
 		const concurrentCount = thinkingItems?.length || 0;
+		// Steering notes the operator typed that no task has picked up yet. The
+		// selector hands back a stable empty array, so a run with no notes never
+		// churns this subscription.
+		const pendingSteeringCount = useAutoRunSteeringStore(
+			selectPendingSteeringNotes(sessionId ?? '')
+		).length;
 
 		const handleHoverEnter = () => {
 			if (closeTimerRef.current) {
@@ -310,6 +323,19 @@ const AutoRunPill = memo(
 					{autoRunState.worktreeActive && (
 						<span title={`Worktree: ${autoRunState.worktreeBranch || 'active'}`}>
 							<GitBranch className="w-3.5 h-3.5 shrink-0" style={{ color: theme.colors.accent }} />
+						</span>
+					)}
+
+					{/* Pending steering notes - typed during the run, delivered at the
+					    start of the next task. */}
+					{pendingSteeringCount > 0 && (
+						<span
+							className="flex items-center gap-1 shrink-0 text-xs font-medium"
+							style={{ color: theme.colors.warning }}
+							title={`${pendingSteeringCount} steering ${pendingSteeringCount === 1 ? 'note' : 'notes'} waiting for the next task`}
+						>
+							<Compass className="w-3.5 h-3.5" />
+							{pendingSteeringCount}
 						</span>
 					)}
 
@@ -515,6 +541,7 @@ function ThinkingStatusPillInner({
 			<AutoRunPill
 				theme={theme}
 				autoRunState={autoRunState}
+				sessionId={activeSessionId}
 				onStop={onStopAutoRun}
 				thinkingItems={thinkingItems}
 				namedSessions={namedSessions}
