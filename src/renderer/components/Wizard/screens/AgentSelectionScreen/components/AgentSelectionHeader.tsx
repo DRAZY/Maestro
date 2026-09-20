@@ -43,7 +43,7 @@ export function AgentSelectionHeader({
 					onChange={(event) => onAgentNameChange(event.target.value)}
 					onFocus={onNameFocus}
 					onBlur={onNameBlur}
-					placeholder="Name your agent..."
+					placeholder="Name your agent (optional)"
 					className="w-64 px-4 py-2 rounded-lg border outline-none transition-all"
 					style={{
 						backgroundColor: theme.colors.bgMain,
@@ -61,6 +61,10 @@ export function AgentSelectionHeader({
 					onSshRemoteChange={onSshRemoteChange}
 				/>
 			</div>
+
+			<p className="text-xs text-center max-w-md" style={{ color: theme.colors.textDim }}>
+				Just the label in the Left Bar. Leave it blank to use your project's folder name.
+			</p>
 		</div>
 	);
 }
