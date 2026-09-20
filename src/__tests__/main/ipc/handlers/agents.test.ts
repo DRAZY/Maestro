@@ -2166,18 +2166,24 @@ describe('agents IPC handlers', () => {
 			// name filtered) but its row has to stay on the dashboard.
 			const claudeUsageStartup = await import('../../../../main/agents/claude-usage-startup');
 			const quotaAccountsStore = await import('../../../../main/stores/quotaAccountsStore');
+			// A remembered key was itself written through `resolveConfigDirKey`, so
+			// it arrives already resolved - spell both sides that way or the union
+			// stops deduping on Windows, where the discovered dir gains a drive
+			// letter the POSIX literal does not have.
+			const discoveredKey = path.resolve('/Users/me/.claude');
+			const cappedKey = path.resolve('/Volumes/keys/claude-capped');
 			const discoverSpy = vi
 				.spyOn(claudeUsageStartup, 'discoverClaudeConfigDirs')
 				.mockResolvedValue(['/Users/me/.claude']);
 			const pruneSpy = vi
 				.spyOn(quotaAccountsStore, 'pruneMissingQuotaAccounts')
-				.mockResolvedValue(['/Users/me/.claude', '/Volumes/keys/claude-capped']);
+				.mockResolvedValue([discoveredKey, cappedKey]);
 
 			const handler = handlers.get('agents:getClaudeUsageAccountKeys')!;
 			const result = await handler({} as any);
 
 			expect(pruneSpy).toHaveBeenCalledWith('claude-code');
-			expect(result).toEqual(['/Users/me/.claude', '/Volumes/keys/claude-capped']);
+			expect(result).toEqual([discoveredKey, cappedKey]);
 			discoverSpy.mockRestore();
 			pruneSpy.mockRestore();
 		});

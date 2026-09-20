@@ -186,8 +186,9 @@ describe('codex-usage-startup → discoverCodexHomes', () => {
 		const accessSpy = vi.spyOn(fs.promises, 'access').mockResolvedValue(undefined);
 
 		try {
+			// The sweep joins onto the home dir, so the separator is the platform's.
 			await expect(discoverCodexHomes('/Users/test')).resolves.toEqual([
-				'/Users/test/.codex-linked',
+				path.join('/Users/test', '.codex-linked'),
 			]);
 		} finally {
 			readdirSpy.mockRestore();
@@ -404,7 +405,11 @@ describe('codex-usage-startup → runCodexUsageSampling', () => {
 			agentDetector: makeDetector(FAKE_AGENT) as never,
 		});
 
-		expect(getRememberedQuotaAccountKeys('codex')).toContain('/Users/test/.codex-work');
+		// `resolveCodexHomeKey` ends in `path.resolve`, so the remembered key
+		// carries a drive letter on Windows.
+		expect(getRememberedQuotaAccountKeys('codex')).toContain(
+			path.resolve('/Users/test/.codex-work')
+		);
 	});
 
 	it('samples a remembered home the discovery sweep cannot see', async () => {
