@@ -4,8 +4,6 @@
 	"modelSlug": "anthropic/claude-3.5-sonnet",
 	"apiKey": "",
 	"shortcuts": {},
-	"fontSize": 14,
-	"fontFamily": "Roboto Mono, Menlo, \"Courier New\", monospace",
 	"customFonts": [],
 	"logLevel": "info",
 	"defaultShell": "bash",
@@ -39,6 +37,9 @@
 	"wakatimeEnabled": false,
 	"wakatimeApiKey": "",
 	"showHiddenFiles": false,
+	"leftSidebarWidth": 340,
+	"rightPanelWidth": 460,
+	"fontZoom": 1.1,
 	"wakatimeDetailedTracking": false,
 	"totalActiveTimeMs": 12720000,
 	"usageStats": {

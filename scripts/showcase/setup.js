@@ -14,10 +14,12 @@
  * first launch.
  *
  * Usage: node scripts/showcase/setup.js [--theme <id>] [--size <WxH>] [--cwd <path>]
+ *                                       [--typography default|hacker]
  * Or via: npm run dev:showcase [-- --theme <id> --size <WxH>]
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -162,6 +164,65 @@ if (fs.existsSync(groupChatsDir)) {
 	console.log(`[showcase] First-run modals dismissed: ${steps.join(', ')}`);
 }
 
+// 3d. Write the typography preset the screenshots are shot in.
+//
+// The STORE default is still all-monospace, deliberately: Maestro looked that
+// way before per-surface fonts existed, and a returning user must not have
+// their look changed underneath them. New users are offered the choice by the
+// typography step of the onboarding series - which this seed dismisses, so
+// without writing a preset here every screenshot comes out in `hacker` and
+// advertises a look that is no longer what a new install is steered toward.
+//
+// The values are LOADED from `src/shared/typographyPresets.ts` rather than
+// copied into the seed JSON, because a preset is a live product decision: when
+// the Default face or its sizes are retuned, the published set should follow on
+// the next run rather than keep photographing a preset nobody ships. Typography
+// is twelve settings across six surfaces, and a hand-copied set of twelve
+// drifts one field at a time, invisibly.
+{
+	const presetId = parseArg('typography') || 'default';
+	let presets;
+	// Bundled to a temp file and required, rather than evaluated in-process:
+	// the bytes are esbuild's output for a first-party source file, but a plain
+	// `require` of a real file keeps this out of the eval family entirely, so
+	// nobody reviewing it has to reason about whether anything can reach the
+	// evaluated string.
+	const bundlePath = path.join(
+		os.tmpdir(),
+		`maestro-showcase-typography-${process.pid}-${Date.now()}.cjs`
+	);
+	try {
+		require('esbuild').buildSync({
+			entryPoints: [path.join(REPO_ROOT, 'src', 'shared', 'typographyPresets.ts')],
+			outfile: bundlePath,
+			bundle: true,
+			format: 'cjs',
+			platform: 'node',
+			logLevel: 'silent',
+		});
+		presets = require(bundlePath).TYPOGRAPHY_PRESETS;
+	} catch (err) {
+		console.error(`[showcase] ERROR: could not load typography presets: ${err.message}`);
+		process.exit(1);
+	} finally {
+		fs.rmSync(bundlePath, { force: true });
+	}
+
+	const preset = presets[presetId];
+	if (!preset) {
+		console.error(
+			`[showcase] ERROR: unknown typography preset "${presetId}". Valid: ${Object.keys(presets).join(', ')}`
+		);
+		process.exit(1);
+	}
+
+	const settingsFile = path.join(TARGET_DIR, 'maestro-settings.json');
+	const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+	Object.assign(settings, preset.fonts, preset.sizes);
+	fs.writeFileSync(settingsFile, JSON.stringify(settings, null, '\t'), 'utf8');
+	console.log(`[showcase] Typography preset → ${preset.label} (${preset.tagline})`);
+}
+
 // 4. Patch theme and window size from CLI args
 if (cliTheme) {
 	const settingsFile = path.join(TARGET_DIR, 'maestro-settings.json');
@@ -174,7 +235,7 @@ if (cliTheme) {
 if (cliSize) {
 	const match = cliSize.match(/^(\d+)x(\d+)$/);
 	if (!match) {
-		console.error(`[showcase] ERROR: Invalid size format "${cliSize}". Use WxH (e.g., 1796x1151)`);
+		console.error(`[showcase] ERROR: Invalid size format "${cliSize}". Use WxH (e.g., 2048x1280)`);
 		process.exit(1);
 	}
 	const width = parseInt(match[1], 10);

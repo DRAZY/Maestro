@@ -20,7 +20,8 @@
  * Usage:
  *   node scripts/showcase/capture.js [--themes a,b,c] [--size WxH]
  *                                    [--only name,name] [--out <dir>]
- *                                    [--cwd <path>] [--keep]
+ *                                    [--cwd <path>] [--typography <id>]
+ *                                    [--keep]
  *
  * Output lands at `<out>/<shot name>.<theme id>.png`, so a docs page or the
  * website gallery can swap themes by substituting one path segment.
@@ -36,7 +37,21 @@ const { SHOTS, SETTLE_MS } = require('./shots');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_THEMES = ['dracula', 'catppuccin-latte', 'pedurple'];
-const DEFAULT_SIZE = '1796x1151';
+/**
+ * Logical window size for the published set, 4096x2560 at 2x.
+ *
+ * Sized so the main window still has room after the side panels are given the
+ * width their own layout gates ask for (see the seed's `leftSidebarWidth` /
+ * `rightPanelWidth`) and the interface is zoomed. Those two take about 260
+ * logical pixels out of the middle between them, which is most of a code
+ * column.
+ *
+ * It must fit on the operator's display: the shot is the real window, so a
+ * window bigger than the screen is silently clamped by the window manager and
+ * the whole set comes out small. `assertViewport` below turns that into an
+ * error rather than a surprise.
+ */
+const DEFAULT_SIZE = '2048x1280';
 const DEFAULT_OUT = path.join(ROOT, 'docs', 'screenshots');
 const CDP_PORT = process.env.MAESTRO_CDP_PORT || '17399';
 /** How long to wait for the app to boot far enough to answer CDP. */
@@ -48,6 +63,8 @@ const BOOT_TIMEOUT_MS = 120000;
  * already serving CDP throughout that compile.
  */
 const PAINT_TIMEOUT_MS = 240000;
+/** How long to wait for a signalled app to stop answering CDP before giving up. */
+const SHUTDOWN_TIMEOUT_MS = 30000;
 
 // --- CLI args ---------------------------------------------------------------
 
@@ -59,11 +76,24 @@ const hasFlag = (name) => process.argv.includes(`--${name}`);
 
 const themes = argValue('themes', DEFAULT_THEMES.join(',')).split(',').filter(Boolean);
 const size = argValue('size', DEFAULT_SIZE);
+const sizeParts = size.match(/^(\d+)x(\d+)$/);
+if (!sizeParts) {
+	console.error(`[capture] FAILED: invalid --size "${size}". Use WxH (e.g. ${DEFAULT_SIZE}).`);
+	process.exit(1);
+}
+const width = Number(sizeParts[1]);
+const height = Number(sizeParts[2]);
 const outDir = path.resolve(argValue('out', DEFAULT_OUT));
 const only = argValue('only', '').split(',').filter(Boolean);
 const keepRunning = hasFlag('keep');
 /** Forwarded to setup.js: the working directory the shots publish. See setup.js. */
 const demoCwd = argValue('cwd', '');
+/**
+ * Which typography preset the set is shot in. Defaults to `default`, the
+ * proportional look a new install is steered toward, rather than the store
+ * default (`hacker`), which exists to leave a returning user's app alone.
+ */
+const typography = argValue('typography', 'default');
 
 const shots = only.length ? SHOTS.filter((s) => only.includes(s.name)) : SHOTS;
 if (!shots.length) {
@@ -200,9 +230,28 @@ class Cdp {
 	 * have to hold: the splash is gone or hidden, and the Left Bar header has
 	 * rendered (the last thing to arrive, since it waits on the session load).
 	 */
+	/**
+	 * Put the app's window in front, and keep it there.
+	 *
+	 * Not cosmetic: Chromium suspends `requestAnimationFrame` in a window it
+	 * considers hidden or fully occluded, and the splash is dismissed from
+	 * INSIDE a double rAF (`useAppInitialization`). The first launch of a run
+	 * comes to the front on its own; the second and third open behind the
+	 * terminal, so their rAF never fires, the splash never lifts, and the driver
+	 * times out with the app fully loaded underneath it. This is also why a
+	 * single-theme run always looked healthy.
+	 */
+	async bringToFront() {
+		await this.send('Page.bringToFront');
+	}
+
 	async awaitRendered(timeoutMs) {
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
+			// Re-asserted every pass rather than once: the window can be occluded
+			// again at any point by anything else on the desktop, and a single call
+			// at connect time only covers the instant it was made.
+			await this.bringToFront().catch(() => {});
 			const ready = await this.evaluate(
 				`(() => {
 				const splash = document.querySelector('#initial-splash');
@@ -217,17 +266,52 @@ class Cdp {
 		// Say what was actually on screen. "Still on the splash" and "painted but
 		// the Left Bar never arrived" have different causes, and a bare timeout
 		// sends the next person to look in the wrong place.
+		//
+		// `status` is the splash's own progress line, and it is the most useful
+		// field here: the app writes a different string at each initialization
+		// gate ("Warming up the ensemble..." = sessions, "Indexing the score..."
+		// = file tree), and its error handler REPLACES it with the exception
+		// text, so a stall and a crash are told apart by reading one string.
 		const seen = await this.evaluate(
 			`(() => {
 				const splash = document.querySelector('#initial-splash');
+				const status = document.querySelector('#splash-text');
 				return JSON.stringify({
 					splash: splash ? (splash.classList.contains('hidden') ? 'hidden' : 'visible') : 'absent',
+					status: status ? status.textContent : null,
 					shell: Boolean(document.querySelector('[data-testid="sidebar-header-indicators"]')),
 					title: document.title,
 				});
 			})()`
 		).catch(() => '<could not evaluate>');
 		throw new Error(`app never painted after ${timeoutMs / 1000}s: ${seen}`);
+	}
+
+	/**
+	 * Refuse to shoot a window that is not the size that was asked for.
+	 *
+	 * The set is captured from a REAL window, so its size is subject to the
+	 * window manager: a window larger than the operator's display is clamped
+	 * silently, and the run then completes, reports every shot captured, and
+	 * publishes a set at whatever size that machine happened to allow. That is
+	 * the worst failure shape here, because nothing about it looks wrong until
+	 * the images are already in the docs.
+	 *
+	 * The tolerance covers the window manager rounding and any chrome the
+	 * platform insists on; anything beyond it is a clamp, not a rounding.
+	 */
+	async assertViewport(width, height) {
+		const seen = await this.evaluate(
+			'JSON.stringify({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio })'
+		);
+		const { w, h, dpr } = JSON.parse(seen);
+		const slack = 24;
+		if (Math.abs(w - width) > slack || Math.abs(h - height) > slack) {
+			throw new Error(
+				`window is ${w}x${h}, not the requested ${width}x${height} - it does not fit this display, so every shot would be undersized`
+			);
+		}
+		return { w, h, dpr };
 	}
 
 	async screenshot(file) {
@@ -276,6 +360,7 @@ class Cdp {
 function seedFor(theme) {
 	console.log(`[capture] Seeding ${theme}...`);
 	const args = [path.join(__dirname, 'setup.js'), '--theme', theme, '--size', size];
+	args.push('--typography', typography);
 	if (demoCwd) args.push('--cwd', demoCwd);
 	execFileSync(process.execPath, args, { stdio: 'inherit', cwd: ROOT });
 }
@@ -320,24 +405,76 @@ async function waitForApp() {
 	throw new Error(`app did not come up within ${BOOT_TIMEOUT_MS / 1000}s: ${lastErr}`);
 }
 
-function killApp(child) {
-	if (!child || child.killed) return;
+function signalApp(child, signal) {
+	if (!child) return;
 	try {
 		// Negative pid kills the whole process group: `npm run dev` spawns vite
 		// and electron as children, and killing only npm orphans both.
-		process.kill(-child.pid, 'SIGTERM');
+		process.kill(-child.pid, signal);
 	} catch {
 		try {
-			child.kill('SIGTERM');
+			child.kill(signal);
 		} catch {
 			/* already gone */
 		}
 	}
 }
 
+/** True while something is still answering CDP on our port. */
+async function cdpAlive() {
+	try {
+		const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`);
+		await res.text();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Stop the app and WAIT for it to actually be gone.
+ *
+ * A blind sleep here is the wrong shape: Electron keeps answering CDP for a
+ * moment after SIGTERM, so the next theme's `waitForApp` can attach to the
+ * DYING instance, which then exits underneath the driver - and a fixed delay is
+ * simultaneously too short on a loaded machine and wasted time on an idle one.
+ * The port going quiet is the real signal, so poll for it and escalate to
+ * SIGKILL rather than guessing.
+ */
+async function killApp(child) {
+	if (!child) return;
+	signalApp(child, 'SIGTERM');
+	const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
+	let escalated = false;
+	while (Date.now() < deadline) {
+		await sleep(500);
+		if (!(await cdpAlive())) {
+			// The port closing is Electron letting go; give the rest of the group
+			// (vite, tsc) the same beat to release their own ports.
+			await sleep(1500);
+			return;
+		}
+		if (!escalated && Date.now() > deadline - SHUTDOWN_TIMEOUT_MS / 2) {
+			console.log('[capture] App ignored SIGTERM; escalating to SIGKILL.');
+			signalApp(child, 'SIGKILL');
+			escalated = true;
+		}
+	}
+	console.log('[capture] WARNING: app still answering CDP after shutdown timeout.');
+}
+
 // --- capture ----------------------------------------------------------------
 
 async function captureTheme(theme) {
+	// Nothing may be on the CDP port when we launch. `waitForApp` cannot tell a
+	// leftover instance from the one it is about to start, so it would attach to
+	// the leftover, photograph the PREVIOUS theme under this theme's name, and
+	// report a clean run. A `--keep` run from earlier is the usual culprit.
+	if (await cdpAlive()) {
+		throw new Error(
+			`something is already answering CDP on port ${CDP_PORT} - close the app left over from a --keep run first`
+		);
+	}
 	seedFor(theme);
 	const app = launchApp();
 	let bridge = null;
@@ -355,12 +492,21 @@ async function captureTheme(theme) {
 		await cdp.send('Runtime.enable');
 		console.log('[capture] Waiting for first paint...');
 		await cdp.awaitRendered(PAINT_TIMEOUT_MS);
+		// Checked once the shell has painted rather than at connect time: the
+		// window is still being sized while the splash is up, so an early read
+		// reports a size nobody will be photographed at.
+		const seen = await cdp.assertViewport(width, height);
+		console.log(`[capture] Viewport: ${seen.w}x${seen.h} at ${seen.dpr}x`);
 		// Past the splash, give the fleet and the transcript a beat to fill in.
 		await sleep(2500);
 
 		for (const shot of shots) {
 			const file = path.join(outDir, `${shot.name}.${theme}.png`);
 			try {
+				// Same reason as in `awaitRendered`: an occluded window throttles
+				// rAF and CSS transitions, so a modal's open animation would still
+				// be mid-flight when the shutter fires.
+				await cdp.bringToFront().catch(() => {});
 				if (shot.surface) {
 					const res = await bridge.send(
 						{ type: 'open_modal', surface: shot.surface, tab: shot.tab },
@@ -386,7 +532,7 @@ async function captureTheme(theme) {
 	} finally {
 		bridge && bridge.close();
 		cdp && cdp.close();
-		if (!keepRunning) killApp(app);
+		if (!keepRunning) await killApp(app);
 	}
 	return failures;
 }
@@ -411,9 +557,6 @@ async function main() {
 			console.error(`[capture] ${theme} FAILED to start: ${e.message}`);
 			allFailures.push(...shots.map((s) => ({ theme, shot: s.name, error: e.message })));
 		}
-		// Electron does not release the CDP port the instant it is signalled, and
-		// the next launch would attach to the dying instance's page.
-		if (!keepRunning) await sleep(8000);
 	}
 
 	const expected = themes.length * shots.length;
