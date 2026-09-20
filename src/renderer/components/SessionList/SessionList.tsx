@@ -522,12 +522,18 @@ function SessionListInner(props: SessionListProps) {
 	const setGroupChatSortAlphabetical = useSettingsStore.getState().setGroupChatSortAlphabetical;
 	const setActiveSessionIdRaw = useSessionStore.getState().setActiveSessionId;
 	const setActiveGroupChatId = useGroupChatStore.getState().setActiveGroupChatId;
+	const closeLeftSidebarForNavigation = useUIStore.getState().closeLeftSidebarForNavigation;
 	const setActiveSessionId = useCallback(
 		(id: string) => {
 			setActiveGroupChatId(null);
 			setActiveSessionIdRaw(id);
+			// Narrow viewports: the drawer covers the agent that was just picked.
+			// Closed here rather than from an effect on activeSessionId, because
+			// picking the agent that is ALREADY active - the common case behind an
+			// open group chat - changes no id at all.
+			closeLeftSidebarForNavigation();
 		},
-		[setActiveSessionIdRaw, setActiveGroupChatId]
+		[setActiveSessionIdRaw, setActiveGroupChatId, closeLeftSidebarForNavigation]
 	);
 	const setSessions = useSessionStore.getState().setSessions;
 	const setGroups = useSessionStore.getState().setGroups;

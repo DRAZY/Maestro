@@ -13,6 +13,7 @@
 import { create } from 'zustand';
 import type { FocusArea, RightPanelTab, UnifiedTabRef, UsageDashboardViewMode } from '../types';
 import { notifyCenterFlash } from './centerFlashStore';
+import { isNarrowViewportNow } from '../hooks/ui/useViewportBreakpoint';
 
 /**
  * Keyboard-selection cursor for the two Left Bar sections that are NOT plain
@@ -212,6 +213,20 @@ export interface UIStoreActions {
 	cycleLeftSidebar: () => void;
 	setRightPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 	toggleRightPanel: () => void;
+	/**
+	 * Narrow viewports: the left drawer covers the main panel, so activating
+	 * anything listed in it - an agent row, a group chat, a starred session - is
+	 * a request to LOOK at that thing, and the drawer gets out of the way. No-op
+	 * on a wide viewport, where the Left Bar is a permanent column beside the
+	 * panel and closing it would be a surprise.
+	 *
+	 * Call it AT THE TAP rather than from an effect keyed on what became active:
+	 * tapping the row that is already active (an agent still selected behind an
+	 * open group chat, the chat the user is already in) changes no state at all,
+	 * and a transition-keyed effect reads that as nothing having happened -
+	 * leaving the user staring at the drawer they just tapped through.
+	 */
+	closeLeftSidebarForNavigation: () => void;
 
 	// Focus
 	setActiveFocus: (focus: FocusArea | ((prev: FocusArea) => FocusArea)) => void;
@@ -439,6 +454,8 @@ export const useUIStore = create<UIStore>()((set) => ({
 		}),
 	setRightPanelOpen: (v) => set((s) => ({ rightPanelOpen: resolve(v, s.rightPanelOpen) })),
 	toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+	closeLeftSidebarForNavigation: () =>
+		set((s) => (s.leftSidebarOpen && isNarrowViewportNow() ? { leftSidebarOpen: false } : s)),
 
 	setActiveFocus: (v) => set((s) => ({ activeFocus: resolve(v, s.activeFocus) })),
 	setActiveRightTab: (v) => set((s) => ({ activeRightTab: resolve(v, s.activeRightTab) })),

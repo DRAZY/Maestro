@@ -659,6 +659,13 @@ function MaestroConsoleInner() {
 	// covers the whole screen, and a drawer that stayed put read as the tap
 	// having done nothing. Keyed on the TRANSITION of activeSessionId, not its
 	// steady state, so a drawer opened after a switch stays open.
+	//
+	// This is the net for anything that changes the active agent without going
+	// through a row tap. The taps themselves call
+	// `uiStore.closeLeftSidebarForNavigation()` directly, because activating the
+	// row that is already active (an agent still selected behind an open group
+	// chat, or a group chat, which never touches activeSessionId at all) moves no
+	// id for this effect to see.
 	const prevActiveSessionIdRef = useRef(activeSessionId);
 	useEffect(() => {
 		const changed = prevActiveSessionIdRef.current !== activeSessionId;
