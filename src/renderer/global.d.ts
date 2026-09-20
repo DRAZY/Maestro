@@ -1268,6 +1268,10 @@ interface MaestroAPI {
 		) => Promise<boolean>;
 		getCustomEnvVars: (agentId: string) => Promise<Record<string, string> | null>;
 		getAllCustomEnvVars: () => Promise<Record<string, Record<string, string>>>;
+		getKnownEnvVarKeys: () => Promise<{
+			byProvider: Record<string, string[]>;
+			global: string[];
+		}>;
 		getModels: (agentId: string, forceRefresh?: boolean, sshRemoteId?: string) => Promise<string[]>;
 		getConfigOptions: (
 			agentId: string,

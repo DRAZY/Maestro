@@ -16,6 +16,8 @@ import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { isAbsolutePath } from '../../../shared/formatters';
 import type { Theme } from '../../types';
+import { EnvVarKeyInput } from '../shared/EnvVarKeyInput';
+import { EMPTY_KNOWN_ENV_VAR_KEYS, type KnownEnvVarKeys } from '../../../shared/envVarCatalog';
 
 /**
  * Variable names whose values MUST be absolute filesystem paths. A relative
@@ -88,6 +90,8 @@ export interface EnvVarsEditorProps {
 	 */
 	disabledEnvVars?: Record<string, string>;
 	setDisabledEnvVars?: (vars: Record<string, string>) => void;
+	/** Variable NAMES already set on agents or here, offered back in the name field. */
+	knownEnvVarKeys?: KnownEnvVarKeys;
 }
 
 export function EnvVarsEditor({
@@ -98,6 +102,7 @@ export function EnvVarsEditor({
 	description = 'Environment variables passed to all terminal sessions and AI agent processes.',
 	disabledEnvVars,
 	setDisabledEnvVars,
+	knownEnvVarKeys = EMPTY_KNOWN_ENV_VAR_KEYS,
 }: EnvVarsEditorProps) {
 	// The toggle needs both halves to round-trip a parked variable; with only
 	// one, switching a row off would drop its value on the floor.
@@ -208,6 +213,8 @@ export function EnvVarsEditor({
 		});
 	};
 
+	const entryKeys = entries.map((entry) => entry.key);
+
 	const addEntry = () => {
 		// Generate a unique default key name
 		let newKey = 'VAR';
@@ -252,12 +259,13 @@ export function EnvVarsEditor({
 										{off ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
 									</GhostIconButton>
 								)}
-								<input
-									type="text"
+								<EnvVarKeyInput
+									theme={theme}
 									value={entry.key}
-									onChange={(e) => updateEntry(entry.id, 'key', e.target.value)}
-									placeholder="VARIABLE_NAME"
-									className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
+									onChange={(key) => updateEntry(entry.id, 'key', key)}
+									knownEnvVarKeys={knownEnvVarKeys}
+									usedKeys={entryKeys}
+									className="p-2 rounded border bg-transparent outline-none text-xs font-mono"
 									style={{
 										borderColor: error ? '#ef4444' : theme.colors.border,
 										color: theme.colors.textMain,

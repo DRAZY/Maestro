@@ -27,6 +27,8 @@ import { readOpenCodeAgentArg, writeOpenCodeAgentArg } from '../../../shared/ope
 import { useRemoteMaestroPAvailable } from '../../hooks/agent/useRemoteMaestroPAvailable';
 import { openUrl } from '../../utils/openUrl';
 import { logger } from '../../utils/logger';
+import { EnvVarKeyInput } from './EnvVarKeyInput';
+import { useKnownEnvVarKeys } from '../../hooks/agent/useKnownEnvVarKeys';
 
 const MAESTRO_P_INSTALL_URL = 'https://runmaestro.ai/maestro-p/';
 
@@ -474,6 +476,7 @@ export function AgentConfigPanel({
 			: claudeTokenMode;
 	const showMaestroPDetails = displayClaudeTokenMode !== 'api';
 	// Track which built-in env var tooltip is showing
+	const knownEnvVarKeys = useKnownEnvVarKeys();
 	const [showingTooltip, setShowingTooltip] = useState<string | null>(null);
 
 	// Track stable IDs for env var entries to prevent focus loss when keys change
@@ -555,6 +558,7 @@ export function AgentConfigPanel({
 		// order rather than by list order.
 		.map((row) => ({ ...row, id: getEnvVarId(row.key) }))
 		.sort((a, b) => a.id - b.id);
+	const envVarKeys = envVarRows.map((row) => row.key);
 
 	// Multi-install chooser state. `activePath` is whatever the Path field
 	// currently resolves to; it may be a hand-typed wrapper (or a tilde path
@@ -933,14 +937,15 @@ export function AgentConfigPanel({
 										{off ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
 									</GhostIconButton>
 								)}
-								<input
-									type="text"
+								<EnvVarKeyInput
+									theme={theme}
 									value={getKeyDisplayValue(key)}
-									onChange={(e) => handleKeyInputChange(key, e.target.value)}
+									onChange={(nextKey) => handleKeyInputChange(key, nextKey)}
 									onBlur={() => handleKeyBlur(key, value, enabled)}
-									onClick={(e) => e.stopPropagation()}
-									placeholder="VARIABLE_NAME"
-									className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
+									toolType={agent.id}
+									knownEnvVarKeys={knownEnvVarKeys}
+									usedKeys={envVarKeys}
+									className="p-2 rounded border bg-transparent outline-none text-xs font-mono"
 									style={{
 										borderColor: theme.colors.border,
 										color: theme.colors.textMain,

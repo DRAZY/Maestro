@@ -18,6 +18,7 @@ import {
 } from '../../shared/agentCapabilities';
 import type { UsageSnapshot } from '../agents/claude-mode-selector';
 import type { CodexUsageSnapshot } from '../stores/codexUsageStore';
+import type { KnownEnvVarKeys } from '../../shared/envVarCatalog';
 
 // Re-export for consumers that import from preload. `AgentStatus` is
 // re-exported only (no local usage in this file); TypeScript's
@@ -152,6 +153,14 @@ export function createAgentsApi() {
 		 */
 		getAllCustomEnvVars: (): Promise<Record<string, Record<string, string>>> =>
 			ipcRenderer.invoke('agents:getAllCustomEnvVars'),
+
+		/**
+		 * Return env-var NAMES the user has already set, per provider and
+		 * globally, for the name suggestions in the env-var editors. Values are
+		 * deliberately left behind: several of them are credentials.
+		 */
+		getKnownEnvVarKeys: (): Promise<KnownEnvVarKeys> =>
+			ipcRenderer.invoke('agents:getKnownEnvVarKeys'),
 
 		/**
 		 * Discover available models for agents that support model selection

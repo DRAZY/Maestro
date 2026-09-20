@@ -10,6 +10,7 @@ import { Globe } from 'lucide-react';
 import { useSettings } from '../../../hooks';
 import type { Theme } from '../../../types';
 import { EnvVarsEditor } from '../EnvVarsEditor';
+import { useKnownEnvVarKeys } from '../../../hooks/agent/useKnownEnvVarKeys';
 
 export interface EnvironmentTabProps {
 	theme: Theme;
@@ -18,6 +19,7 @@ export interface EnvironmentTabProps {
 export function EnvironmentTab({ theme }: EnvironmentTabProps) {
 	const { shellEnvVars, setShellEnvVars, shellEnvVarsDisabled, setShellEnvVarsDisabled } =
 		useSettings();
+	const knownEnvVarKeys = useKnownEnvVarKeys();
 
 	return (
 		<div className="space-y-5">
@@ -41,6 +43,7 @@ export function EnvironmentTab({ theme }: EnvironmentTabProps) {
 					setEnvVars={setShellEnvVars}
 					disabledEnvVars={shellEnvVarsDisabled}
 					setDisabledEnvVars={setShellEnvVarsDisabled}
+					knownEnvVarKeys={knownEnvVarKeys}
 					theme={theme}
 					label={null}
 					description={null}
