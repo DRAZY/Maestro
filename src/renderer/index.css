@@ -2187,6 +2187,24 @@ html[data-runtime='web-desktop'][data-bp='xs'] .header-git-pill:empty {
 }
 
 /*
+ * The model and effort pills leave every card on a phone. They are readouts of
+ * what a turn ran under (or what a queued message will run under), and on a
+ * 390px screen they share a footer row with controls that cannot yield: the
+ * queued card's footer is a three-column grid whose outer tracks hold a
+ * `whitespace-nowrap` Force Send button and a cluster of four icon buttons, so
+ * once the row runs out of width the tracks overflow into the centered pills
+ * and the three groups paint on top of each other.
+ *
+ * Dropping the readout is what the other crowded phone rows do (the header's
+ * cost, context and LOCAL badges above). Nothing is lost that the phone can
+ * act on: the pills are static text with a `title` tooltip no touch screen can
+ * open, and every control in those rows stays.
+ */
+html[data-runtime='web-desktop'][data-bp='xs'] [data-turn-setting-pill] {
+	display: none;
+}
+
+/*
  * Modals take the whole screen. Every resizable modal stamps
  * `data-modal-resize-key` (the palette, Settings, the Usage Dashboard,
  * Director's Notes, Process Monitor, file search, ...) and sizes itself to a
