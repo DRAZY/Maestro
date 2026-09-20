@@ -681,6 +681,14 @@ function MaestroConsoleInner() {
 	// a file tapped in the tree opened behind the panel and nothing on screen
 	// changed. Keyed on the transition of the active tab (of any kind), so a
 	// drawer opened after the switch stays open.
+	//
+	// This is the NET, not the primary. Two opens move none of these ids, so the
+	// transition never fires for them: re-previewing the file that is already the
+	// active tab, and any media file, which never becomes a tab at all. Both are
+	// handled AT THE OPEN by `handleOpenFileTab`, which calls
+	// `uiStore.closeRightPanelForNavigation()` - see its twin for the left
+	// drawer. What is left here covers everything else that activates a tab from
+	// inside the drawer (a conversation resumed from History, a queued item).
 	const activeTabKey = [
 		activeSession?.activeTabId,
 		activeSession?.activeFileTabId,
