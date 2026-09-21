@@ -25,6 +25,16 @@ import { getBasename } from '../../shared/formatters';
 import { shouldOpenExternally } from './fileExplorer';
 
 /**
+ * The filesystem path behind a `file://` href, or null when the href is not
+ * one. The link plugins build these by concatenation (`file://${absolute}`),
+ * so the path is not percent-encoded and needs no decoding.
+ */
+export function fileUrlToPath(href: string): string | null {
+	if (!/^file:\/\//.test(href)) return null;
+	return href.replace(/^file:\/\//, '');
+}
+
+/**
  * Handle a clicked `file://` href.
  *
  * @param href The link target. Anything that is not `file://` is ignored.
@@ -34,9 +44,9 @@ import { shouldOpenExternally } from './fileExplorer';
  * @returns Whether the href was handled, so callers can `return` on true.
  */
 export function openFileUrl(href: string, onFileClick?: (path: string) => void): boolean {
-	if (!/^file:\/\//.test(href)) return false;
+	const path = fileUrlToPath(href);
+	if (path === null) return false;
 
-	const path = href.replace(/^file:\/\//, '');
 	if (onFileClick && !shouldOpenExternally(getBasename(path))) {
 		onFileClick(path);
 		return true;
