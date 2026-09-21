@@ -112,6 +112,30 @@ painted and fails the theme when they disagree with `--size`, and the run logs
 the viewport it got. `2304x1360` needs a display of at least about 2560x1440
 logical; pass a smaller `--size` on a laptop panel rather than letting it clamp.
 
+**The seeded execution queue is HELD, and it has to be.** Twelve items are
+seeded across three agents (7 on Maestro, the active one, plus 2 and 3
+elsewhere) so the Execution Queue reads `Current Agent (7)` against
+`All Agents (12)` rather than the same number twice. Every one of them carries
+`paused: true`.
+
+That is not decoration. `useQueueProcessing` drains any agent that is `idle`
+with a runnable item, on the first render after the session load - well before
+the shutter - and `nextRunnableQueueItem` skips paused items and returns the
+first one that is not, so the hold is all-or-nothing. Seeding the queue without
+it means the showcase app spawns real provider processes against the seeded
+prompts, and the count drifts from run to run.
+
+Seeding `state: 'busy'` on the agent instead does NOT work, though it looks like
+it should: it was tried, and two of seven items dispatched anyway, leaving a
+real "Session not found" error in the transcript behind the modal. The `HELD`
+badge on every card is the honest cost of a set that is identical on every run.
+
+Nothing about the hold reduces what the surface demonstrates: depth, per-tab
+grouping, the model and effort pills, Send Now, and the edit / reorder / delete
+/ copy controls are all present and all live, and a held queue is a state a
+user can genuinely reach. Editing a queued message from the showcase app works
+normally - pausing blocks dispatch, not editing.
+
 **An Encore-gated surface is refused rather than shot.** `openUiSurface` turns
 down a surface whose Encore Feature is off, and the driver treats that as a skip
 instead of photographing whatever is behind it. Concerto, Pianola, Plugins,
