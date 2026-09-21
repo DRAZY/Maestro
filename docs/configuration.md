@@ -177,7 +177,7 @@ Configure environment variables once in Settings and they automatically apply to
 3. Variables apply immediately to new agent sessions and terminals
 4. Click the eye button on a row to switch that variable off without deleting it
 
-The name field suggests as you type. It offers each provider's own variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, and so on) plus every name you have already set elsewhere in Maestro, so a variable you configured once on one agent is one keystroke away on the next. Pick with the arrow keys and `Enter`, or ignore the list and type any name you like.
+A new row starts with no name, and the name field opens straight onto the suggestions. It offers each provider's own variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, and so on) plus every name you have already set elsewhere in Maestro, so a variable you configured once on one agent is one keystroke away on the next. Type to narrow the list, pick with the arrow keys and `Enter`, or ignore it and type any name you like.
 
 ![Environment Variables](./screenshots/env-vars.png)
 

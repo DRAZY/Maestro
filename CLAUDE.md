@@ -129,8 +129,8 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Whether a surface is the topmost layer:** `useIsTopLayer(priority)`, `MODAL_PRIORITIES` in `src/renderer/hooks/ui/useIsTopLayer.ts`
 - **Who asked for this turn (interactive vs automation):** `QUERY_SOURCE_ENV_VAR`, `QuerySource` in `src/shared/querySource.ts`
 - **An agent's effective environment:** `resolveAgentEnvironment()`, `isSecretEnvKey()` in `src/shared/agentEnvironment.ts`
-- **Whether a configured env value means "unset":** `isBlankEnvValue()`, `stripBlankEnvVars()` in `src/shared/agentEnvironment.ts`
-- **Suggesting an env-var name:** `suggestEnvVarKeys()`, `PROVIDER_ENV_VAR_SUGGESTIONS` in `src/shared/envVarCatalog.ts`; `EnvVarKeyInput` in `src/renderer/components/shared/EnvVarKeyInput.tsx`
+- **Whether a configured env value means "unset":** `isBlankEnvValue()`, `isBlankEnvKey()`, `stripBlankEnvVars()` in `src/shared/agentEnvironment.ts`
+- **Suggesting an env-var name:** `suggestEnvVarKeys()`, `PROVIDER_ENV_VAR_SUGGESTIONS`, `withBlankEnvVarRow()` in `src/shared/envVarCatalog.ts`; `EnvVarKeyInput` in `src/renderer/components/shared/EnvVarKeyInput.tsx`
 - **Whether a login flow can fix an auth failure:** `classifyCredentialKind()`, `credentialKindBlocksLogin()` in `src/shared/providerAuthIdentity.ts`
 - **Typing a login command into a shell:** `formatAgentLoginCommand(login, syntax?)`, `loginShellSyntaxFor(shellId, isWindows)` in `src/shared/agentMetadata.ts`
 - **Bucketing Director's Notes bullets:** `bucketNarrativeItems()`, `shouldRenderBuckets()` in `src/shared/directorNotesGrouping.ts`

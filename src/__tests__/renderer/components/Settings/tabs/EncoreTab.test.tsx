@@ -750,8 +750,9 @@ describe('EncoreTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
+			// A new row is unnamed, so the record gains one blank-keyed entry.
 			expect(screen.getByTestId('agent-config-env-vars')).toHaveTextContent(
-				JSON.stringify({ NEW_VAR: '' })
+				JSON.stringify({ '': '' })
 			);
 		});
 
@@ -775,7 +776,7 @@ describe('EncoreTab', () => {
 			});
 
 			// The mock callback triggers onEnvVarKeyChange('OLD_KEY', 'NEW_KEY', 'value')
-			// but our env vars have 'NEW_VAR', so the callback will do:
+			// but our env vars hold only the unnamed row, so the callback will do:
 			// delete newVars['OLD_KEY'], set newVars['NEW_KEY'] = 'value'
 			fireEvent.click(screen.getByTestId('trigger-env-var-key-change'));
 
@@ -865,7 +866,7 @@ describe('EncoreTab', () => {
 
 			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith(
 				expect.objectContaining({
-					customEnvVars: { NEW_VAR: '' },
+					customEnvVars: { '': '' },
 				})
 			);
 		});

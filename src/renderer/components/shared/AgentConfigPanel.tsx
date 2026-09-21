@@ -28,6 +28,7 @@ import { useRemoteMaestroPAvailable } from '../../hooks/agent/useRemoteMaestroPA
 import { openUrl } from '../../utils/openUrl';
 import { logger } from '../../utils/logger';
 import { EnvVarKeyInput } from './EnvVarKeyInput';
+import { BLANK_ENV_VAR_KEY } from '../../../shared/envVarCatalog';
 import { useKnownEnvVarKeys } from '../../hooks/agent/useKnownEnvVarKeys';
 
 const MAESTRO_P_INSTALL_URL = 'https://runmaestro.ai/maestro-p/';
@@ -477,6 +478,10 @@ export function AgentConfigPanel({
 	const showMaestroPDetails = displayClaudeTokenMode !== 'api';
 	// Track which built-in env var tooltip is showing
 	const knownEnvVarKeys = useKnownEnvVarKeys();
+	// Set when the user presses "Add Variable", cleared once the new unnamed row
+	// has taken the caret. Not derived from "is this row blank": a blank row can
+	// also arrive from disk, and that one must not steal focus on modal open.
+	const [focusNewEnvVarRow, setFocusNewEnvVarRow] = useState(false);
 	const [showingTooltip, setShowingTooltip] = useState<string | null>(null);
 
 	// Track stable IDs for env var entries to prevent focus loss when keys change
@@ -945,6 +950,8 @@ export function AgentConfigPanel({
 									toolType={agent.id}
 									knownEnvVarKeys={knownEnvVarKeys}
 									usedKeys={envVarKeys}
+									autoFocus={focusNewEnvVarRow && key === BLANK_ENV_VAR_KEY}
+									onAutoFocused={() => setFocusNewEnvVarRow(false)}
 									className="p-2 rounded border bg-transparent outline-none text-xs font-mono"
 									style={{
 										borderColor: theme.colors.border,
@@ -989,6 +996,7 @@ export function AgentConfigPanel({
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
+							setFocusNewEnvVarRow(true);
 							onEnvVarAdd();
 						}}
 						className="flex items-center gap-1 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"

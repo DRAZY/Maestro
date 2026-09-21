@@ -236,6 +236,28 @@ describe('AgentConfigPanel', () => {
 			expect(screen.getByText('Add Variable')).toBeInTheDocument();
 		});
 
+		it('should focus the unnamed row and open its suggestions after Add Variable', () => {
+			// The parent owns the record, so simulate what it does: Add Variable
+			// fires the callback, the parent adds the unnamed row, we re-render.
+			const { rerender } = render(<AgentConfigPanel {...createDefaultProps()} />);
+
+			fireEvent.click(screen.getByText('Add Variable'));
+			rerender(<AgentConfigPanel {...createDefaultProps({ customEnvVars: { '': '' } })} />);
+
+			const keyInput = screen.getByTestId('env-var-key-input');
+			expect(keyInput).toHaveValue('');
+			expect(keyInput).toHaveFocus();
+			expect(screen.getByTestId('env-var-key-input-suggestions')).toBeInTheDocument();
+		});
+
+		it('should not focus an unnamed row that was already there on open', () => {
+			render(<AgentConfigPanel {...createDefaultProps({ customEnvVars: { '': '' } })} />);
+
+			// A blank row restored from disk is not something the user just asked
+			// for, so it must leave the caret where it was.
+			expect(screen.queryByTestId('env-var-key-input-suggestions')).not.toBeInTheDocument();
+		});
+
 		it('should display both built-in and custom env vars when showBuiltInEnvVars is true', () => {
 			const customEnvVars = {
 				CUSTOM_VAR: 'custom_value',

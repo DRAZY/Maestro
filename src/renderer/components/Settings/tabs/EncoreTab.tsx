@@ -36,6 +36,7 @@ import { SYMPHONY_REGISTRY_URL } from '../../../../shared/symphony-constants';
 import { DEFAULT_CUE_SETTINGS, type CueSettings } from '../../../../shared/cue';
 import { IDEAL_END_STATE_MAX_LENGTH } from '../../../../shared/directorNotesEndState';
 import { cueService } from '../../../services/cue';
+import { withBlankEnvVarRow } from '../../../../shared/envVarCatalog';
 
 export interface EncoreTabProps {
 	theme: Theme;
@@ -1232,13 +1233,7 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 												ac.setCustomEnvVars(newVars);
 											}}
 											onEnvVarAdd={() => {
-												let newKey = 'NEW_VAR';
-												let counter = 1;
-												while (ac.customEnvVars[newKey]) {
-													newKey = `NEW_VAR_${counter}`;
-													counter++;
-												}
-												ac.setCustomEnvVars({ ...ac.customEnvVars, [newKey]: '' });
+												ac.setCustomEnvVars(withBlankEnvVarRow(ac.customEnvVars));
 											}}
 											onEnvVarsBlur={persistDnCustomConfig}
 											agentConfig={ac.agentConfig}
