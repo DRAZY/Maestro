@@ -38,7 +38,7 @@ const { SHOTS, SETTLE_MS } = require('./shots');
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_THEMES = ['dracula', 'catppuccin-latte', 'pedurple'];
 /**
- * Logical window size for the published set, 4608x2720 at 2x.
+ * Logical window size for the published set, 4960x2800 at 2x.
  *
  * Sized so the main window still has room after the side panels are given the
  * width their own layout gates ask for (see the seed's `leftSidebarWidth` /
@@ -51,7 +51,7 @@ const DEFAULT_THEMES = ['dracula', 'catppuccin-latte', 'pedurple'];
  * the whole set comes out small. `assertViewport` below turns that into an
  * error rather than a surprise.
  */
-const DEFAULT_SIZE = '2304x1360';
+const DEFAULT_SIZE = '2480x1400';
 const DEFAULT_OUT = path.join(ROOT, 'docs', 'screenshots');
 const CDP_PORT = process.env.MAESTRO_CDP_PORT || '17399';
 /** How long to wait for the app to boot far enough to answer CDP. */

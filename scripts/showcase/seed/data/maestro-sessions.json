@@ -105,7 +105,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.048
 					},
-					"hasUnread": false
+					"hasUnread": true
 				}
 			],
 			"activeTabId": "00000000-0000-4000-a000-000000000004",
@@ -468,7 +468,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.051
 					},
-					"hasUnread": false
+					"hasUnread": true
 				}
 			],
 			"activeTabId": "00000000-0000-4000-a000-000000000016",
@@ -684,7 +684,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.055
 					},
-					"hasUnread": false
+					"hasUnread": true
 				}
 			],
 			"activeTabId": "00000000-0000-4000-a000-000000000022",
@@ -934,7 +934,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.27
 					},
-					"hasUnread": false
+					"hasUnread": true
 				},
 				{
 					"id": "00000000-0000-4000-a000-000000000030",
@@ -1051,7 +1051,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.35
 					},
-					"hasUnread": false
+					"hasUnread": true
 				}
 			],
 			"activeTabId": "00000000-0000-4000-a000-000000000034",
@@ -1173,7 +1173,7 @@
 						"contextWindow": 1000000,
 						"totalCostUsd": 0.065
 					},
-					"hasUnread": false
+					"hasUnread": true
 				}
 			],
 			"activeTabId": "00000000-0000-4000-a000-00000000003e",
