@@ -7,7 +7,7 @@
  * never `.json`. The seed under `scripts/showcase/seed/data/` is therefore
  * unguarded by everything except Prettier, which only checks whitespace.
  *
- * Two failures this catches, both of which have already happened once:
+ * Three failures this catches, the first two of which have already happened:
  *
  * 1. A queued item that is not held. `useQueueProcessing` drains any agent that
  *    is `idle` with a runnable item on the first render after the session load,
@@ -17,6 +17,9 @@
  *    photographed transcript.
  * 2. An em or en dash in seed text. Every string in here is rendered into the
  *    published screenshot set, so it is UI copy by the time anyone sees it.
+ * 3. An unread flag the shutter never sees. Unread is the one ephemeral-looking
+ *    marker that survives the seed load, so the set depends on it - but it is
+ *    cleared by the very act of rendering the tab it sits on.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -38,15 +41,23 @@ interface SeedQueueItem {
 	command?: string;
 }
 
+interface SeedAiTab {
+	id: string;
+	name?: string;
+	hidden?: boolean;
+	hasUnread?: boolean;
+}
+
 interface SeedSession {
 	id: string;
 	name: string;
+	activeTabId?: string;
 	executionQueue?: SeedQueueItem[];
-	aiTabs?: { id: string; name?: string }[];
+	aiTabs?: SeedAiTab[];
 }
 
 const seedRaw = readFileSync(SESSIONS_SEED, 'utf8');
-const seed = JSON.parse(seedRaw) as { sessions: SeedSession[] };
+const seed = JSON.parse(seedRaw) as { sessions: SeedSession[]; activeSessionId?: string };
 const sessionsWithQueue = seed.sessions.filter((s) => (s.executionQueue ?? []).length > 0);
 const allQueued = seed.sessions.flatMap((s) => s.executionQueue ?? []);
 
@@ -95,6 +106,44 @@ describe('showcase seed: execution queue', () => {
 	it('uses unique item ids', () => {
 		const ids = allQueued.map((item) => item.id);
 		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
+describe('showcase seed: unread tabs', () => {
+	const unreadTabs = seed.sessions.flatMap((session) =>
+		(session.aiTabs ?? []).filter((tab) => tab.hasUnread === true).map((tab) => ({ session, tab }))
+	);
+
+	it('seeds unread somewhere', () => {
+		// Session restoration resets `state`, `thinkingStartTime` and
+		// `isGeneratingName` but never touches `hasUnread`, which is what makes
+		// this the one live-looking marker the rig can stage. With none of it the
+		// Left Bar dots, the tab-strip bell and the unread filter all photograph
+		// as a product nobody is using.
+		expect(unreadTabs.length).toBeGreaterThan(0);
+	});
+
+	it('never marks a hidden tab unread', () => {
+		// A hidden tab draws no chip, so a badge lit by one can never be cleared:
+		// the agent opens, every visible tab is already read, and the dot stays.
+		// `hasUnreadVisibleTab` filters these out anyway, so the flag is pure
+		// noise here - but it is noise that reads as a real state in review.
+		const hidden = unreadTabs.filter(({ tab }) => tab.hidden === true);
+		expect(hidden.map(({ session, tab }) => `${session.name}: ${tab.name ?? tab.id}`)).toEqual([]);
+	});
+
+	it('keeps unread off the tab the shutter is pointed at', () => {
+		// The active agent's active tab is rendered before the shutter fires, and
+		// rendering it is what clears its unread. Seeding the flag there stages a
+		// badge that is gone by the time the image is taken, so the shot silently
+		// loses what it was seeded for. Background tabs on the same agent, and
+		// the active tab of any OTHER agent, are both safe and both in use here.
+		const active = seed.sessions.find((session) => session.id === seed.activeSessionId);
+		expect(active).toBeDefined();
+		const doomed = (active?.aiTabs ?? []).filter(
+			(tab) => tab.hasUnread === true && tab.id === active?.activeTabId
+		);
+		expect(doomed.map((tab) => tab.name ?? tab.id)).toEqual([]);
 	});
 });
 

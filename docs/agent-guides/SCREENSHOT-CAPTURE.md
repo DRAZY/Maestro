@@ -43,7 +43,7 @@ npm run capture:showcase -- --cwd /Users/maestro/Projects/Maestro
 | Flag           | Default                             | What it does                                                              |
 | -------------- | ----------------------------------- | ------------------------------------------------------------------------- |
 | `--themes`     | `dracula,catppuccin-latte,pedurple` | Comma-separated theme ids from `THEMES` in `src/shared/themes.ts`.        |
-| `--size`       | `2304x1360`                         | Logical window size. The published set is this, which is 4608x2720 at 2x. |
+| `--size`       | `2480x1400`                         | Logical window size. The published set is this, which is 4960x2800 at 2x. |
 | `--only`       | all                                 | Comma-separated shot names from `shots.js`.                               |
 | `--out`        | `docs/screenshots`                  | Output directory.                                                         |
 | `--cwd`        | this checkout                       | Working directory the demo agents point at (see below).                   |
@@ -83,7 +83,7 @@ JSON, so retuning the Default face moves the published set on the next run.
 Pass `--typography hacker` to shoot the monospace look deliberately.
 
 **The seed widens both side panels, deliberately.** `leftSidebarWidth` and
-`rightPanelWidth` in the seed settings are 380 and 520 against app defaults of
+`rightPanelWidth` in the seed settings are 470 and 575 against app defaults of
 256 and 384. The app's defaults are the MINIMUM each panel supports, and at the
 minimum both are visibly degraded in ways that photograph badly: the Left Bar
 drops the MAESTRO wordmark entirely (it renders in full or not at all, so there
@@ -109,7 +109,7 @@ not an emulated viewport, so a window larger than the screen is clamped by the
 window manager and every image comes out undersized while the run still reports
 success. `assertViewport` reads `innerWidth`/`innerHeight` once the shell has
 painted and fails the theme when they disagree with `--size`, and the run logs
-the viewport it got. `2304x1360` needs a display of at least about 2560x1440
+the viewport it got. `2480x1400` needs a display of at least about 2560x1440
 logical; pass a smaller `--size` on a laptop panel rather than letting it clamp.
 
 **The seeded execution queue is HELD, and it has to be.** Twelve items are
