@@ -136,6 +136,13 @@ grouping, the model and effort pills, Send Now, and the edit / reorder / delete
 user can genuinely reach. Editing a queued message from the showcase app works
 normally - pausing blocks dispatch, not editing.
 
+`src/__tests__/shared/showcaseSeed.test.ts` holds the seed to that: every item
+paused, the queue spread over more than one agent, every `tabId` resolving to a
+real AI tab, and no em or en dash anywhere in the file. Nothing else reaches
+this data - `scripts/` is in ESLint's global `ignores`, the dash-only pass
+matches `.mjs` / `.js` / `.cjs` and never `.json`, and Prettier checks only
+whitespace.
+
 **An Encore-gated surface is refused rather than shot.** `openUiSurface` turns
 down a surface whose Encore Feature is off, and the driver treats that as a skip
 instead of photographing whatever is behind it. Concerto, Pianola, Plugins,
