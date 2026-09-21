@@ -129,9 +129,56 @@ Maestro lifts its splash from inside a double rAF. The first launch of a run
 comes to the front on its own and every launch after it opens behind your
 terminal, so themes two and three used to load completely and then sit on the
 splash until the driver gave up. The driver calls `Page.bringToFront` on every
-readiness poll and before every shot. Practically: the run owns your screen
-while it is going, and a single-theme run is not evidence that a full one
-works.
+readiness poll and before every shot, and that is still not enough on its own:
+whether macOS honors it depends on what else grabs focus during a 20-minute
+run. So once the Left Bar has rendered with the splash still up, the driver
+waits `SPLASH_GRACE_MS` and then calls the app's own `window.__hideSplash()` -
+the function the rAF callback would have called, whose internals are timer- and
+promise-driven rather than rAF-driven. It only ever reveals a shell that has
+already rendered. Practically: the run owns your screen while it is going, and
+a single-theme run is not evidence that a full one works.
+
+**Every shot presses Escape first, including the ones that open a surface.**
+Only the full-window DESTINATION modals close each other; everything else
+LAYERS. A run that opened one surface per shot without clearing the last one
+accumulated a stack and photographed whichever modal happened to sit on top, so
+eleven shots in one run came back byte-identical to four others. Nothing
+errored: the bridge answers `success: true` for a modal that opens behind
+another, which is why the run reported a full set while filing the same picture
+under several names. It is also what made `--tab` look broken on Cue - the
+modal was already mounted, so the deep-link had nothing to do.
+
+---
+
+## What this set does NOT cover
+
+The shot list reaches every surface in `UI_SURFACES`, and that registry holds
+MODALS. A large share of what the docs and the website publish is not a modal
+but an app STATE - a file tab open on a CSV, a terminal tab, a git log, a group
+chat, the composer in command mode - and `open_modal` cannot express any of
+them. Reaching those needs two things this rig does not have yet: seed data
+that contains them (the seeded fleet has AI tabs and nothing else, no
+`cue.yaml`, no `stats.db`) and a shot verb that can drive the app into a state.
+
+Known gaps, all currently published somewhere:
+
+| View                                                     | Why it is out of reach                 |
+| -------------------------------------------------------- | -------------------------------------- |
+| `tabs-code`, `tabs-csv`, `tabs-json-jq`, `tabs-markdown` | no file tabs in the seed               |
+| `tabs-terminal`, `tabs-browser`                          | no terminal/browser tabs               |
+| `git-diff`, `git-logs`                                   | not in `UI_SURFACES`                   |
+| `group-chat`, `group-chat-over-ssh`                      | a view, not a modal                    |
+| `document-graph`                                         | destination lives outside the registry |
+| `command-interpreter`                                    | composer state                         |
+| `chat-code-latex`, `chat-mermaid`                        | transcript content                     |
+| `achievements`                                           | not in `UI_SURFACES`                   |
+| `autorun-1`, `autorun-2`                                 | Right Bar tab, no playbook seeded      |
+| `wizard-inline`                                          | inline wizard state                    |
+| `mobile-chat`, `mobile-groups`, `mobile-history`         | web-desktop at a phone viewport        |
+
+Separately, most of `docs/screenshots/` is CROPS rather than full windows (95
+of 113 at the last audit): a toolbar strip, a right-click menu, a settings row.
+Those are deliberate and this rig does not try to reproduce them.
 
 ---
 
