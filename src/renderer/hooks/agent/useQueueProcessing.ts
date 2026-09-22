@@ -5,6 +5,7 @@
  *   - Delegates queued item execution to agentStore
  *   - Maintains processQueuedItemRef for batch exit handler
  *   - Recovers stuck queued items from previous app session on startup
+ *   - Polls a stuck queue back to life (see QUEUE_DRAIN_RECHECK_MS)
  *
  * Reads from: sessionStore (sessionsLoaded, sessions), agentStore, settingsStore
  */
@@ -60,6 +61,22 @@ export interface UseQueueProcessingReturn {
 	>;
 }
 
+/**
+ * How long to wait before looking at an idle-but-still-queued agent again.
+ *
+ * Every trigger that drains the queue is an EDGE: a process exits, a session
+ * flips to idle, a retry clears. Every bail inside `dispatchQueuedItem` is a
+ * re-check of live state that changes nothing - so when a pass bails, no edge
+ * follows and the queue sits there forever with the agent idle. That is how a
+ * user ends up mashing Send (or Recover Session) and watching the queue count
+ * climb while nothing runs.
+ *
+ * So the last word is a poll, not an edge. While any agent is idle holding a
+ * runnable item, look again on this interval until it drains or the user
+ * removes it. Long enough to be free, short enough that a stall is a blip.
+ */
+const QUEUE_DRAIN_RECHECK_MS = 4000;
+
 // ============================================================================
 // Hook implementation
 // ============================================================================
@@ -109,12 +126,18 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 
 	// Dequeue the first item from a session and dispatch it for processing.
 	// Shared by startup recovery and runtime queue recovery.
+	//
+	// Returns whether the item was actually taken. Every `return false` below is
+	// a bail on live state (a retry hold, a tab that is still mid-turn, a queue
+	// another trigger already drained) and none of them mutate anything, so the
+	// caller gets no follow-up edge to fire on - it has to schedule its own look
+	// back. `drainIdleQueues` does exactly that.
 	const dispatchQueuedItem = useCallback(
-		(session: { id: string; executionQueue: QueuedItem[] }) => {
+		(session: { id: string; executionQueue: QueuedItem[] }): boolean => {
 			// Skip paused items: dispatch the first runnable one. If all items are
 			// held, there's nothing to do.
 			const firstItem = nextRunnableQueueItem(session.executionQueue);
-			if (!firstItem) return;
+			if (!firstItem) return false;
 
 			// Agent Resilience owns the queue while a retry counts down. The exit path
 			// already holds it (chooseNextQueuedItem returns 'wait'), which leaves the
@@ -126,7 +149,7 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 			// whole agent dry in seconds and left the user re-typing every one of them.
 			// Hold instead; the queue drains in order once the retry lands.
 			if (queueIsHeldByRetry(session, undefined, (tabId) => hasPendingRetry(session.id, tabId))) {
-				return;
+				return false;
 			}
 
 			// Whether the dequeue below actually took the item, and onto which tab.
@@ -206,7 +229,7 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 			// second turn on a tab that already has one, so the item stays queued and
 			// this recovery pass does nothing - the next trigger picks it up.
 			const dispatchedOntoTabId: string | null = dequeuedOntoTabId;
-			if (!dispatchedOntoTabId) return;
+			if (!dispatchedOntoTabId) return false;
 
 			// Process the item
 			processQueuedItem(session.id, firstItem).catch((err) => {
@@ -242,8 +265,63 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 					})
 				);
 			});
+			return true;
 		},
 		[processQueuedItem, setSessions]
+	);
+
+	// --- Stuck-queue watchdog ---
+	//
+	// One pass over every agent that is idle while still holding a runnable
+	// item, plus a scheduled look back whenever a pass leaves one behind. The
+	// look-back is the point: see QUEUE_DRAIN_RECHECK_MS.
+	const drainRecheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const drainIdleQueuesRef = useRef<() => void>(() => {});
+
+	// The head item each agent was last reported stuck on, so a queue that is
+	// legitimately held (an Agent Resilience countdown, say) is logged once
+	// rather than on every poll.
+	const loggedStuckHeadRef = useRef<Map<string, string>>(new Map());
+
+	const drainIdleQueues = useCallback(() => {
+		let stillStuck = false;
+
+		for (const session of useSessionStore.getState().sessions) {
+			if (session.state !== 'idle' || !hasRunnableQueueItem(session.executionQueue ?? [])) continue;
+			const head = nextRunnableQueueItem(session.executionQueue);
+			if (loggedStuckHeadRef.current.get(session.id) !== head?.id) {
+				loggedStuckHeadRef.current.set(session.id, head?.id ?? '');
+				logger.info(
+					`[QueueProcessing] Draining stuck queue for session ${session.id.substring(0, 8)}`,
+					undefined,
+					{
+						id: head?.id,
+						tabId: head?.tabId,
+						queueLength: session.executionQueue.length,
+					}
+				);
+			}
+			if (!dispatchQueuedItem(session)) stillStuck = true;
+		}
+
+		// A bail changes no state, so nothing will call us back. Keep the poll
+		// alive until the item runs or the user takes it out of the queue.
+		if (stillStuck && !drainRecheckTimerRef.current) {
+			drainRecheckTimerRef.current = setTimeout(() => {
+				drainRecheckTimerRef.current = null;
+				drainIdleQueuesRef.current();
+			}, QUEUE_DRAIN_RECHECK_MS);
+		}
+	}, [dispatchQueuedItem]);
+
+	drainIdleQueuesRef.current = drainIdleQueues;
+
+	useEffect(
+		() => () => {
+			if (drainRecheckTimerRef.current) clearTimeout(drainRecheckTimerRef.current);
+			drainRecheckTimerRef.current = null;
+		},
+		[]
 	);
 
 	// Process any queued items left over from previous session (after app restart)
@@ -255,37 +333,21 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 		if (!sessionsLoaded || startupRecoveryRan.current) return;
 		startupRecoveryRan.current = true;
 
-		const sessionsWithQueuedItems = sessions.filter(
-			(s) => s.state === 'idle' && hasRunnableQueueItem(s.executionQueue ?? [])
-		);
-
-		if (sessionsWithQueuedItems.length > 0) {
-			logger.info(
-				`[QueueProcessing] Found ${sessionsWithQueuedItems.length} session(s) with leftover queued items from previous session`
-			);
-
-			// Delay to ensure all refs and handlers are set up
-			const startupTimerId = setTimeout(() => {
-				sessionsWithQueuedItems.forEach((session) => {
-					logger.info(
-						`[QueueProcessing] Startup recovery for session ${session.id.substring(0, 8)}:`,
-						undefined,
-						{
-							id: nextRunnableQueueItem(session.executionQueue)?.id,
-							tabId: nextRunnableQueueItem(session.executionQueue)?.tabId,
-							queueLength: session.executionQueue.length,
-						}
-					);
-					dispatchQueuedItem(session);
-				});
-				startupRecoveryComplete.current = true;
-			}, 500);
-			return () => clearTimeout(startupTimerId);
-		} else {
-			// No startup items to process - runtime recovery can start immediately
+		// Delay to ensure all refs and handlers are set up, then re-scan at fire
+		// time. The scan CANNOT close over the render's `sessions` snapshot and
+		// `sessions` CANNOT be a dependency here: an agent streaming output at
+		// launch mutates the store many times a second, every one of those re-runs
+		// this effect, the cleanup below kills the pending timer, and the guard
+		// above returns before a replacement is scheduled. `startupRecoveryComplete`
+		// then never flips, which silently disables runtime recovery for the rest of
+		// the app's life - queued messages pile up behind an idle agent and only a
+		// restart releases them.
+		const startupTimerId = setTimeout(() => {
+			drainIdleQueuesRef.current();
 			startupRecoveryComplete.current = true;
-		}
-	}, [sessionsLoaded, sessions, dispatchQueuedItem]);
+		}, 500);
+		return () => clearTimeout(startupTimerId);
+	}, [sessionsLoaded]);
 
 	// Runtime queue recovery: process queued items when sessions transition to idle
 	// while items remain in the queue. This handles cases where onExit skipped queue
@@ -293,19 +355,11 @@ export function useQueueProcessing(deps: UseQueueProcessingDeps): UseQueueProces
 	// user clears the error → session goes idle but nobody dispatches the queue).
 	useEffect(() => {
 		if (!sessionsLoaded || !startupRecoveryComplete.current) return;
-
-		for (const session of sessions) {
-			if (session.state === 'idle' && hasRunnableQueueItem(session.executionQueue ?? [])) {
-				console.log(
-					`[QueueProcessing] Runtime recovery — dispatching stuck item for session ${session.id.substring(0, 8)}, queue depth: ${session.executionQueue.length}`
-				);
-				dispatchQueuedItem(session);
-			}
-		}
+		drainIdleQueues();
 		// `retries` is not read here: it is a re-run trigger so a queue held by
 		// `dispatchQueuedItem`'s resilience check gets a fresh look the moment the
 		// retry that held it goes away.
-	}, [sessionsLoaded, sessions, retries, dispatchQueuedItem]);
+	}, [sessionsLoaded, sessions, retries, drainIdleQueues]);
 
 	return {
 		processQueuedItem,
