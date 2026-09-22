@@ -3,7 +3,6 @@ import {
 	SshRemoteManager,
 	sshRemoteManager,
 	SshRemoteManagerDeps,
-	detectNonPosixRemoteShell,
 } from '../../main/ssh-remote-manager';
 import { SshRemoteConfig } from '../../shared/types';
 import { ExecResult } from '../../main/utils/execFile';
@@ -374,6 +373,9 @@ describe('SshRemoteManager', () => {
 			expect(result.error).toContain('DefaultShell');
 			// The PowerShell noise must not leak into the user-facing message
 			expect(result.error).not.toContain('ParserError');
+			// The UI renders the fix from the structured form, not the sentence
+			expect(result.remediation?.code).toBe('non-posix-remote-shell');
+			expect(result.remediation?.command).toContain('DefaultShell');
 		});
 
 		it('names the remote generically when the hostname probe also fails', async () => {
@@ -403,6 +405,7 @@ describe('SshRemoteManager', () => {
 			expect(result.success).toBe(false);
 			expect(result.error).toContain('cmd.exe');
 			expect(result.error).toContain('PEDSIM');
+			expect(result.remediation?.code).toBe('non-posix-remote-shell');
 			// A single round trip is enough: cmd already returned the hostname
 			expect(mockExecSsh).toHaveBeenCalledTimes(1);
 		});
@@ -520,31 +523,6 @@ describe('SshRemoteManager', () => {
 			// Should still work for validation
 			const result = partialManager.validateConfig(validConfig);
 			expect(result.valid).toBe(true);
-		});
-	});
-
-	describe('detectNonPosixRemoteShell', () => {
-		it('identifies the PowerShell 5.1 rejection of &&', () => {
-			expect(
-				detectNonPosixRemoteShell(
-					"The token '&&' is not a valid statement separator in this version."
-				)
-			).toBe('powershell');
-		});
-
-		it('identifies a bare PowerShell error record', () => {
-			expect(detectNonPosixRemoteShell('+ FullyQualifiedErrorId : InvalidEndOfLine')).toBe(
-				'powershell'
-			);
-		});
-
-		it('identifies cmd.exe syntax complaints', () => {
-			expect(detectNonPosixRemoteShell('hostname was unexpected at this time.')).toBe('cmd');
-		});
-
-		it('leaves ordinary SSH failures alone', () => {
-			expect(detectNonPosixRemoteShell('Permission denied (publickey).')).toBeUndefined();
-			expect(detectNonPosixRemoteShell('')).toBeUndefined();
 		});
 	});
 });

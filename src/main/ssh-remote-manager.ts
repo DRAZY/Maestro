@@ -10,72 +10,10 @@ import { execFileNoThrow, ExecResult } from './utils/execFile';
 import { expandTilde } from '../shared/pathUtils';
 import { captureException } from './utils/sentry';
 import { getPathAccessCache, defaultReadableProbe } from './utils/path-access-cache';
-
-/**
- * Which non-POSIX shell answered the connection test, if any.
- */
-export type NonPosixRemoteShell = 'powershell' | 'cmd';
-
-/**
- * Signatures a Windows remote emits when its default OpenSSH shell rejects the
- * POSIX test command.
- *
- * Windows OpenSSH ships with cmd.exe as `DefaultShell` and is commonly switched
- * to Windows PowerShell 5.1, which has no `&&` operator (it arrived in
- * PowerShell 7). cmd.exe does understand `&&`, so it fails differently: it runs
- * the command but echoes the marker with its quotes intact, which the marker
- * check below catches.
- */
-const POWERSHELL_SHELL_SIGNATURES = [
-	'is not a valid statement separator in this version',
-	'the ampersand (&) character is not allowed',
-	'fullyqualifiederrorid',
-	'parsererror',
-];
-
-const CMD_SHELL_SIGNATURES = [
-	'was unexpected at this time',
-	'is not recognized as an internal or external command',
-];
-
-/**
- * Classify a failed test response as a Windows shell rejecting POSIX syntax.
- *
- * @param output Combined stdout/stderr from the failed test command
- * @returns The shell family that answered, or undefined if unrecognized
- */
-export function detectNonPosixRemoteShell(output: string): NonPosixRemoteShell | undefined {
-	const lower = output.toLowerCase();
-	if (POWERSHELL_SHELL_SIGNATURES.some((sig) => lower.includes(sig))) {
-		return 'powershell';
-	}
-	if (CMD_SHELL_SIGNATURES.some((sig) => lower.includes(sig))) {
-		return 'cmd';
-	}
-	return undefined;
-}
-
-/**
- * The failure message for a reachable host whose default SSH shell is not POSIX.
- *
- * Authentication and networking are fine in this case, so reporting a raw
- * PowerShell parser dump (or "Unexpected response from remote host") sends the
- * user hunting for a key or firewall problem that does not exist. Remote agent
- * execution pipes a POSIX script into `/bin/bash`, so the only fix is changing
- * the remote's shell.
- *
- * @param shell The shell family detected on the remote
- * @param hostname Remote hostname if the probe recovered one
- */
-export function nonPosixRemoteShellMessage(shell: NonPosixRemoteShell, hostname?: string): string {
-	const shellName = shell === 'powershell' ? 'Windows PowerShell' : 'cmd.exe';
-	const target = hostname ? `Connected to ${hostname}, but its` : 'Connected, but the remote';
-	return (
-		`${target} default SSH shell is ${shellName}. Maestro runs remote agents by piping ` +
-		`a POSIX script into /bin/bash, which Windows shells cannot execute. Set the remote's ` +
-		`OpenSSH DefaultShell to a POSIX shell (Git Bash or WSL bash) and test again.`
-	);
-}
+import {
+	detectNonPosixRemoteShell,
+	nonPosixRemoteShellRemediation,
+} from '../shared/sshRemoteShell';
 
 /**
  * Validation result for SSH remote configuration.
@@ -244,10 +182,11 @@ export class SshRemoteManager {
 				// rather than surfacing the PowerShell parser dump as a connection error.
 				const shell = detectNonPosixRemoteShell(`${result.stdout}\n${result.stderr}`);
 				if (shell) {
-					return {
-						success: false,
-						error: nonPosixRemoteShellMessage(shell, await this.probeHostname(config)),
-					};
+					const remediation = nonPosixRemoteShellRemediation(
+						shell,
+						await this.probeHostname(config)
+					);
+					return { success: false, error: remediation.detail, remediation };
 				}
 
 				// Parse common SSH error patterns
@@ -262,10 +201,8 @@ export class SshRemoteManager {
 				// cmd.exe honors `&&` but does not strip the quotes around the marker,
 				// so a quoted marker identifies the shell rather than a broken host.
 				if (lines[0] === '"SSH_OK"') {
-					return {
-						success: false,
-						error: nonPosixRemoteShellMessage('cmd', lines[1] || undefined),
-					};
+					const remediation = nonPosixRemoteShellRemediation('cmd', lines[1] || undefined);
+					return { success: false, error: remediation.detail, remediation };
 				}
 				return { success: false, error: 'Unexpected response from remote host' };
 			}

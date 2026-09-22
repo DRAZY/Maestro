@@ -995,6 +995,17 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 			recoverable: true,
 		},
 		{
+			// Windows remote: OpenSSH handed our POSIX script to PowerShell or cmd.exe.
+			// Neither can run `/bin/bash`, so the turn dies with shell noise that
+			// reads like a missing binary. It is a host configuration problem, and
+			// no amount of retrying or reinstalling the agent will move it.
+			pattern:
+				/['"]?\/bin\/bash['"]?\s+is not recognized|the term ['"]\/bin\/bash['"] is not recognized|is not a valid statement separator in this version/i,
+			message:
+				"Remote SSH shell is a Windows shell (PowerShell or cmd.exe), which cannot run /bin/bash. Point the remote's OpenSSH DefaultShell at Git Bash or WSL bash.",
+			recoverable: false,
+		},
+		{
 			// Shell parse error - indicates profile/rc file syntax issues on the remote
 			// zsh format: "zsh:35: parse error near `do'"
 			// bash format: "bash: line 35: syntax error near unexpected token `do'"
