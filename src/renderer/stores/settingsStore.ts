@@ -740,7 +740,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get, api) => {
 		defaultSaveToHistory: true,
 		synopsisDebounceSeconds: 0,
 		defaultShowThinking: 'off',
-		showToolCalls: true,
+		showToolCalls: false,
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
 		modalSizes: {},
