@@ -17,8 +17,9 @@ import fs from 'fs';
  *   handler, into the main-process uncaught-exception handler.
  *
  * The spawn is reported as successful, the pty is a zombie with no inner pid,
- * and whatever wanted the process asks again. One field installation produced
- * roughly 995 of those crashes an hour that way.
+ * and whatever wanted the process asks again. Sentry grouped 998 of these
+ * crashes under one issue (MAESTRO-S0), 995 of them from a single installation
+ * relaunching into the same missing directory.
  *
  * POSIX is better behaved (child_process emits a catchable ENOENT), but a
  * missing directory is equally not-runnable there, so the check is unconditional.
