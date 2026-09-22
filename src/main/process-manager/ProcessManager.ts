@@ -18,7 +18,8 @@ import { SshCommandRunner } from './runners/SshCommandRunner';
 import { logger } from '../utils/logger';
 import { isWindows } from '../../shared/platformDetection';
 import { expandTilde } from '../../shared/pathUtils';
-import type { SshRemoteConfig } from '../../shared/types';
+import type { AgentError, SshRemoteConfig } from '../../shared/types';
+import { unusableCwdReason } from './utils/spawnCwd';
 import { getDefaultShell } from '../stores/defaults';
 import { captureException } from '../utils/sentry';
 import { killPty } from './utils/commandKill';
@@ -73,6 +74,32 @@ export class ProcessManager extends EventEmitter {
 			if (expandedCwd !== config.cwd) {
 				config = { ...config, cwd: expandedCwd };
 			}
+		}
+
+		// Refuse a working directory that is not there, rather than handing it to
+		// the OS. node-pty's Windows path throws ERROR_DIRECTORY asynchronously
+		// from a callback nothing can catch, which crashes the main process and
+		// leaves the caller retrying - see utils/spawnCwd.ts for the full trace.
+		//
+		// Failing is the right answer rather than falling back to the home
+		// directory: an agent silently pointed at the wrong tree would read and
+		// edit files nobody asked it to.
+		const cwdProblem = unusableCwdReason(config.cwd);
+		if (cwdProblem) {
+			logger.error(`[ProcessManager] Refusing to spawn: ${cwdProblem}`, 'ProcessManager', {
+				sessionId: config.sessionId,
+				toolType: config.toolType,
+				cwd: config.cwd,
+			});
+			this.emit('agent-error', config.sessionId, {
+				type: 'unknown',
+				message: cwdProblem,
+				recoverable: false,
+				agentId: config.toolType,
+				sessionId: config.sessionId,
+				timestamp: Date.now(),
+			} satisfies AgentError);
+			return { pid: -1, success: false };
 		}
 
 		// Kill any existing process for this sessionId to prevent orphans.
