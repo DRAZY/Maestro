@@ -538,6 +538,16 @@ const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 	// longer than it needed to. When a line carries both signals, quota wins.
 	rate_limited: [
 		{
+			// Matches: "Your workspace is out of credits. Add credits to continue."
+			// Codex's wording once a plan window AND the workspace's credit fallback
+			// are both spent. Without this it fell through to type `unknown`, which
+			// every path that asks "is this a limit?" by type ignores - only the
+			// retry scheduler's own text match still recognised it.
+			pattern: /out of credits|insufficient credits|add (?:more )?credits to continue/i,
+			message: 'Your workspace is out of credits. Resume when your plan quota resets.',
+			recoverable: true,
+		},
+		{
 			// Matches: "You've hit your usage limit" or "usage limit reached/exceeded"
 			pattern: /usage.?limit|hit your.*limit/i,
 			message: 'Usage limit reached. Please wait or check your plan quota.',
