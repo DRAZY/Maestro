@@ -1382,7 +1382,9 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 								Check for updates automatically
 							</div>
 							<div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-								Check for new Maestro versions on startup and once per day while the app is running
+								Check for new Maestro versions on startup and once per day while the app is running.
+								Also sends an anonymous check-in (a random install ID, app version, OS, and theme)
+								so we can count active installs. Turning this off disables both.
 							</div>
 						</div>
 						<ToggleSwitch
