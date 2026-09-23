@@ -20,6 +20,8 @@ import { useUIStore } from '../../../renderer/stores/uiStore';
 import type { Session, Theme, BatchRunState, AITab, ThinkingItem } from '../../../renderer/types';
 import { createMockAITab as createBaseMockAITab } from '../../helpers/mockTab';
 import { createMockSession } from '../../helpers/mockSession';
+import { useBatchStore } from '../../../renderer/stores/batchStore';
+import { useSessionStore } from '../../../renderer/stores/sessionStore';
 
 import { mockTheme } from '../../helpers/mockTheme';
 // Mock theme for tests
@@ -1712,6 +1714,106 @@ describe('ThinkingStatusPill', () => {
 			);
 
 			expect(screen.getAllByText('Custom Named Session').length).toBeGreaterThan(0);
+		});
+	});
+
+	describe('Auto Runs on other agents', () => {
+		const backgroundRun: BatchRunState = {
+			isRunning: true,
+			isPaused: false,
+			isStopping: false,
+			currentTaskIndex: 0,
+			totalTasks: 93,
+			completedTasks: 18,
+			startTime: Date.now() - 60_000,
+			tasks: [],
+			batchName: 'Batch',
+		};
+
+		beforeEach(() => {
+			useSessionStore.setState({
+				sessions: [
+					createMockSession({ id: 'viewed', name: 'Viewed Agent' }),
+					createMockSession({ id: 'asm', name: 'ASM Bots' }),
+				],
+			});
+			useBatchStore.setState({ batchRunStates: { asm: backgroundRun } });
+		});
+
+		afterEach(() => {
+			useBatchStore.setState({ batchRunStates: {} });
+			useSessionStore.setState({ sessions: [] });
+		});
+
+		it("counts another agent's Auto Run in the +N badge and lists it in the dropdown", () => {
+			const onSessionClick = vi.fn();
+			const thinking = createThinkingItem({ id: 'kensho', name: 'Kensho' });
+			render(
+				<ThinkingStatusPill
+					thinkingItems={[thinking]}
+					theme={mockTheme}
+					activeSessionId="viewed"
+					onSessionClick={onSessionClick}
+				/>
+			);
+
+			const indicator = screen.getByText('+1').parentElement!;
+			fireEvent.mouseEnter(indicator);
+
+			expect(screen.getByText('Running Processes')).toBeInTheDocument();
+			expect(screen.getByText('18/93 tasks')).toBeInTheDocument();
+			fireEvent.click(screen.getByText('ASM Bots'));
+			expect(onSessionClick).toHaveBeenCalledWith('asm');
+		});
+
+		it('shows a named Auto Run pill with no Stop when that run is the only work', () => {
+			const onSessionClick = vi.fn();
+			render(
+				<ThinkingStatusPill
+					thinkingItems={[]}
+					theme={mockTheme}
+					activeSessionId="viewed"
+					onSessionClick={onSessionClick}
+					onStopAutoRun={() => {}}
+					onInterrupt={() => {}}
+				/>
+			);
+
+			expect(screen.getByText('AutoRun')).toBeInTheDocument();
+			expect(screen.getByText('18/93')).toBeInTheDocument();
+			expect(screen.queryByText('Stop')).not.toBeInTheDocument();
+			fireEvent.click(screen.getByTitle('Go to ASM Bots'));
+			expect(onSessionClick).toHaveBeenCalledWith('asm');
+		});
+
+		it("does not repeat the viewed agent's own Auto Run as a background run", () => {
+			const { container } = render(
+				<ThinkingStatusPill thinkingItems={[]} theme={mockTheme} activeSessionId="asm" />
+			);
+			expect(container.firstChild).toBeNull();
+		});
+
+		it("adds background runs to the viewed agent's Auto Run pill badge", () => {
+			render(
+				<ThinkingStatusPill
+					thinkingItems={[]}
+					theme={mockTheme}
+					activeSessionId="viewed"
+					autoRunState={{ ...backgroundRun, totalTasks: 4, completedTasks: 1 }}
+				/>
+			);
+
+			expect(screen.getByText('+1')).toBeInTheDocument();
+			fireEvent.mouseEnter(screen.getByText('+1').parentElement!);
+			expect(screen.getByText('ASM Bots')).toBeInTheDocument();
+		});
+
+		it('ignores a run whose agent no longer exists', () => {
+			useBatchStore.setState({ batchRunStates: { gone: backgroundRun } });
+			const { container } = render(
+				<ThinkingStatusPill thinkingItems={[]} theme={mockTheme} activeSessionId="viewed" />
+			);
+			expect(container.firstChild).toBeNull();
 		});
 	});
 });

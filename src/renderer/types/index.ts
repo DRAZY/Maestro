@@ -864,6 +864,15 @@ export interface ThinkingItem {
 	tab: AITab | null; // null for legacy sessions without tab-level tracking
 }
 
+// An Auto Run in progress on an agent other than the one being viewed. Auto Run
+// never marks a tab busy, so these are not ThinkingItems; the pill lists them
+// separately so work running elsewhere stays visible.
+export interface BackgroundAutoRun {
+	sessionId: string;
+	sessionName: string;
+	state: BatchRunState;
+}
+
 // Closed tab entry for undo functionality (Cmd+Shift+T)
 // Stores tab data with original position for restoration
 // This is the legacy interface for AI tabs only - kept for backwards compatibility

@@ -1409,8 +1409,10 @@ export function closeTab(
 	//   1. It was busy (an agent turn is mid-flight).
 	//   2. It has queued items waiting (a message the user already sent that should
 	//      still fire in the background - fire-and-forget).
-	// The pill picks orphans up alongside busy aiTabs. The agent exit/error
-	// listeners drop the orphan once its process is gone and its queue is drained.
+	// The pill picks up BUSY orphans alongside busy aiTabs (see buildThinkingItems
+	// in utils/thinkingItems.ts); a case-2 orphan idles until dispatch. The agent
+	// exit/error listeners drop the orphan once its process is gone and its queue
+	// is drained.
 	const closedTabWasBusy = tabToClose.state === 'busy';
 	const closedTabHasQueuedItems = (session.executionQueue ?? []).some(
 		(item) => item.tabId === tabId
