@@ -425,8 +425,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 			{/* QuitWhenIdleIndicator - sits above the thinking pill while a deferred quit is armed */}
 			<QuitWhenIdleIndicator theme={theme} />
 
-			{/* ThinkingStatusPill - only show in AI mode when there are thinking items or AutoRun */}
-			{session.inputMode === 'ai' && (thinkingItems.length > 0 || autoRunState?.isRunning) && (
+			{/* ThinkingStatusPill - AI mode only. It renders nothing when no work is running: it also
+			    watches Auto Runs on OTHER agents, which only it subscribes to. */}
+			{session.inputMode === 'ai' && (
 				<ThinkingStatusPill
 					thinkingItems={thinkingItems}
 					theme={theme}
