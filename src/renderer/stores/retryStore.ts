@@ -81,6 +81,12 @@ export interface RetryEntry {
 	nextRetryAt: number;
 	/** The failing message, for the countdown UI. */
 	lastMessage: string;
+	/**
+	 * Id of the failed turn parked at the head of its tab's queue for this
+	 * outage (see `holdFailedItemInQueue`). The queue card reads it to label that
+	 * item as the pending resend rather than a second copy of the message.
+	 */
+	heldItemId?: string;
 }
 
 /** Lifecycle of an outage as shown on its transcript status card. */
@@ -480,6 +486,14 @@ export function useRetryStatus(sessionId: string, tabId: string): RetryStatus | 
 }
 
 /**
+ * Whether this queued item is the failed turn an outage parked at the head of
+ * its tab's queue. Item ids are unique across agents, so no session is needed.
+ */
+export function useIsHeldRetryItem(itemId: string): boolean {
+	return useRetryStore((s) => Object.values(s.retries).some((e) => e.heldItemId === itemId));
+}
+
+/**
  * Whether the given agent+error should be auto-retried, honoring the per-agent
  * resilience toggles. Returns the strategy, or null to fall back to the modal.
  */
@@ -551,6 +565,7 @@ export function scheduleRetryForError(
 			: now + tokenExhaustionDelayMs(attempt, tokenExhaustionResetAt(error, now), now);
 
 	clearTimer(key);
+	const heldSnapshot = mode === 'resend' ? snapshots.get(key) : undefined;
 	const entry: RetryEntry = {
 		sessionId,
 		tabId,
@@ -563,6 +578,7 @@ export function scheduleRetryForError(
 		startedAt,
 		nextRetryAt,
 		lastMessage: error.message,
+		heldItemId: heldSnapshot?.item.id,
 	};
 	useRetryStore.getState().setEntry(key, entry);
 
@@ -570,10 +586,7 @@ export function scheduleRetryForError(
 	// that could run something else on this tab reads the queue, so this is what
 	// makes "finish the one that failed, then carry on in order" a property of
 	// the data rather than of whichever hold happens to still be set.
-	if (mode === 'resend') {
-		const snapshot = snapshots.get(key);
-		if (snapshot) holdFailedItemInQueue(sessionId, tabId, snapshot.item);
-	}
+	if (heldSnapshot) holdFailedItemInQueue(sessionId, tabId, heldSnapshot.item);
 
 	// Re-point the agent and the wait is over: see startProviderWatch.
 	startProviderWatch(key, sessionId);

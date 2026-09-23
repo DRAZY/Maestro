@@ -34,6 +34,8 @@ import { Modal, ModalFooter } from './ui/Modal';
 import { QueuedItemEditModal } from './QueuedItemEditModal';
 import { TurnSettingPills } from './ui/TurnSettingPills';
 import { MiniBadge } from './ui/MiniBadge';
+import { HeldForRetryBadge } from './HeldForRetryBadge';
+import { useIsHeldRetryItem } from '../stores/retryStore';
 import {
 	useQueueReorder,
 	useQueueRowDrag,
@@ -683,6 +685,7 @@ function QueueItemRow({
 
 	const isCommand = item.type === 'command';
 	const isWaitingForConnection = !!item.waitingForConnection;
+	const isHeldForRetry = useIsHeldRetryItem(item.id);
 	// Read up to the first 4k characters and let CSS line-clamp cap the card at
 	// three lines. The native ellipsis fills the space without wrapping past the
 	// card, so longer messages show as much as fits rather than a hard 100-char cut.
@@ -814,6 +817,7 @@ function QueueItemRow({
 							<Clock className="w-3 h-3" />
 							{timeDisplay}
 						</span>
+						{isHeldForRetry && <HeldForRetryBadge theme={theme} />}
 						{isPaused && <MiniBadge label="HELD" theme={theme} color={theme.colors.warning} />}
 						{isWaitingForConnection && (
 							<MiniBadge

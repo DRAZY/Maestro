@@ -12,6 +12,7 @@ import { ExecutionQueueBrowser } from '../../../renderer/components/ExecutionQue
 import type { Session, Theme, QueuedItem } from '../../../renderer/types';
 import { spyOnListeners, expectAllListenersRemoved } from '../../helpers/listenerLeakAssertions';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import { useRetryStore, type RetryEntry } from '../../../renderer/stores/retryStore';
 
 // Mock the LayerStackContext
 const mockRegisterLayer = vi.fn().mockReturnValue('layer-1');
@@ -879,6 +880,32 @@ describe('ExecutionQueueBrowser', () => {
 				'title',
 				'This message will run after Maestro reconnects'
 			);
+		});
+
+		it('labels the failed turn an outage parked in the queue', () => {
+			const held = createQueuedItem({ id: 'held-item' });
+			const session = createSession({ id: 'active-session', executionQueue: [held] });
+			useRetryStore.setState({
+				retries: {
+					'active-session:tab': { heldItemId: 'held-item' } as RetryEntry,
+				},
+			});
+			try {
+				render(
+					<ExecutionQueueBrowser
+						isOpen={true}
+						onClose={mockOnClose}
+						sessions={[session]}
+						activeSessionId="active-session"
+						theme={theme}
+						onRemoveItem={mockOnRemoveItem}
+						onSwitchSession={mockOnSwitchSession}
+					/>
+				);
+				expect(screen.getByTestId('held-for-retry-badge')).toHaveTextContent('Awaiting retry');
+			} finally {
+				useRetryStore.setState({ retries: {} });
+			}
 		});
 
 		it('should render up to 4k characters of message text and rely on CSS line-clamp for visual truncation', () => {

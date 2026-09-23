@@ -23,6 +23,8 @@ import { generateTerminalProseStyles } from '../utils/markdownConfig';
 import { QueuedItemEditModal } from './QueuedItemEditModal';
 import { TurnSettingPills } from './ui/TurnSettingPills';
 import { MiniBadge } from './ui/MiniBadge';
+import { HeldForRetryBadge } from './HeldForRetryBadge';
+import { useIsHeldRetryItem } from '../stores/retryStore';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { useEventListener } from '../hooks/utils/useEventListener';
 import { useUIStore } from '../stores/uiStore';
@@ -529,6 +531,7 @@ function QueuedItemRow({
 	const isCommand = item.type === 'command';
 	const isPaused = !!item.paused;
 	const isWaitingForConnection = !!item.waitingForConnection;
+	const isHeldForRetry = useIsHeldRetryItem(item.id);
 	const displayText = isCommand ? (item.command ?? '') : (item.text ?? '');
 	const hiddenChars = Math.max(0, displayText.length - QUEUE_PREVIEW_CHARS);
 	// Only collapse when collapsing actually buys back screen: a message that is a
@@ -573,8 +576,9 @@ function QueuedItemRow({
 				{/* Drag handle - only show when draggable */}
 				{canDrag && <QueueDragHandle theme={theme} visible={showDragReady || showGrabbed} />}
 
-				{(isPaused || isWaitingForConnection) && (
+				{(isPaused || isWaitingForConnection || isHeldForRetry) && (
 					<div className={`flex items-center gap-1.5 ${canDrag ? 'pl-4 mb-1.5' : 'mb-1.5'}`}>
+						{isHeldForRetry && <HeldForRetryBadge theme={theme} />}
 						{isPaused && <MiniBadge label="HELD" theme={theme} color={theme.colors.warning} />}
 						{isWaitingForConnection && (
 							<MiniBadge

@@ -72,6 +72,8 @@ If you queued several messages behind a turn that then failed, the queue **holds
 
 The retry goes out for the prompt that actually failed. Your queue then drains in order behind it, exactly as it would have if the outage had never happened. Nothing is dropped and nothing is reordered, so a batch of work you lined up before bed is still there in the morning.
 
+While the outage lasts, the failed prompt also sits at the top of the **QUEUED** list with an **Awaiting retry** badge. That is its place in line, not a second copy. The retry takes it out of the queue as it resends it, so it goes out once.
+
 Sending a **new** message while a retry is counting down is different: that is you moving on, so it takes over. The countdown stops, the outage card freezes into a stopped summary, and your new prompt goes out instead.
 
 ## Prompts that arrive from automation
