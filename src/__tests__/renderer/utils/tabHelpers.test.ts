@@ -67,6 +67,7 @@ import {
 	markTabRunningQueuedItem,
 	settleTabThinkingState,
 	filterUnifiedTabOrderForUnread,
+	collectThinkingItems,
 } from '../../../renderer/utils/tabHelpers';
 import type { LogEntry } from '../../../renderer/types';
 import type {
@@ -1376,6 +1377,99 @@ describe('tabHelpers', () => {
 			const busy = getBusyTabs(session, { includeOrphans: true });
 			expect(busy).toHaveLength(1);
 			expect(busy.every((tab) => tab.readOnlyMode === true)).toBe(false);
+		});
+	});
+
+	describe('collectThinkingItems', () => {
+		it('lists one item per busy tab of a busy agent', () => {
+			const busyA = createMockTab({ id: 'a', state: 'busy' });
+			const idle = createMockTab({ id: 'b', state: 'idle' });
+			const busyC = createMockTab({ id: 'c', state: 'busy' });
+			const session = createMockSession({
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [busyA, idle, busyC],
+			});
+
+			const items = collectThinkingItems([session]);
+
+			expect(items.map((item) => item.tab?.id)).toEqual(['a', 'c']);
+		});
+
+		it('lists nothing for an idle agent with idle tabs', () => {
+			const session = createMockSession({
+				state: 'idle',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([]);
+		});
+
+		it('falls back to an agent-level item when no tab carries the busy state', () => {
+			const session = createMockSession({
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([{ session, tab: null }]);
+		});
+
+		it('lists a busy closed tab even when the agent itself reads idle', () => {
+			const orphan = createMockTab({ id: 'closed', state: 'busy' });
+			const session = createMockSession({
+				state: 'idle',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+				orphanedThinkingTabs: [orphan],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([{ session, tab: orphan }]);
+		});
+
+		it('does not list a closed tab parked idle by a held queued item', () => {
+			// Regression: closing a tab that owns a HELD message parks it in
+			// orphanedThinkingTabs (idle) as a dispatch target. No process runs for
+			// it, yet the pill showed it as "Thinking..." until the item was removed.
+			const parked = createMockTab({ id: 'closed', state: 'idle' });
+			const session = createMockSession({
+				state: 'idle',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+				orphanedThinkingTabs: [parked],
+				executionQueue: [
+					{
+						id: 'q1',
+						timestamp: 1,
+						tabId: 'closed',
+						type: 'message',
+						text: 'later',
+						paused: true,
+					},
+				],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([]);
+		});
+
+		it('keeps the agent-level fallback when the only orphan is parked idle', () => {
+			const parked = createMockTab({ id: 'closed', state: 'idle' });
+			const session = createMockSession({
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+				orphanedThinkingTabs: [parked],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([{ session, tab: null }]);
+		});
+
+		it('ignores agents busy with the terminal', () => {
+			const session = createMockSession({
+				state: 'busy',
+				busySource: 'terminal',
+				aiTabs: [createMockTab({ id: 'a', state: 'idle' })],
+			});
+
+			expect(collectThinkingItems([session])).toEqual([]);
 		});
 	});
 

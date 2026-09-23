@@ -15,6 +15,7 @@ import {
 	ToolType,
 	ThinkingMode,
 	QueuedItem,
+	ThinkingItem,
 } from '../types';
 import { generateId } from './ids';
 import { getAutoRunFolderPath } from './existingDocsDetector';
@@ -1056,7 +1057,8 @@ export function closeTab(
 	//   1. It was busy (an agent turn is mid-flight).
 	//   2. It has queued items waiting (a message the user already sent that should
 	//      still fire in the background - fire-and-forget).
-	// The pill picks orphans up alongside busy aiTabs. The agent exit/error
+	// The pill picks up BUSY orphans alongside busy aiTabs (see
+	// collectThinkingItems); a case-2 orphan idles until dispatch. The agent exit/error
 	// listeners drop the orphan once its process is gone and its queue is drained.
 	const closedTabWasBusy = tabToClose.state === 'busy';
 	const closedTabHasQueuedItems = (session.executionQueue ?? []).some(
@@ -1933,6 +1935,40 @@ export function getBusyTabs(session: Session, options: { includeOrphans?: boolea
 		: (session.aiTabs ?? []);
 
 	return tabs.filter((tab) => tab.state === 'busy');
+}
+
+/**
+ * Every (agent, tab) pair the Thinking pill should report: one entry per tab
+ * with a turn actually in flight, across all agents.
+ *
+ * Closed tabs count only while BUSY. A closed tab also stays parked in
+ * `orphanedThinkingTabs` (idle) when it still owns queued items, so it survives
+ * as a dispatch target: items waiting on another tab, or items the user HELD.
+ * No process runs for it, so listing it here would show "Thinking..." (and a
+ * Stop button) for a tab that is doing nothing - and a held item parks it
+ * indefinitely.
+ */
+export function collectThinkingItems(sessions: Session[]): ThinkingItem[] {
+	const items: ThinkingItem[] = [];
+	for (const session of sessions) {
+		const busyOrphans = (session.orphanedThinkingTabs ?? []).filter((tab) => tab.state === 'busy');
+		if (session.state === 'busy' && session.busySource === 'ai') {
+			const busyTabs = getBusyTabs(session);
+			for (const tab of busyTabs) {
+				items.push({ session, tab });
+			}
+			// Legacy: the agent is busy but no tab carries the state.
+			if (busyTabs.length === 0 && busyOrphans.length === 0) {
+				items.push({ session, tab: null });
+			}
+		}
+		// Closed-but-still-thinking tabs stay on the pill until their process
+		// exits, independent of the agent-level state.
+		for (const orphan of busyOrphans) {
+			items.push({ session, tab: orphan });
+		}
+	}
+	return items;
 }
 
 /**
