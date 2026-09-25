@@ -148,6 +148,28 @@ export function RetryStatusCard({
 		);
 	}
 
+	if (outage.status === 'failed') {
+		return (
+			<div
+				className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm select-none"
+				style={{
+					borderColor: theme.colors.border,
+					backgroundColor: theme.colors.bgSidebar,
+					color: theme.colors.textDim,
+				}}
+				role="status"
+			>
+				<X className="w-4 h-4 flex-shrink-0" style={{ color: theme.colors.error }} />
+				<span>
+					<span className="font-medium" style={{ color: theme.colors.textMain }}>
+						Auto-retry ended.
+					</span>{' '}
+					The resend failed with a different error: {outage.failureMessage}
+				</span>
+			</div>
+		);
+	}
+
 	if (outage.status === 'stopped') {
 		return (
 			<div

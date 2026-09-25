@@ -19,6 +19,7 @@ import {
 	cancelRetry,
 	clearRetryIfSettled,
 	noteRetryProgress,
+	failInFlightRetry,
 	getRetryEntry,
 	hasPendingRetry,
 	getOutage,
@@ -804,6 +805,36 @@ describe('outage records (transcript status card)', () => {
 		expect(entry.outageId).not.toBe(first);
 		expect(entry.attempt).toBe(0);
 		expect(getOutage(first)!.status).toBe('recovered');
+	});
+
+	// Profile switch → resend hits "No conversation found" → exit used to paint
+	// the card "Connection recovered." above the session-not-found error.
+	it('failInFlightRetry ends an in-flight outage as failed, and exit does not recover it', () => {
+		setupSession('o3e', 't1');
+		seedSnapshot('o3e', 't1');
+		scheduleRetryForError('o3e', 't1', quota());
+		const outageId = getRetryEntry('o3e', 't1')!.outageId;
+		retryNow('o3e', 't1'); // → in-flight
+
+		failInFlightRetry('o3e', 't1', 'Session not found.');
+		clearRetryIfSettled('o3e', 't1');
+
+		const outage = getOutage(outageId)!;
+		expect(outage.status).toBe('failed');
+		expect(outage.failureMessage).toBe('Session not found.');
+		expect(getRetryEntry('o3e', 't1')).toBeUndefined();
+	});
+
+	it('failInFlightRetry ignores a retry still counting down', () => {
+		setupSession('o3f', 't1');
+		seedSnapshot('o3f', 't1');
+		scheduleRetryForError('o3f', 't1', quota());
+		const outageId = getRetryEntry('o3f', 't1')!.outageId;
+
+		failInFlightRetry('o3f', 't1', 'Session not found.');
+
+		expect(getOutage(outageId)!.status).toBe('active');
+		expect(getRetryEntry('o3f', 't1')?.status).toBe('scheduled');
 	});
 
 	it('cancelRetry marks the outage stopped', () => {
