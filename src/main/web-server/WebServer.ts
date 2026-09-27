@@ -146,6 +146,7 @@ import type {
 	GenerateDirectorNotesSynopsisCallback,
 	NotifyToastCallback,
 	NotifyCenterFlashCallback,
+	GetDebugPackageDepsCallback,
 	GetMarketplaceManifestCallback,
 	GetMarketplaceDocumentCallback,
 	GetMarketplaceReadmeCallback,
@@ -727,6 +728,10 @@ export class WebServer {
 		this.callbackRegistry.setNotifyCenterFlashCallback(callback);
 	}
 
+	setGetDebugPackageDepsCallback(callback: GetDebugPackageDepsCallback): void {
+		this.callbackRegistry.setGetDebugPackageDepsCallback(callback);
+	}
+
 	setGetMarketplaceManifestCallback(callback: GetMarketplaceManifestCallback): void {
 		this.callbackRegistry.setGetMarketplaceManifestCallback(callback);
 	}
@@ -1104,6 +1109,7 @@ export class WebServer {
 				this.killTerminalForWebCallback?.(sessionId) ?? false,
 			notifyToast: async (params) => this.callbackRegistry.notifyToast(params),
 			notifyCenterFlash: async (params) => this.callbackRegistry.notifyCenterFlash(params),
+			getDebugPackageDeps: () => this.callbackRegistry.getDebugPackageDeps(),
 			getMarketplaceManifest: async (options) =>
 				this.callbackRegistry.getMarketplaceManifest(options),
 			getMarketplaceDocument: async (playbookPath: string, filename: string) =>

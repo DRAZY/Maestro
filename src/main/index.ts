@@ -170,6 +170,7 @@ import {
 import { createSafeSend, isWebContentsAvailable } from './utils/safe-send';
 import { capabilitySnapshots, createSnapshotBroadcaster } from './agents/capability-snapshot';
 import { createWebServerFactory } from './web-server/web-server-factory';
+import type { DebugPackageDependencies } from './debug-package';
 // Phase 4 refactoring - app lifecycle
 import {
 	setupGlobalErrorHandlers,
@@ -539,11 +540,25 @@ const windowManager = createWindowManager({
 	getConfirmQuit: () => quitHandler?.confirmQuit,
 });
 
+// Collectors for a support (debug) package. One object shared by the debug and
+// feedback IPC handlers and the CLI bridge, so every path builds the same zip.
+// Getters resolve the live instances at package time, not whatever existed here.
+const debugPackageDeps: DebugPackageDependencies = {
+	getAgentDetector: () => agentDetector,
+	getProcessManager: () => processManager,
+	getWebServer: () => webServer,
+	settingsStore: store,
+	sessionsStore,
+	groupsStore,
+	bootstrapStore,
+};
+
 // Create web server factory with dependency injection (Phase 2 refactoring)
 const createWebServer = createWebServerFactory({
 	settingsStore: store,
 	sessionsStore,
 	groupsStore,
+	getDebugPackageDeps: () => debugPackageDeps,
 	getMainWindow: () => mainWindow,
 	getProcessManager: () => processManager,
 	triggerCueSubscription: (subscriptionName, prompt, sourceAgentId) => {
@@ -1649,13 +1664,7 @@ function setupIpcHandlers() {
 	// Register Debug Package handlers
 	registerDebugHandlers({
 		getMainWindow: () => mainWindow,
-		getAgentDetector: () => agentDetector,
-		getProcessManager: () => processManager,
-		getWebServer: () => webServer,
-		settingsStore: store,
-		sessionsStore,
-		groupsStore,
-		bootstrapStore,
+		...debugPackageDeps,
 	});
 
 	// Register Spec Kit handlers (no dependencies needed)
@@ -1827,15 +1836,7 @@ function setupIpcHandlers() {
 	registerFeedbackHandlers({
 		getProcessManager: () => processManager,
 		getMaestroCliManager: () => maestroCliManager,
-		debugPackageDeps: {
-			getAgentDetector: () => agentDetector,
-			getProcessManager: () => processManager,
-			getWebServer: () => webServer,
-			settingsStore: store,
-			sessionsStore,
-			groupsStore,
-			bootstrapStore,
-		},
+		debugPackageDeps,
 	});
 }
 

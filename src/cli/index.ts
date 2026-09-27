@@ -83,6 +83,13 @@ import { gistCreate } from './commands/gist';
 import { notifyToast } from './commands/notify-toast';
 import { notifyFlash } from './commands/notify-flash';
 import { profilingStart, profilingStop, profilingStatus } from './commands/profiling';
+import { supportPackage } from './commands/support-package';
+import {
+	feedbackAuth,
+	feedbackSearch,
+	feedbackSubmit,
+	feedbackSubscribe,
+} from './commands/feedback';
 import { stats, statsQuery } from './commands/stats';
 import { renameAgent } from './commands/rename-agent';
 import { renameGroup } from './commands/rename-group';
@@ -1406,6 +1413,74 @@ profiling
 	.description('Report whether a capture is currently recording')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(profilingStatus);
+
+program
+	.command('support-package')
+	.description(
+		'Write a sanitized support (debug) package zip, as Create Debug Package does, without a save dialog'
+	)
+	.requiredOption(
+		'-o, --output <dir>',
+		'Directory to write maestro-debug-<timestamp>.zip into (created if missing; ~ expanded)'
+	)
+	.option('--no-logs', 'Leave out application logs')
+	.option('--no-errors', 'Leave out recent errors')
+	.option('--no-sessions', 'Leave out agent/session metadata')
+	.option('--no-group-chats', 'Leave out group chat metadata')
+	.option('--no-batch-state', 'Leave out Auto Run state')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(supportPackage);
+
+const feedback = program
+	.command('feedback')
+	.description(
+		'Send Feedback from the CLI: check gh, find duplicates, +1 an issue, or file a new one (open the modal with `open feedback`)'
+	);
+
+feedback
+	.command('auth')
+	.description('Check that the GitHub CLI (gh) is installed and logged in (required to file)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(feedbackAuth);
+
+feedback
+	.command('search <query>')
+	.description('Search RunMaestro/Maestro for issues matching a description')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(feedbackSearch);
+
+feedback
+	.command('submit')
+	.description(
+		'File a GitHub issue exactly as the Feedback modal does. Stops on likely duplicates unless --force'
+	)
+	.requiredOption('-c, --category <category>', 'bug | feature | improvement | general')
+	.requiredOption('-s, --summary <text>', 'One-line summary (max 120 chars; becomes the title)')
+	.requiredOption(
+		'-e, --expected <text>',
+		'Expected behavior (bug) or desired outcome (other categories)'
+	)
+	.requiredOption('-a, --actual <text>', 'Actual behavior (bug) or details (other categories)')
+	.option('--steps <text>', 'Steps to reproduce')
+	.option('--context <text>', 'Additional context')
+	.option(
+		'--attach <image...>',
+		'Screenshots to attach: PNG, JPG, GIF, or WebP, up to 5 files, 10 MB each'
+	)
+	.option(
+		'--support-package',
+		'Generate a sanitized support package and link it from the issue (the modal checkbox)'
+	)
+	.option('--force', 'File even when possible duplicates exist')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(feedbackSubmit);
+
+feedback
+	.command('subscribe <issue>')
+	.description('Add a +1 to an existing issue instead of filing a duplicate')
+	.option('--comment <text>', 'Also post this comment on the issue')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(feedbackSubscribe);
 
 // Stats commands - introspect the Usage Dashboard's SQLite store (requires the
 // running Maestro desktop app, which owns the open database).

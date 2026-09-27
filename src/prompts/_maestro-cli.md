@@ -35,6 +35,7 @@ Run `<group> --help` for the exact subcommands and flags.
 - **create-agent / update-agent / create-worktree / tab / group / set-theme / theme / encore / ssh-remote** - agent lifecycle, tabs, groups, appearance, remotes. `tab` also owns the per-tab settings the composer chips toggle (see below).
 - **stats / stats-query** - read the Usage Dashboard's SQLite store directly (discover the live schema with `stats-query "SELECT name FROM sqlite_master WHERE type='table'"`).
 - **director-notes / gist / prompts / status / doctor** - cross-agent history synopses, transcript export, prompt self-reference, diagnostics.
+- **feedback / support-package / profiling** - report a Maestro bug or idea the way Send Feedback does. `feedback auth` checks `gh`; `feedback search "<summary>"` finds duplicates; `feedback submit -c bug -s ... -e ... -a ... [--attach <png>] [--support-package]` files the issue and stops on likely duplicates unless `--force`; `feedback subscribe <n> --comment "..."` adds to an existing one instead. `support-package -o <dir>` writes the sanitized diagnostics zip; `profiling start|status|stop -o <zip>` captures a performance trace. Filing publishes to GitHub under the user's account, so confirm the draft with the user before `submit` or `subscribe`.
 
 ### Behavior that `--help` won't tell you
 

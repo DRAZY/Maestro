@@ -1,8 +1,9 @@
 # CLI / UI Parity Audit
 
-Goal: (almost) anything a person can do by pointing and clicking in Maestro, an
-agent should be able to do through `maestro-cli`. This file records where that
-holds today, where it does not, and why.
+Rule (constitutional, see CLAUDE.md): anything a person can do by pointing and
+clicking in Maestro, an agent MUST be able to do through `maestro-cli`, through
+the same code path. A UI action ships with its CLI verb. This file records where
+that holds today, where it does not yet, and why.
 
 Audited 2026-08-19 against the three surfaces that define "clickable": the
 keyboard shortcut registry (`src/renderer/constants/shortcuts.ts`), the Quick
@@ -234,6 +235,10 @@ of taking a second round trip or trusting a value the caller guessed.
 | Toasts and center flashes                    | `notify toast`, `notify flash`                                    |
 | Save a pasted chat image (right-click)       | `image save` (`image list` to find it)                            |
 | Cue subscriptions and scheduled tasks        | `cue trigger`, `cue schedule`, `cue pipeline`                     |
+| Send Feedback modal (open / file / +1)       | `open feedback`, `feedback auth\|search\|submit\|subscribe`       |
+| Feedback: screenshots, support package box   | `feedback submit --attach <png...> --support-package`             |
+| Create Debug Package (support package)       | `support-package -o <dir> [--no-logs ...]`                        |
+| Start / End Performance Profiling            | `profiling start`, `profiling status`, `profiling stop -o <zip>`  |
 
 ## Open gaps
 
@@ -264,3 +269,10 @@ a design constraint; they are simply not built yet.
    Tab Switcher, Search: Messages). These are interactive by definition; the
    underlying data is reachable through `list`, `session show`, and
    `director-notes history`.
+9. **Auto Run state in a CLI-built support package.** The desktop's Create
+   Debug Package hands main a snapshot of the renderer's in-memory batch store
+   (`captureAutoRunSnapshots()`). `support-package` and
+   `feedback submit --support-package` are built in main with no renderer round
+   trip, so that section reads "unavailable". The Feedback modal's own support
+   package checkbox has the same gap today. Closing it needs a main-to-renderer
+   request with a response channel.

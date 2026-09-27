@@ -10,6 +10,7 @@ import type { WebSocket } from 'ws';
 import type { Theme } from '../../shared/theme-types';
 import type { Shortcut } from '../../shared/shortcut-types';
 import type { MediaOpenMode } from '../../shared/mediaTypes';
+import type { DebugPackageDependencies } from '../debug-package';
 
 // Re-export Theme for convenience
 export type { Theme } from '../../shared/theme-types';
@@ -629,6 +630,12 @@ export interface NotifyCenterFlashParams {
 
 export type NotifyToastCallback = (params: NotifyToastParams) => Promise<boolean>;
 export type NotifyCenterFlashCallback = (params: NotifyCenterFlashParams) => Promise<boolean>;
+/**
+ * Everything a support package collects from (agent detector, process manager,
+ * stores). `maestro-cli support-package` and `feedback submit --support-package`
+ * need it to build the same zip the desktop's Create Debug Package does.
+ */
+export type GetDebugPackageDepsCallback = () => DebugPackageDependencies;
 export type ConfigureAutoRunCallback = (
 	sessionId: string,
 	config: {

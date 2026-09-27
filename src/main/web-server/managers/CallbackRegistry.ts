@@ -117,6 +117,7 @@ import type {
 	DirectorNotesSynopsisResult,
 	NotifyToastCallback,
 	NotifyCenterFlashCallback,
+	GetDebugPackageDepsCallback,
 	NotifyToastParams,
 	NotifyCenterFlashParams,
 	GetMarketplaceManifestCallback,
@@ -218,6 +219,7 @@ export interface WebServerCallbacks {
 	generateDirectorNotesSynopsis: GenerateDirectorNotesSynopsisCallback | null;
 	notifyToast: NotifyToastCallback | null;
 	notifyCenterFlash: NotifyCenterFlashCallback | null;
+	getDebugPackageDeps: GetDebugPackageDepsCallback | null;
 	getMarketplaceManifest: GetMarketplaceManifestCallback | null;
 	getMarketplaceDocument: GetMarketplaceDocumentCallback | null;
 	getMarketplaceReadme: GetMarketplaceReadmeCallback | null;
@@ -308,6 +310,7 @@ export class CallbackRegistry {
 		generateDirectorNotesSynopsis: null,
 		notifyToast: null,
 		notifyCenterFlash: null,
+		getDebugPackageDeps: null,
 		getMarketplaceManifest: null,
 		getMarketplaceDocument: null,
 		getMarketplaceReadme: null,
@@ -868,6 +871,10 @@ export class CallbackRegistry {
 		return this.callbacks.notifyCenterFlash(params);
 	}
 
+	getDebugPackageDeps(): ReturnType<GetDebugPackageDepsCallback> | null {
+		return this.callbacks.getDebugPackageDeps?.() ?? null;
+	}
+
 	async getMarketplaceManifest(options?: {
 		refresh?: boolean;
 	}): Promise<MarketplaceManifestResult | null> {
@@ -1236,6 +1243,10 @@ export class CallbackRegistry {
 
 	setNotifyCenterFlashCallback(callback: NotifyCenterFlashCallback): void {
 		this.callbacks.notifyCenterFlash = callback;
+	}
+
+	setGetDebugPackageDepsCallback(callback: GetDebugPackageDepsCallback): void {
+		this.callbacks.getDebugPackageDeps = callback;
 	}
 
 	setGetMarketplaceManifestCallback(callback: GetMarketplaceManifestCallback): void {

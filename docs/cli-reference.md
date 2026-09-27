@@ -1212,6 +1212,66 @@ Report whether a capture is currently recording
 | -------- | ------------------------------ | ------- |
 | `--json` | Output as JSON (for scripting) | -       |
 
+## `maestro-cli support-package`
+
+Write a sanitized support (debug) package zip, as Create Debug Package does, without a save dialog
+
+| Option               | Description                                                                            | Default |
+| -------------------- | -------------------------------------------------------------------------------------- | ------- |
+| `-o, --output <dir>` | Directory to write maestro-debug-<timestamp>.zip into (created if missing; ~ expanded) | -       |
+| `--no-logs`          | Leave out application logs                                                             | -       |
+| `--no-errors`        | Leave out recent errors                                                                | -       |
+| `--no-sessions`      | Leave out agent/session metadata                                                       | -       |
+| `--no-group-chats`   | Leave out group chat metadata                                                          | -       |
+| `--no-batch-state`   | Leave out Auto Run state                                                               | -       |
+| `--json`             | Output as JSON (for scripting)                                                         | -       |
+
+## `maestro-cli feedback`
+
+Send Feedback from the CLI: check gh, find duplicates, +1 an issue, or file a new one (open the modal with `open feedback`)
+
+## `maestro-cli feedback auth`
+
+Check that the GitHub CLI (gh) is installed and logged in (required to file)
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli feedback search <query>`
+
+Search RunMaestro/Maestro for issues matching a description
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli feedback submit`
+
+File a GitHub issue exactly as the Feedback modal does. Stops on likely duplicates unless --force
+
+| Option                      | Description                                                                          | Default |
+| --------------------------- | ------------------------------------------------------------------------------------ | ------- |
+| `-c, --category <category>` | bug \| feature \| improvement \| general                                             | -       |
+| `-s, --summary <text>`      | One-line summary (max 120 chars; becomes the title)                                  | -       |
+| `-e, --expected <text>`     | Expected behavior (bug) or desired outcome (other categories)                        | -       |
+| `-a, --actual <text>`       | Actual behavior (bug) or details (other categories)                                  | -       |
+| `--steps <text>`            | Steps to reproduce                                                                   | -       |
+| `--context <text>`          | Additional context                                                                   | -       |
+| `--attach <image...>`       | Screenshots to attach: PNG, JPG, GIF, or WebP, up to 5 files, 10 MB each             | -       |
+| `--support-package`         | Generate a sanitized support package and link it from the issue (the modal checkbox) | -       |
+| `--force`                   | File even when possible duplicates exist                                             | -       |
+| `--json`                    | Output as JSON (for scripting)                                                       | -       |
+
+## `maestro-cli feedback subscribe <issue>`
+
+Add a +1 to an existing issue instead of filing a duplicate
+
+| Option             | Description                         | Default |
+| ------------------ | ----------------------------------- | ------- |
+| `--comment <text>` | Also post this comment on the issue | -       |
+| `--json`           | Output as JSON (for scripting)      | -       |
+
 ## `maestro-cli stats`
 
 Show aggregated Usage Dashboard metrics for a time range

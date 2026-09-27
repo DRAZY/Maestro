@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 import { captureException } from '../utils/sentry';
 import { isWebContentsAvailable } from '../utils/safe-send';
 import type { ProcessManager } from '../process-manager';
+import type { DebugPackageDependencies } from '../debug-package';
 import type { StoredSession, SettingsStoreInterface as SettingsStore } from '../stores/types';
 import { asThinkingMode } from '../../shared/types';
 import type { Group, SshRemoteConfig } from '../../shared/types';
@@ -126,6 +127,10 @@ export interface WebServerFactoryDependencies {
 	 *  Used by `setGetCueActivityCallback` (web UI's activity dashboard).
 	 *  Same dead-bridge fix as `getCueGraphData`. */
 	getCueActivityLog?: () => CueRunResult[];
+	/** Collectors for a support package (`maestro-cli support-package`,
+	 *  `feedback submit --support-package`). Absent = the CLI reports the
+	 *  feature as unconfigured instead of shipping a hollow zip. */
+	getDebugPackageDeps?: () => DebugPackageDependencies;
 }
 
 /**
@@ -982,6 +987,10 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			mainWindow.webContents.send('remote:notifyCenterFlash', params);
 			return true;
 		});
+
+		if (deps.getDebugPackageDeps) {
+			server.setGetDebugPackageDepsCallback(deps.getDebugPackageDeps);
+		}
 
 		server.setOpenBrowserTabCallback(
 			async (sessionId: string, url: string, options?: { background?: boolean }) => {
