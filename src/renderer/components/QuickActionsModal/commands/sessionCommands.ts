@@ -3,6 +3,7 @@ import { getAgentDisplayName, getAgentLoginCommand } from '../../../../shared/ag
 import { startManualReauth } from '../../../stores/authOutageStore';
 import { getModalActions } from '../../../stores/modalStore';
 import type { Session } from '../../../types';
+import { sessionJumpShortcut } from '../../../utils/sessionJumpSlots';
 import type { QuickAction } from '../types';
 import { alphabetizeKey } from '../utils/quickActionSorting';
 
@@ -10,6 +11,8 @@ interface BuildSessionCommandsArgs {
 	sessions: Session[];
 	setActiveSessionId: (id: string) => void;
 	revealJumpTarget: (session: Session) => void;
+	/** Agent ID -> Opt+Cmd+# digit, for agents in the Left Bar's first ten slots. */
+	jumpSlots?: Map<string, string>;
 }
 
 interface BuildSessionManagementCommandsArgs {
@@ -32,6 +35,7 @@ export function buildSessionJumpCommands({
 	sessions,
 	setActiveSessionId,
 	revealJumpTarget,
+	jumpSlots,
 }: BuildSessionCommandsArgs): QuickAction[] {
 	return sessions.map((session) => {
 		let label: string;
@@ -42,10 +46,12 @@ export function buildSessionJumpCommands({
 		} else {
 			label = `Jump to: ${session.name}`;
 		}
+		const jumpDigit = jumpSlots?.get(session.id);
 
 		return {
 			id: `jump-${session.id}`,
 			label,
+			shortcut: jumpDigit ? sessionJumpShortcut(jumpDigit) : undefined,
 			action: () => {
 				setActiveSessionId(session.id);
 				revealJumpTarget(session);

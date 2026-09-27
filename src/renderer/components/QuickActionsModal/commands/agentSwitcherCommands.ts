@@ -1,4 +1,5 @@
 import type { Session } from '../../../types';
+import { sessionJumpShortcut } from '../../../utils/sessionJumpSlots';
 import { getTabDisplayName } from '../../../utils/tabHelpers';
 import type { QuickAction } from '../types';
 import { alphabetizeKey } from '../utils/quickActionSorting';
@@ -8,6 +9,8 @@ interface BuildAgentSwitcherCommandsArgs {
 	activeBatchSessionIds: string[];
 	setActiveSessionId: (id: string) => void;
 	revealJumpTarget: (session: Session) => void;
+	/** Agent ID -> Opt+Cmd+# digit, for agents in the Left Bar's first ten slots. */
+	jumpSlots?: Map<string, string>;
 }
 
 export function buildAgentSwitcherCommands({
@@ -15,6 +18,7 @@ export function buildAgentSwitcherCommands({
 	activeBatchSessionIds,
 	setActiveSessionId,
 	revealJumpTarget,
+	jumpSlots,
 }: BuildAgentSwitcherCommandsArgs): QuickAction[] {
 	const batchSessionIdSet = new Set(activeBatchSessionIds);
 
@@ -34,10 +38,12 @@ export function buildAgentSwitcherCommands({
 					queueCount: session.executionQueue?.length ?? 0,
 				}
 			: undefined;
+		const jumpDigit = jumpSlots?.get(session.id);
 
 		return {
 			id: `jump-${session.id}`,
 			label: session.name,
+			shortcut: jumpDigit ? sessionJumpShortcut(jumpDigit) : undefined,
 			action: () => {
 				setActiveSessionId(session.id);
 				revealJumpTarget(session);

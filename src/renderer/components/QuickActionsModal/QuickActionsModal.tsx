@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { QuickAction, QuickActionsModalProps } from './types';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
@@ -13,6 +13,7 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Z_LAYERS } from '../../constants/zLayers';
 import { gitService } from '../../services/git';
 import { revealAgentInSidebar } from '../../services/agentNavigation';
+import { buildSessionJumpSlotMap } from '../../utils/sessionJumpSlots';
 import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { getOpenInLabel } from '../../utils/platformUtils';
@@ -71,6 +72,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const {
 		theme,
 		sessions,
+		visibleSessions,
 		setSessions,
 		activeSessionId,
 		groups,
@@ -419,10 +421,17 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// with the Usage Dashboard's Jump to Agent action - see agentNavigation.
 	const revealJumpTarget = revealAgentInSidebar;
 
+	// Agents in the Left Bar's first ten slots advertise their Opt+Cmd+# chord.
+	const jumpSlots = useMemo(
+		() => buildSessionJumpSlotMap(visibleSessions ?? []),
+		[visibleSessions]
+	);
+
 	const sessionActions = buildSessionJumpCommands({
 		sessions,
 		setActiveSessionId,
 		revealJumpTarget,
+		jumpSlots,
 	});
 
 	const groupChatActions = buildGroupChatJumpCommands({
@@ -773,6 +782,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			activeBatchSessionIds,
 			setActiveSessionId,
 			revealJumpTarget,
+			jumpSlots,
 		}),
 		...buildGroupChatSwitcherCommands({
 			groupChats,

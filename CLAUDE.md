@@ -110,6 +110,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Per-agent git actions:** `useGitAgentActions(session)`, `buildGitWorktreeCommands` in `src/renderer/hooks/git/useGitAgentActions.ts`
 - **Whether a PR is being opened right now:** `usePRCreationActive(worktreePath)`, `startPRCreation()` in `src/renderer/stores/prCreationStore.ts`
 - **Taking the user to an agent:** `jumpToAgent(sessionId, { tabId? })`, `revealAgentInSidebar(session)`, `openAgentSettings(session)` in `src/renderer/services/agentNavigation.ts`
+- **Which agents own an Opt+Cmd+# slot:** `buildSessionJumpSlotMap(visibleSessions)`, `sessionJumpShortcut(digit)` in `src/renderer/utils/sessionJumpSlots.ts`
 - **Focus an AI tab:** `aiTabFocusFields(tabId?)`, `activeFileTabId` in `src/renderer/utils/tabHelpers.ts`
 - **Focus a file tab:** `fileTabFocusFields(tabId)` in `src/renderer/utils/tabHelpers.ts`
 - **Closing a tab while the unread filter is on:** `closeTab()` third arg is an OVERRIDE; omit it and `src/renderer/utils/tabHelpers.ts` reads `uiStore.showUnreadOnly`

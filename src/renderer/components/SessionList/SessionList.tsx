@@ -50,6 +50,7 @@ import { sidebarSessionEquality } from '../../stores/sessionEquality';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useInlineWizardContext } from '../../contexts/InlineWizardContext';
 import { rollUpWizardActivityToSessions } from '../../utils/wizardActivity';
+import { buildSessionJumpSlotMap } from '../../utils/sessionJumpSlots';
 import { getModalActions, useModalStore } from '../../stores/modalStore';
 import { SessionContextMenu } from './SessionContextMenu';
 import { GroupContextMenu } from './GroupContextMenu';
@@ -1098,11 +1099,7 @@ function SessionListInner(props: SessionListProps) {
 	// Precomputed jump number map (1-9, 0=10th) for sessions based on position in visibleSessions
 	const jumpNumberMap = useMemo(() => {
 		if (!showSessionJumpNumbers) return new Map<string, string>();
-		const map = new Map<string, string>();
-		for (let i = 0; i < Math.min(visibleSessions.length, 10); i++) {
-			map.set(visibleSessions[i].id, i === 9 ? '0' : String(i + 1));
-		}
-		return map;
+		return buildSessionJumpSlotMap(visibleSessions);
 	}, [showSessionJumpNumbers, visibleSessions]);
 
 	const getSessionJumpNumber = (sessionId: string): string | null => {

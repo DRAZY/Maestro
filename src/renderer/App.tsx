@@ -3024,6 +3024,7 @@ function MaestroConsoleInner() {
 					onConfirmDeleteWorktree={handleConfirmDeleteWorktree}
 					onConfirmAndDeleteWorktreeOnDisk={handleConfirmAndDeleteWorktreeOnDisk}
 					// AppUtilityModals props
+					visibleSessions={visibleSessions}
 					quickActionInitialMode={quickActionInitialMode}
 					setQuickActionOpen={setQuickActionOpen}
 					setActiveSessionId={setActiveSessionId}
