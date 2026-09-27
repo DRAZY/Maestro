@@ -145,6 +145,22 @@ describe('RetryStatusCard', () => {
 		expect(screen.queryByText(/Failing for/)).not.toBeInTheDocument();
 	});
 
+	it('freezes into a failed summary naming the error that ended it', () => {
+		setOutage({
+			status: 'failed',
+			strategy: 'token-exhaustion',
+			attempts: 1,
+			failureMessage: 'Session not found. The session may have been deleted.',
+		});
+		render(<RetryStatusCard outageId="o1" theme={mockTheme} />);
+
+		expect(screen.getByText('Auto-retry ended.')).toBeInTheDocument();
+		expect(
+			screen.getByText(/failed with a different error: Session not found/)
+		).toBeInTheDocument();
+		expect(screen.queryByText(/recovered/)).not.toBeInTheDocument();
+	});
+
 	it('freezes into a stopped summary', () => {
 		setOutage({ status: 'stopped', attempts: 3, strategy: 'token-exhaustion' });
 		render(<RetryStatusCard outageId="o1" theme={mockTheme} />);
