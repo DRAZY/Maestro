@@ -37,7 +37,7 @@ import {
 	useSessionStore,
 	selectActiveSession,
 	updateSessionWith,
-	updateAiTab,
+	takePendingMergedContext,
 } from '../../stores/sessionStore';
 import { logger } from '../../utils/logger';
 import { WEB_BRIDGE_RECONCILE_EVENT } from '../../../shared/webClientConfig';
@@ -1448,22 +1448,13 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						}
 
 						// Check for pending merged context that needs to be injected
-						// This happens when a user merged context from another tab/session
-						const pendingMergedContext = freshActiveTab?.pendingMergedContext;
-						if (pendingMergedContext) {
-							// Prepend the merged context to the user's message
-							effectivePrompt = `${pendingMergedContext}\n\n---\n\n${effectivePrompt}`;
-
-							// Clear the pending merged context from the tab
-							updateAiTab(resolvedSessionId, freshActiveTab.id, (tab) => ({
-								...tab,
-								pendingMergedContext: undefined,
-							}));
-
-							logger.info('[InputProcessing] Injected merged context into message:', undefined, {
-								contextLength: pendingMergedContext.length,
-								promptLength: effectivePrompt.length,
-							});
+						// (merge, Send to Agent, session-not-found recovery)
+						if (freshActiveTab) {
+							effectivePrompt = takePendingMergedContext(
+								resolvedSessionId,
+								freshActiveTab.id,
+								effectivePrompt
+							);
 						}
 
 						// Prepare Maestro system prompt. Always send it; the main-process handler

@@ -16,6 +16,8 @@ import type {
 	GitBranchesResult,
 	ListWorktreesResult,
 	GroupChatState,
+	StartGroupChatOptions,
+	StartGroupChatResult,
 	CueSubscriptionInfo,
 	CueActivityEntry,
 	UsageDashboardData,
@@ -333,7 +335,11 @@ export interface MessageHandlerCallbacks {
 	getGitBranchesForSession: (sessionId: string) => Promise<GitBranchesResult>;
 	listWorktreesForSession: (sessionId: string) => Promise<ListWorktreesResult>;
 	getGroupChats: () => Promise<GroupChatState[]>;
-	startGroupChat: (topic: string, participantIds: string[]) => Promise<{ chatId: string } | null>;
+	startGroupChat: (
+		topic: string,
+		participantIds: string[],
+		options?: StartGroupChatOptions
+	) => Promise<StartGroupChatResult | null>;
 	getGroupChatState: (chatId: string) => Promise<GroupChatState | null>;
 	stopGroupChat: (chatId: string) => Promise<boolean>;
 	sendGroupChatMessage: (chatId: string, message: string) => Promise<boolean>;

@@ -401,6 +401,57 @@ Print conversation history for a desktop tab
 | `--tail <n>`          | Only return the last N messages (applied after --since)              | -       |
 | `--json`              | Output as JSON (for scripting); default is a formatted transcript    | -       |
 
+## `maestro-cli group-chat`
+
+Start, message, and inspect group chats in the desktop app
+
+## `maestro-cli group-chat start <name>`
+
+Create a group chat and send its moderator the opening message
+
+| Option                      | Description                                                                       | Default |
+| --------------------------- | --------------------------------------------------------------------------------- | ------- |
+| `-p, --participant <agent>` | Participant agent ID or name (repeatable; at least one)                           | `[]`    |
+| `--moderator <agent-type>`  | Moderator agent type (e.g. claude-code); defaults to the first participant's type | -       |
+| `-m, --message <text>`      | Opening message for the moderator (defaults to the name)                          | -       |
+| `--message-file <path>`     | Read the opening message from a file                                              | -       |
+| `--json`                    | Output as JSON (for scripting)                                                    | -       |
+
+## `maestro-cli group-chat send <chat> [message]`
+
+Send a message to a group chat (ID, ID prefix, or name); refused while busy
+
+| Option                  | Description                    | Default |
+| ----------------------- | ------------------------------ | ------- |
+| `--message-file <path>` | Read the message from a file   | -       |
+| `--json`                | Output as JSON (for scripting) | -       |
+
+## `maestro-cli group-chat status <chat>`
+
+Show a group chat's state, participants, and latest messages
+
+| Option       | Description                                               | Default |
+| ------------ | --------------------------------------------------------- | ------- |
+| `--tail <n>` | How many recent messages to print (default 5; 0 for none) | -       |
+| `--json`     | Output as JSON (for scripting)                            | -       |
+
+## `maestro-cli group-chat list`
+
+List group chats and whether each is busy
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--all`  | Include archived chats         | -       |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli group-chat stop <chat>`
+
+Stop a group chat's moderator and participants
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
 ## `maestro-cli open-file <file-path>`
 
 Open a file as a preview tab in the Maestro desktop app (audio and video play in the floating media player instead)

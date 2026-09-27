@@ -7,6 +7,7 @@ import type { AutoRunBroadcastState } from '../../shared/autoRunBroadcast';
 import type { DesktopTabEntry } from '../../shared/desktopTabs';
 import type { SnoozeCommandRequest, SnoozeCommandResult } from '../../shared/snoozeCommands';
 import type { UsageStats } from '../../shared/types';
+import type { RemoteGroupChatMessage, RemoteGroupChatState } from '../../shared/groupChatRemote';
 import type { ToastClickAction } from '../../shared/toastClickAction';
 import type { GroupAppearance, GroupUpdateRequest } from '../../shared/groupAppearance';
 import type { WebSocket } from 'ws';
@@ -1284,37 +1285,41 @@ export type ListWorktreesForSessionCallback = (sessionId: string) => Promise<Lis
 // =============================================================================
 
 /**
- * Group chat message for web interface.
+ * Group chat message and state as the web interface and maestro-cli see them.
+ * The shapes live in shared/groupChatRemote so the renderer that answers these
+ * requests and the bridge that relays them cannot drift.
  */
-export interface GroupChatMessage {
-	id: string;
-	participantId: string;
-	participantName: string;
-	content: string;
-	timestamp: number;
-	role: 'user' | 'assistant';
-}
-
-/**
- * Group chat state for web interface.
- */
-export interface GroupChatState {
-	id: string;
-	topic: string;
-	participants: Array<{ sessionId: string; name: string; toolType: string }>;
-	messages: GroupChatMessage[];
-	isActive: boolean;
-	currentTurn?: string;
-}
+export type GroupChatMessage = RemoteGroupChatMessage;
+export type GroupChatState = RemoteGroupChatState;
 
 // =============================================================================
 // Group Chat Callback Types
 // =============================================================================
 
+/**
+ * Optional knobs for starting a group chat remotely. `topic` names the chat; the
+ * opening `message` (defaulting to the topic) is what the moderator receives,
+ * with every participant @mentioned so the router adds them with their full
+ * agent config (SSH, custom args, env).
+ */
+export interface StartGroupChatOptions {
+	/** Agent type that moderates (e.g. 'claude-code'). Defaults to the first participant's type. */
+	moderatorAgentId?: string;
+	/** Opening message for the moderator. Defaults to the topic. */
+	message?: string;
+}
+
+/** `chatId` on success; `error` names why nothing (or only the empty chat) was created. */
+export interface StartGroupChatResult {
+	chatId?: string;
+	error?: string;
+}
+
 export type StartGroupChatCallback = (
 	topic: string,
-	participantIds: string[]
-) => Promise<{ chatId: string } | null>;
+	participantIds: string[],
+	options?: StartGroupChatOptions
+) => Promise<StartGroupChatResult | null>;
 export type GetGroupChatStateCallback = (chatId: string) => Promise<GroupChatState | null>;
 export type StopGroupChatCallback = (chatId: string) => Promise<boolean>;
 export type SendGroupChatMessageCallback = (chatId: string, message: string) => Promise<boolean>;

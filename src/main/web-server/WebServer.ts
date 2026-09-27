@@ -147,6 +147,7 @@ import type {
 	GroupData,
 	GetGroupChatsCallback,
 	StartGroupChatCallback,
+	StartGroupChatOptions,
 	GetGroupChatStateCallback,
 	StopGroupChatCallback,
 	SendGroupChatMessageCallback,
@@ -1228,8 +1229,11 @@ export class WebServer {
 			listWorktreesForSession: async (sessionId: string) =>
 				this.callbackRegistry.listWorktreesForSession(sessionId),
 			getGroupChats: async () => this.callbackRegistry.getGroupChats(),
-			startGroupChat: async (topic: string, participantIds: string[]) =>
-				this.callbackRegistry.startGroupChat(topic, participantIds),
+			startGroupChat: async (
+				topic: string,
+				participantIds: string[],
+				options?: StartGroupChatOptions
+			) => this.callbackRegistry.startGroupChat(topic, participantIds, options),
 			getGroupChatState: async (chatId: string) => this.callbackRegistry.getGroupChatState(chatId),
 			stopGroupChat: async (chatId: string) => this.callbackRegistry.stopGroupChat(chatId),
 			sendGroupChatMessage: async (chatId: string, message: string) =>

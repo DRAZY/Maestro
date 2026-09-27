@@ -1944,6 +1944,101 @@ describe('WebSocketMessageHandler', () => {
 		});
 	});
 
+	describe('Group Chat (CLI/Web → Desktop)', () => {
+		const lastResponse = () => {
+			const calls = (client.socket.send as any).mock.calls;
+			return JSON.parse(calls[calls.length - 1][0]);
+		};
+
+		it('starts a chat with one participant and forwards the moderator and opening message', async () => {
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release rc',
+				participantIds: ['session-1'],
+				moderatorAgentId: 'claude-code',
+				message: '@rc cut the release',
+				requestId: 'req-1',
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					type: 'start_group_chat_result',
+					success: true,
+					chatId: 'chat-1',
+					requestId: 'req-1',
+				});
+			});
+			expect(callbacks.startGroupChat).toHaveBeenCalledWith('Release rc', ['session-1'], {
+				moderatorAgentId: 'claude-code',
+				message: '@rc cut the release',
+			});
+		});
+
+		it('reports the renderer error, with the chat id when the chat was created', async () => {
+			(callbacks.startGroupChat as any).mockResolvedValue({
+				chatId: 'chat-2',
+				error: 'Chat created, but the opening message failed: boom',
+			});
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: ['session-1'],
+				requestId: 'req-2',
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					type: 'start_group_chat_result',
+					success: false,
+					chatId: 'chat-2',
+					error: 'Chat created, but the opening message failed: boom',
+				});
+			});
+		});
+
+		it('says the app did not answer when the renderer times out', async () => {
+			(callbacks.startGroupChat as any).mockResolvedValue(null);
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: ['session-1'],
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					success: false,
+					error: 'The desktop app did not answer',
+				});
+			});
+		});
+
+		it('refuses a start with no participants, tagging the error with the requestId', () => {
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: [],
+				requestId: 'req-3',
+			});
+
+			expect(lastResponse()).toMatchObject({
+				type: 'error',
+				message: 'At least 1 participant is required',
+				requestId: 'req-3',
+			});
+			expect(callbacks.startGroupChat).not.toHaveBeenCalled();
+		});
+
+		it('tags a missing chatId error with the requestId so the CLI does not time out', () => {
+			handler.handleMessage(client, { type: 'get_group_chat_state', requestId: 'req-4' });
+
+			expect(lastResponse()).toMatchObject({
+				type: 'error',
+				message: 'Missing chatId',
+				requestId: 'req-4',
+			});
+		});
+	});
+
 	describe('Read Terminal Tab (Web → Desktop)', () => {
 		it('should return the scrollback along with the tab it came from', async () => {
 			handler.handleMessage(client, {

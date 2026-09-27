@@ -48,6 +48,7 @@ This guide has been split into focused sub-documents for progressive disclosure:
 | App lifecycle, updater, or power mgmt              | [MAIN-LIFECYCLE.md](docs/agent-guides/MAIN-LIFECYCLE.md)         |
 | Plugin, sandbox capability, or contribution        | [PLUGIN-DEVELOPMENT.md](docs/agent-guides/PLUGIN-DEVELOPMENT.md) |
 | React context, renderer type, or Symphony runner   | [REMAINING-SYSTEMS.md](docs/agent-guides/REMAINING-SYSTEMS.md)   |
+| Release step, tag, bump, or announcement           | [RELEASE-RUNBOOK.md](docs/agent-guides/RELEASE-RUNBOOK.md)       |
 
 ### Commonly-reimplemented functions (do NOT add new copies)
 
