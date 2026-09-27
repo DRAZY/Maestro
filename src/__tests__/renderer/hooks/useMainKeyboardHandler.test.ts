@@ -7,6 +7,7 @@ import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { FONT_ZOOM_MAX, FONT_ZOOM_MIN } from '../../../shared/typography';
 import { publishGitShortcutActions } from '../../../renderer/services/gitShortcutActions';
+import { getSidebarRevealToken } from '../../../renderer/utils/sidebarReveal';
 
 /**
  * Creates a minimal mock context with all required handler functions.
@@ -868,6 +869,33 @@ describe('useMainKeyboardHandler', () => {
 			});
 
 			expect(mockSetActiveSessionId).toHaveBeenCalledWith('session-1');
+		});
+
+		it('asks the Left Bar to scroll the jumped-to agent into view', () => {
+			const { result } = renderHook(() => useMainKeyboardHandler());
+
+			// Target is already active: no switch for the Left Bar to observe.
+			result.current.keyboardHandlerRef.current = createMockContext({
+				visibleSessions: [{ id: 'session-1' }],
+				setActiveSessionId: vi.fn(),
+				leftSidebarOpen: true,
+				setLeftSidebarOpen: vi.fn(),
+			});
+			const before = getSidebarRevealToken();
+
+			act(() => {
+				window.dispatchEvent(
+					new KeyboardEvent('keydown', {
+						key: '1',
+						code: 'Digit1',
+						altKey: true,
+						metaKey: true,
+						bubbles: true,
+					})
+				);
+			});
+
+			expect(getSidebarRevealToken()).toBe(before + 1);
 		});
 
 		it('should expand sidebar when jumping to session', () => {

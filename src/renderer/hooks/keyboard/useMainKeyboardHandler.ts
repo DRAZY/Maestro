@@ -5,6 +5,7 @@ import { DESTINATION_SHORTCUT_IDS, useModalStore } from '../../stores/modalStore
 import { requestEditLastQueuedMessage } from '../../services/editQueuedMessage';
 import { requestOpenStagedImagesOrganizer } from '../../services/stagedImagesOrganizer';
 import { toggleAllUnreadFilters } from '../../services/unreadFilters';
+import { requestSidebarReveal } from '../../utils/sidebarReveal';
 import { getGitShortcutActions } from '../../services/gitShortcutActions';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useMediaPlaybackStore, selectMediaPlayerTargetId } from '../../stores/mediaPlaybackStore';
@@ -1033,6 +1034,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				if (targetIndex >= 0 && targetIndex < ctx.visibleSessions.length) {
 					const targetSession = ctx.visibleSessions[targetIndex];
 					ctx.setActiveSessionId(targetSession.id);
+					// Jumping to the agent that is already active is not a switch, so ask
+					// for the reveal explicitly; the Left Bar may be scrolled away from it.
+					requestSidebarReveal();
 					trackShortcut('jumpToSession');
 					// Also expand sidebar if collapsed
 					if (!ctx.leftSidebarOpen) {
