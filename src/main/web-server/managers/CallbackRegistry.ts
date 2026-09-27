@@ -22,6 +22,7 @@ import type {
 	ReorderTabCallback,
 	ToggleBookmarkCallback,
 	OpenFileTabCallback,
+	OpenFileTabOptions,
 	OpenDocumentGraphCallback,
 	OpenDocumentGraphParams,
 	OpenModalCallback,
@@ -418,7 +419,7 @@ export class CallbackRegistry {
 	async openFileTab(
 		sessionId: string,
 		filePath: string,
-		options: { background: boolean; switchToAgent: boolean }
+		options: OpenFileTabOptions
 	): Promise<boolean> {
 		if (!this.callbacks.openFileTab) return false;
 		return this.callbacks.openFileTab(sessionId, filePath, options);

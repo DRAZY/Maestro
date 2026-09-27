@@ -12,6 +12,7 @@
 import { ipcRenderer } from 'electron';
 import type { UsageStats } from '../../shared/types';
 import type { ToastClickAction } from '../../shared/toastClickAction';
+import type { MediaOpenMode } from '../../shared/mediaTypes';
 
 // Re-export for consumers that import from preload
 export type { UsageStats } from '../../shared/types';
@@ -532,23 +533,25 @@ export function createProcessApi() {
 		 * neither the active agent nor the active tab within any agent changes.
 		 * `switchToAgent: false` is the older, weaker `--no-switch` ask - stay on
 		 * the current agent, but still activate the tab inside the target one.
+		 * `mediaMode: 'queue'` adds audio/video to the player without playing it.
 		 */
 		onRemoteOpenFileTab: (
 			callback: (
 				sessionId: string,
 				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
+				options: { background: boolean; switchToAgent: boolean; mediaMode: MediaOpenMode }
 			) => void
 		): (() => void) => {
 			const handler = (
 				_: unknown,
 				sessionId: string,
 				filePath: string,
-				options?: { background?: boolean; switchToAgent?: boolean }
+				options?: { background?: boolean; switchToAgent?: boolean; mediaMode?: MediaOpenMode }
 			) =>
 				callback(sessionId, filePath, {
 					background: options?.background === true,
 					switchToAgent: options?.switchToAgent !== false,
+					mediaMode: options?.mediaMode === 'queue' ? 'queue' : 'play',
 				});
 			ipcRenderer.on('remote:openFileTab', handler);
 			return () => ipcRenderer.removeListener('remote:openFileTab', handler);

@@ -372,7 +372,11 @@ interface MaestroAPI {
 			callback: (
 				sessionId: string,
 				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
+				options: {
+					background: boolean;
+					switchToAgent: boolean;
+					mediaMode: import('../shared/mediaTypes').MediaOpenMode;
+				}
 			) => void
 		) => () => void;
 		onRemoteOpenModal: (

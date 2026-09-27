@@ -226,13 +226,14 @@ Stop a group chat's moderator and participants
 
 Open a file as a preview tab in the Maestro desktop app
 
-| Option             | Description                                                                     | Default |
-| ------------------ | ------------------------------------------------------------------------------- | ------- |
-| `-a, --agent <id>` | Target agent (defaults to auto-detect by file path's owning agent)              | -       |
-| `--background`     | Open the preview tab without changing anything currently rendered, on any agent | -       |
-| `--focus`          | Switch to the file after opening it (default)                                   | -       |
-| `--no-switch`      | Don't switch to the target agent, but still activate the tab there              | -       |
-| `--json`           | Output as JSON (for scripting)                                                  | -       |
+| Option             | Description                                                                                   | Default |
+| ------------------ | --------------------------------------------------------------------------------------------- | ------- |
+| `-a, --agent <id>` | Target agent (defaults to auto-detect by file path's owning agent)                            | -       |
+| `--background`     | Open the preview tab without changing anything currently rendered, on any agent               | -       |
+| `--focus`          | Switch to the file after opening it (default)                                                 | -       |
+| `--no-switch`      | Don't switch to the target agent, but still activate the tab there                            | -       |
+| `--queue`          | Audio/video only: add to the media player queue and show the player without starting playback | -       |
+| `--json`           | Output as JSON (for scripting)                                                                | -       |
 
 ## `maestro-cli open-graph [paths]`
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import type { Session, SessionState, ThinkingMode } from '../../types';
+import type { MediaOpenMode } from '../../../shared/mediaTypes';
 import { cueService } from '../../services/cue';
 import { captureException } from '../../utils/sentry';
 import { aiTabFocusFields, createTab, closeTab } from '../../utils/tabHelpers';
@@ -657,7 +658,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 			(
 				sessionId: string,
 				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
+				options: { background: boolean; switchToAgent: boolean; mediaMode: MediaOpenMode }
 			) => {
 				window.dispatchEvent(
 					new CustomEvent('maestro:openFileTab', {
@@ -666,6 +667,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 							filePath,
 							background: options.background,
 							switchToAgent: options.switchToAgent,
+							mediaMode: options.mediaMode,
 						},
 					})
 				);

@@ -380,6 +380,10 @@ program
 	)
 	.option('--focus', 'Switch to the file after opening it (default)')
 	.option('--no-switch', "Don't switch to the target agent, but still activate the tab there")
+	.option(
+		'--queue',
+		'Audio/video only: add to the media player queue and show the player without starting playback'
+	)
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(openFile);
 

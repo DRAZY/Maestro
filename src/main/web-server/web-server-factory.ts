@@ -26,6 +26,7 @@ import type {
 	CueActivityEntry,
 	TerminalTabInfo,
 	ReadTerminalTabResult,
+	OpenFileTabOptions,
 } from './types';
 import type { CueGraphSession, CueRunResult } from '../../shared/cue/contracts';
 import { composeCueSubscriptionId } from '../../shared/cue/subscription-id';
@@ -891,11 +892,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		});
 
 		server.setOpenFileTabCallback(
-			async (
-				sessionId: string,
-				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
-			) => {
+			async (sessionId: string, filePath: string, options: OpenFileTabOptions) => {
 				const mainWindow = getMainWindow();
 				if (!mainWindow) {
 					logger.warn('mainWindow is null for openFileTab', 'WebServer');
@@ -909,6 +906,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 				mainWindow.webContents.send('remote:openFileTab', sessionId, filePath, {
 					background: options.background,
 					switchToAgent: options.switchToAgent,
+					mediaMode: options.mediaMode,
 				});
 				return true;
 			}

@@ -58,6 +58,7 @@ import {
 } from '../../../shared/uiSurfaces';
 import { readBackgroundField, readSwitchToAgentField } from '../../../shared/focusPlacement';
 import { parseToastClickAction } from '../../../shared/toastClickAction';
+import type { MediaOpenMode } from '../../../shared/mediaTypes';
 import type {
 	AutoRunDocument,
 	AutoRunState,
@@ -94,6 +95,7 @@ import type {
 	TerminalTabInfo,
 	ReadTerminalTabPayload,
 	ReadTerminalTabResult,
+	OpenFileTabOptions,
 } from '../types';
 
 /** Canonical Toast / Center Flash color set (shared design language). */
@@ -160,6 +162,8 @@ export interface WebClientMessage {
 	background?: boolean;
 	/** open_file_tab only: the older, weaker `--no-switch` ask. */
 	switchToAgent?: boolean;
+	/** open_file_tab only: `'queue'` adds audio/video to the player paused. */
+	mediaMode?: MediaOpenMode;
 	[key: string]: unknown;
 }
 
@@ -226,7 +230,7 @@ export interface MessageHandlerCallbacks {
 	openFileTab: (
 		sessionId: string,
 		filePath: string,
-		options: { background: boolean; switchToAgent: boolean }
+		options: OpenFileTabOptions
 	) => Promise<boolean>;
 	/** Open a modal/dashboard by `UiSurface.id`, optionally on a validated tab id. */
 	openModal: (params: { surface: string; tab?: string }) => Promise<boolean>;
@@ -1906,8 +1910,11 @@ export class WebSocketMessageHandler {
 		//                          anywhere. Strictly stronger, so it wins.
 		const background = readBackgroundField(message);
 		const switchToAgent = readSwitchToAgentField(message);
+		// Opt-in like `background`: only a literal 'queue' counts, so an absent
+		// field keeps today's open-and-play behaviour for every existing caller.
+		const mediaMode: MediaOpenMode = message.mediaMode === 'queue' ? 'queue' : 'play';
 		logger.info(
-			`[Web] Received open_file_tab message: session=${sessionId}, filePath=${filePath}, background=${background}, switchToAgent=${switchToAgent}`,
+			`[Web] Received open_file_tab message: session=${sessionId}, filePath=${filePath}, background=${background}, switchToAgent=${switchToAgent}, mediaMode=${mediaMode}`,
 			LOG_CONTEXT
 		);
 
@@ -1947,7 +1954,7 @@ export class WebSocketMessageHandler {
 		}
 
 		this.callbacks
-			.openFileTab(sessionId, resolved, { background, switchToAgent })
+			.openFileTab(sessionId, resolved, { background, switchToAgent, mediaMode })
 			.then((success) => {
 				this.send(client, {
 					type: 'open_file_tab_result',
@@ -1956,6 +1963,7 @@ export class WebSocketMessageHandler {
 					filePath,
 					background,
 					switchToAgent,
+					mediaMode,
 					requestId: message.requestId,
 				});
 			})

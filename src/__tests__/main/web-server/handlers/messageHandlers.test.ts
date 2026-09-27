@@ -855,7 +855,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: false, switchToAgent: true }
+					{ background: false, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 
@@ -881,7 +881,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: false, switchToAgent: false }
+					{ background: false, switchToAgent: false, mediaMode: 'play' }
 				);
 			});
 		});
@@ -898,7 +898,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: true, switchToAgent: true }
+					{ background: true, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 		});
@@ -916,7 +916,42 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: true, switchToAgent: false }
+					{ background: true, switchToAgent: false, mediaMode: 'play' }
+				);
+			});
+		});
+
+		it("forwards mediaMode 'queue' so audio/video is queued without playing", async () => {
+			handler.handleMessage(client, {
+				type: 'open_file_tab',
+				sessionId: 'session-1',
+				filePath: '/home/user/project/ep1.mp3',
+				mediaMode: 'queue',
+			});
+
+			await vi.waitFor(() => {
+				expect(callbacks.openFileTab).toHaveBeenCalledWith(
+					'session-1',
+					'/home/user/project/ep1.mp3',
+					{ background: false, switchToAgent: true, mediaMode: 'queue' }
+				);
+			});
+		});
+
+		it("treats any mediaMode other than 'queue' as play", async () => {
+			handler.handleMessage(client, {
+				type: 'open_file_tab',
+				sessionId: 'session-1',
+				filePath: '/home/user/project/ep1.mp3',
+				// Untrusted wire input: the handler narrows anything unknown to play.
+				mediaMode: 'shuffle' as never,
+			});
+
+			await vi.waitFor(() => {
+				expect(callbacks.openFileTab).toHaveBeenCalledWith(
+					'session-1',
+					'/home/user/project/ep1.mp3',
+					{ background: false, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 		});
@@ -979,6 +1014,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith('session-1', '/home/etc/passwd', {
 					background: false,
 					switchToAgent: true,
+					mediaMode: 'play',
 				});
 			});
 
