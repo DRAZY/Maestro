@@ -27,6 +27,7 @@ import { getAiCommandEntry } from '../../stores/aiCommandStore';
 import { gitService } from '../../services/git';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { hasPendingRetry } from '../../stores/retryStore';
+import { takePendingMergedContext } from '../../stores/sessionStore';
 import { logger } from '../../utils/logger';
 
 let cachedImageOnlyPrompt: string = '';
@@ -1119,31 +1120,13 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						}
 
 						// Check for pending merged context that needs to be injected
-						// This happens when a user merged context from another tab/session
-						const pendingMergedContext = freshActiveTab?.pendingMergedContext;
-						if (pendingMergedContext) {
-							// Prepend the merged context to the user's message
-							effectivePrompt = `${pendingMergedContext}\n\n---\n\n${effectivePrompt}`;
-
-							// Clear the pending merged context from the tab
-							setSessions((prev) =>
-								prev.map((s) => {
-									if (s.id !== activeSessionId) return s;
-									return {
-										...s,
-										aiTabs: s.aiTabs.map((tab) =>
-											tab.id === freshActiveTab.id
-												? { ...tab, pendingMergedContext: undefined }
-												: tab
-										),
-									};
-								})
+						// (merge, Send to Agent, session-not-found recovery)
+						if (freshActiveTab) {
+							effectivePrompt = takePendingMergedContext(
+								activeSessionId,
+								freshActiveTab.id,
+								effectivePrompt
 							);
-
-							logger.info('[InputProcessing] Injected merged context into message:', undefined, {
-								contextLength: pendingMergedContext.length,
-								promptLength: effectivePrompt.length,
-							});
 						}
 
 						// Prepare Maestro system prompt. Always send it; the main-process handler
