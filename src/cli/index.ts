@@ -37,6 +37,8 @@ import { reference } from './commands/reference';
 import { autoRun } from './commands/auto-run';
 import { cueTrigger } from './commands/cue-trigger';
 import { cueList } from './commands/cue-list';
+import { cueEnable, cueDisable, cueActivity } from './commands/cue-control';
+import { marketplaceList, marketplaceShow, marketplaceImport } from './commands/marketplace';
 import { cueSchedule } from './commands/cue-schedule';
 import {
 	cuePipelineAdd,
@@ -99,6 +101,8 @@ import {
 	skipAutoRun,
 	abortAutoRun,
 	resetAutoRunTasks,
+	autoRunStatus,
+	autoRunFolder,
 } from './commands/auto-run-control';
 import { removePlaybook } from './commands/remove-playbook';
 import { focusAgent, switchMode } from './commands/agent-control';
@@ -604,6 +608,50 @@ program
 	.option('--json', 'Output as JSON (for scripting)')
 	.action((filename, options) => resetAutoRunTasks(options.agent, filename, options));
 
+program
+	.command('auto-run-status')
+	.description('Show whether an Auto Run is active and its document/task progress')
+	.requiredOption('-a, --agent <id>', 'Target agent ID')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((options) => autoRunStatus(options.agent, options));
+
+program
+	.command('auto-run-folder <path>')
+	.description(
+		"Point an agent at a different Auto Run folder (relative paths resolve against this shell's cwd)"
+	)
+	.requiredOption('-a, --agent <id>', 'Target agent ID')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((folder, options) => autoRunFolder(options.agent, folder, options));
+
+// Playbook Exchange - browse and install community playbooks
+const marketplace = program
+	.command('marketplace')
+	.description('Browse and import Playbook Exchange playbooks (the modal: `open marketplace`)');
+
+marketplace
+	.command('list')
+	.description('List playbooks in the official + local catalog')
+	.option('-c, --category <name>', 'Only this category')
+	.option('-s, --search <text>', 'Match id, title, description, or tags')
+	.option('--refresh', 'Bypass the catalog cache')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(marketplaceList);
+
+marketplace
+	.command('show <playbook-id>')
+	.description("Show a playbook's details, documents, and README")
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(marketplaceShow);
+
+marketplace
+	.command('import <playbook-id>')
+	.description("Install a playbook into an agent's Auto Run folder")
+	.requiredOption('-a, --agent <id>', 'Target agent ID')
+	.option('-f, --folder <name>', 'Folder name under the Auto Run folder (default: from the title)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(marketplaceImport);
+
 // Remove playbook command - delete a saved playbook from an agent
 program
 	.command('remove-playbook <agent-id> <playbook-id>')
@@ -627,6 +675,28 @@ cue
 	.description('List all Cue subscriptions across agents')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(cueList);
+
+cue
+	.command('enable <subscription>')
+	.description('Turn a Cue subscription on (name, or the full id from `cue list --json`)')
+	.option('-a, --agent <id>', 'Disambiguate a name several agents share')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cueEnable);
+
+cue
+	.command('disable <subscription>')
+	.description('Turn a Cue subscription off without deleting it')
+	.option('-a, --agent <id>', 'Disambiguate a name several agents share')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cueDisable);
+
+cue
+	.command('activity')
+	.description('Show recent Cue runs, newest first')
+	.option('-a, --agent <id>', 'Only runs for this agent')
+	.option('-n, --limit <n>', 'How many runs to show (default 20)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cueActivity);
 
 // Cue schedule - author / inspect / edit / cancel Scheduled Tasks (the
 // clock-driven subscriptions: time.once, time.scheduled, time.heartbeat).

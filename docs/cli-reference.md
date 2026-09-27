@@ -426,6 +426,57 @@ Reset all completed [x] tasks back to [ ] in an Auto Run document
 | `-a, --agent <id>` | Target agent ID                | -       |
 | `--json`           | Output as JSON (for scripting) | -       |
 
+## `maestro-cli auto-run-status`
+
+Show whether an Auto Run is active and its document/task progress
+
+| Option             | Description                    | Default |
+| ------------------ | ------------------------------ | ------- |
+| `-a, --agent <id>` | Target agent ID                | -       |
+| `--json`           | Output as JSON (for scripting) | -       |
+
+## `maestro-cli auto-run-folder <path>`
+
+Point an agent at a different Auto Run folder (relative paths resolve against this shell's cwd)
+
+| Option             | Description                    | Default |
+| ------------------ | ------------------------------ | ------- |
+| `-a, --agent <id>` | Target agent ID                | -       |
+| `--json`           | Output as JSON (for scripting) | -       |
+
+## `maestro-cli marketplace`
+
+Browse and import Playbook Exchange playbooks (the modal: `open marketplace`)
+
+## `maestro-cli marketplace list`
+
+List playbooks in the official + local catalog
+
+| Option                  | Description                           | Default |
+| ----------------------- | ------------------------------------- | ------- |
+| `-c, --category <name>` | Only this category                    | -       |
+| `-s, --search <text>`   | Match id, title, description, or tags | -       |
+| `--refresh`             | Bypass the catalog cache              | -       |
+| `--json`                | Output as JSON (for scripting)        | -       |
+
+## `maestro-cli marketplace show <playbook-id>`
+
+Show a playbook's details, documents, and README
+
+| Option   | Description                    | Default |
+| -------- | ------------------------------ | ------- |
+| `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli marketplace import <playbook-id>`
+
+Install a playbook into an agent's Auto Run folder
+
+| Option                | Description                                                     | Default |
+| --------------------- | --------------------------------------------------------------- | ------- |
+| `-a, --agent <id>`    | Target agent ID                                                 | -       |
+| `-f, --folder <name>` | Folder name under the Auto Run folder (default: from the title) | -       |
+| `--json`              | Output as JSON (for scripting)                                  | -       |
+
 ## `maestro-cli remove-playbook <agent-id> <playbook-id>`
 
 Remove a saved playbook from an agent (find IDs via "list playbooks -a <agent>")
@@ -455,6 +506,34 @@ List all Cue subscriptions across agents
 | Option   | Description                    | Default |
 | -------- | ------------------------------ | ------- |
 | `--json` | Output as JSON (for scripting) | -       |
+
+## `maestro-cli cue enable <subscription>`
+
+Turn a Cue subscription on (name, or the full id from `cue list --json`)
+
+| Option             | Description                              | Default |
+| ------------------ | ---------------------------------------- | ------- |
+| `-a, --agent <id>` | Disambiguate a name several agents share | -       |
+| `--json`           | Output as JSON (for scripting)           | -       |
+
+## `maestro-cli cue disable <subscription>`
+
+Turn a Cue subscription off without deleting it
+
+| Option             | Description                              | Default |
+| ------------------ | ---------------------------------------- | ------- |
+| `-a, --agent <id>` | Disambiguate a name several agents share | -       |
+| `--json`           | Output as JSON (for scripting)           | -       |
+
+## `maestro-cli cue activity`
+
+Show recent Cue runs, newest first
+
+| Option             | Description                        | Default |
+| ------------------ | ---------------------------------- | ------- |
+| `-a, --agent <id>` | Only runs for this agent           | -       |
+| `-n, --limit <n>`  | How many runs to show (default 20) | -       |
+| `--json`           | Output as JSON (for scripting)     | -       |
 
 ## `maestro-cli cue schedule`
 

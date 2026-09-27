@@ -1890,17 +1890,19 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
+			this.sendError(client, 'Missing sessionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (typeof folderPath !== 'string' || folderPath.trim() === '') {
-			this.sendError(client, 'Missing or invalid folderPath');
+			this.sendError(client, 'Missing or invalid folderPath', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.setSessionAutoRunFolder) {
-			this.sendError(client, 'Auto Run folder updates not configured');
+			this.sendError(client, 'Auto Run folder updates not configured', {
+				requestId: message.requestId,
+			});
 			return;
 		}
 
@@ -1926,7 +1928,9 @@ export class WebSocketMessageHandler {
 						requestId: message.requestId,
 					},
 				});
-				this.sendError(client, `Failed to set Auto Run folder: ${err.message}`);
+				this.sendError(client, `Failed to set Auto Run folder: ${err.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -2716,12 +2720,12 @@ export class WebSocketMessageHandler {
 		logger.info(`[Web] Received get_auto_run_state message: session=${sessionId}`, LOG_CONTEXT);
 
 		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
+			this.sendError(client, 'Missing sessionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.getSessionDetail) {
-			this.sendError(client, 'Session detail not configured');
+			this.sendError(client, 'Session detail not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4427,17 +4431,17 @@ export class WebSocketMessageHandler {
 		const enabled = message.enabled as boolean;
 
 		if (!subscriptionId) {
-			this.sendError(client, 'Missing subscriptionId');
+			this.sendError(client, 'Missing subscriptionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (typeof enabled !== 'boolean') {
-			this.sendError(client, 'Missing or invalid enabled flag');
+			this.sendError(client, 'Missing or invalid enabled flag', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.toggleCueSubscription) {
-			this.sendError(client, 'Cue toggle not available');
+			this.sendError(client, 'Cue toggle not available', { requestId: message.requestId });
 			return;
 		}
 
@@ -4454,7 +4458,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to toggle Cue subscription: ${error.message}`);
+				this.sendError(client, `Failed to toggle Cue subscription: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4466,7 +4472,7 @@ export class WebSocketMessageHandler {
 		const limit = (message.limit as number) ?? 50;
 
 		if (!this.callbacks.getCueActivity) {
-			this.sendError(client, 'Cue activity not available');
+			this.sendError(client, 'Cue activity not available', { requestId: message.requestId });
 			return;
 		}
 
@@ -4481,7 +4487,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get Cue activity: ${error.message}`);
+				this.sendError(client, `Failed to get Cue activity: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
