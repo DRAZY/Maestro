@@ -92,6 +92,8 @@ import type {
 	ListWorktreesResult,
 	GetGroupChatsCallback,
 	StartGroupChatCallback,
+	StartGroupChatOptions,
+	StartGroupChatResult,
 	GetGroupChatStateCallback,
 	StopGroupChatCallback,
 	SendGroupChatMessageCallback,
@@ -752,10 +754,11 @@ export class CallbackRegistry {
 
 	async startGroupChat(
 		topic: string,
-		participantIds: string[]
-	): Promise<{ chatId: string } | null> {
+		participantIds: string[],
+		options?: StartGroupChatOptions
+	): Promise<StartGroupChatResult | null> {
 		if (!this.callbacks.startGroupChat) return null;
-		return this.callbacks.startGroupChat(topic, participantIds);
+		return this.callbacks.startGroupChat(topic, participantIds, options);
 	}
 
 	async getGroupChatState(chatId: string): Promise<GroupChatState | null> {

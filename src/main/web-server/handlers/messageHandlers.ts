@@ -69,6 +69,8 @@ import type {
 	GitBranchesResult,
 	ListWorktreesResult,
 	GroupChatState,
+	StartGroupChatOptions,
+	StartGroupChatResult,
 	CueSubscriptionInfo,
 	CueActivityEntry,
 	UsageDashboardData,
@@ -369,7 +371,11 @@ export interface MessageHandlerCallbacks {
 	getGitBranchesForSession: (sessionId: string) => Promise<GitBranchesResult>;
 	listWorktreesForSession: (sessionId: string) => Promise<ListWorktreesResult>;
 	getGroupChats: () => Promise<GroupChatState[]>;
-	startGroupChat: (topic: string, participantIds: string[]) => Promise<{ chatId: string } | null>;
+	startGroupChat: (
+		topic: string,
+		participantIds: string[],
+		options?: StartGroupChatOptions
+	) => Promise<StartGroupChatResult | null>;
 	getGroupChatState: (chatId: string) => Promise<GroupChatState | null>;
 	stopGroupChat: (chatId: string) => Promise<boolean>;
 	sendGroupChatMessage: (chatId: string, message: string) => Promise<boolean>;
@@ -4010,44 +4016,63 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get group chats: ${error.message}`);
+				this.sendError(client, `Failed to get group chats: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
 	/**
-	 * Handle start_group_chat message - start a new group chat
+	 * Handle start_group_chat message - start a new group chat.
+	 *
+	 * Validation errors carry the requestId so a CLI caller gets the reason
+	 * instead of waiting out its command timeout.
 	 */
 	private handleStartGroupChat(client: WebClient, message: WebClientMessage): void {
 		const topic = message.topic as string;
 		const participantIds = message.participantIds as string[];
+		const reply = { requestId: message.requestId };
 
 		if (!topic || typeof topic !== 'string') {
-			this.sendError(client, 'Missing or invalid topic');
+			this.sendError(client, 'Missing or invalid topic', reply);
 			return;
 		}
 
-		if (!participantIds || !Array.isArray(participantIds) || participantIds.length < 2) {
-			this.sendError(client, 'At least 2 participants are required');
+		if (
+			!Array.isArray(participantIds) ||
+			participantIds.length === 0 ||
+			participantIds.some((id) => typeof id !== 'string' || !id)
+		) {
+			this.sendError(client, 'At least 1 participant is required', reply);
 			return;
+		}
+
+		const options: StartGroupChatOptions = {};
+		if (typeof message.moderatorAgentId === 'string' && message.moderatorAgentId) {
+			options.moderatorAgentId = message.moderatorAgentId;
+		}
+		if (typeof message.message === 'string' && message.message.trim()) {
+			options.message = message.message;
 		}
 
 		if (!this.callbacks.startGroupChat) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', reply);
 			return;
 		}
 
 		this.callbacks
-			.startGroupChat(topic, participantIds)
+			.startGroupChat(topic, participantIds, options)
 			.then((result) => {
 				this.send(client, {
 					type: 'start_group_chat_result',
-					success: !!result,
+					success: !!result?.chatId && !result.error,
 					chatId: result?.chatId,
+					error: result ? result.error : 'The desktop app did not answer',
 					requestId: message.requestId,
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to start group chat: ${error.message}`);
+				this.sendError(client, `Failed to start group chat: ${error.message}`, reply);
 			});
 	}
 
@@ -4058,12 +4083,12 @@ export class WebSocketMessageHandler {
 		const chatId = message.chatId as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.getGroupChatState) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4078,7 +4103,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get group chat state: ${error.message}`);
+				this.sendError(client, `Failed to get group chat state: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4090,17 +4117,17 @@ export class WebSocketMessageHandler {
 		const chatMessage = message.message as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!chatMessage || typeof chatMessage !== 'string') {
-			this.sendError(client, 'Missing or invalid message');
+			this.sendError(client, 'Missing or invalid message', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.sendGroupChatMessage) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4115,7 +4142,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to send group chat message: ${error.message}`);
+				this.sendError(client, `Failed to send group chat message: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4126,12 +4155,12 @@ export class WebSocketMessageHandler {
 		const chatId = message.chatId as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.stopGroupChat) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4146,7 +4175,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to stop group chat: ${error.message}`);
+				this.sendError(client, `Failed to stop group chat: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 

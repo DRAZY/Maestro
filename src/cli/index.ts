@@ -24,6 +24,13 @@ import { openTerminal } from './commands/open-terminal';
 import { refreshFiles } from './commands/refresh-files';
 import { refreshAutoRun } from './commands/refresh-auto-run';
 import { status } from './commands/status';
+import {
+	groupChatList,
+	groupChatSend,
+	groupChatStart,
+	groupChatStatus,
+	groupChatStop,
+} from './commands/group-chat';
 import { doctor } from './commands/doctor';
 import { completions } from './commands/completions';
 import { reference } from './commands/reference';
@@ -309,6 +316,58 @@ session
 	.option('--tail <n>', 'Only return the last N messages (applied after --since)')
 	.option('--json', 'Output as JSON (for scripting); default is a formatted transcript')
 	.action(sessionShow);
+
+// Group chat commands - start and drive multi-agent group chats in the desktop app.
+// `start` is how a script hands a job to a moderator (the release commands use it);
+// participants join by @mention, exactly as when a user types them. Never moves the view.
+const groupChat = program
+	.command('group-chat')
+	.description('Start, message, and inspect group chats in the desktop app');
+
+groupChat
+	.command('start <name>')
+	.description('Create a group chat and send its moderator the opening message')
+	.option(
+		'-p, --participant <agent>',
+		'Participant agent ID or name (repeatable; at least one)',
+		(value: string, prev: string[]) => [...prev, value],
+		[] as string[]
+	)
+	.option(
+		'--moderator <agent-type>',
+		"Moderator agent type (e.g. claude-code); defaults to the first participant's type"
+	)
+	.option('-m, --message <text>', 'Opening message for the moderator (defaults to the name)')
+	.option('--message-file <path>', 'Read the opening message from a file')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(groupChatStart);
+
+groupChat
+	.command('send <chat> [message]')
+	.description('Send a message to a group chat (ID, ID prefix, or name); refused while busy')
+	.option('--message-file <path>', 'Read the message from a file')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(groupChatSend);
+
+groupChat
+	.command('status <chat>')
+	.description("Show a group chat's state, participants, and latest messages")
+	.option('--tail <n>', 'How many recent messages to print (default 5; 0 for none)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(groupChatStatus);
+
+groupChat
+	.command('list')
+	.description('List group chats and whether each is busy')
+	.option('--all', 'Include archived chats')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(groupChatList);
+
+groupChat
+	.command('stop <chat>')
+	.description("Stop a group chat's moderator and participants")
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(groupChatStop);
 
 // Open file command - open a file in the Maestro desktop app
 program

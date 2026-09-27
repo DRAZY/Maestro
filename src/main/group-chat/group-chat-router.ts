@@ -24,9 +24,11 @@ import {
 	type GroupChatMessage,
 	type GroupChatHistoryEntry,
 	GROUP_CHAT_USER_NAME,
+	extractAllMentions,
 	mentionMatches,
 	normalizeMentionName,
 	requiresIdleParticipants,
+	stripMarkdownFormatting,
 } from '../../shared/group-chat-types';
 import {
 	IProcessManager,
@@ -479,16 +481,6 @@ export function setSshStore(store: SshRemoteSettingsStore): void {
 }
 
 /**
- * Strips leading/trailing markdown formatting characters from a mention name.
- * AI moderators often wrap mentions in bold/italic/code/strikethrough markdown
- * (e.g. `**@name**`, `_@name_`, `` `@name` ``), which leaves formatting chars
- * attached to the extracted name and breaks participant matching.
- */
-function stripMarkdownFormatting(name: string): string {
-	return name.replace(/^[*_`~]+|[*_`~]+$/g, '');
-}
-
-/**
  * Extracts @mentions from text that match known participants.
  * Supports hyphenated names matching participants with spaces.
  * Handles markdown-formatted mentions (e.g. **@name**, _@name_).
@@ -499,56 +491,18 @@ function stripMarkdownFormatting(name: string): string {
  */
 export function extractMentions(text: string, participants: GroupChatParticipant[]): string[] {
 	const mentions: string[] = [];
-
-	// Match @Name patterns - captures characters after @ excluding:
-	// - Whitespace and @
-	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
-	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
-	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
-	let match;
-
-	while ((match = mentionPattern.exec(text)) !== null) {
-		const mentionedName = stripMarkdownFormatting(match[1]);
-		if (!mentionedName) continue;
-		// Find participant that matches (either exact or normalized)
+	for (const mentionedName of extractAllMentions(text)) {
 		const matchingParticipant = participants.find((p) => mentionMatches(mentionedName, p.name));
 		if (matchingParticipant && !mentions.includes(matchingParticipant.name)) {
 			mentions.push(matchingParticipant.name);
 		}
 	}
-
 	return mentions;
 }
 
-/**
- * Extracts ALL @mentions from text (regardless of whether they're participants).
- * Handles markdown-formatted mentions (e.g. **@name**, _@name_).
- *
- * @param text - The text to search for mentions
- * @returns Array of unique names that were mentioned (without @ prefix)
- */
-export function extractAllMentions(text: string): string[] {
-	const mentions: string[] = [];
-
-	// Match @Name patterns - captures characters after @ excluding:
-	// - Whitespace and @
-	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
-	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
-	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
-	let match;
-
-	while ((match = mentionPattern.exec(text)) !== null) {
-		const name = stripMarkdownFormatting(match[1]);
-		if (!name) continue;
-		if (!mentions.includes(name)) {
-			mentions.push(name);
-		}
-	}
-
-	return mentions;
-}
+// Re-exported for existing callers; the parser lives in shared so the CLI/web
+// start path mentions agents exactly the way this router reads them.
+export { extractAllMentions };
 
 /**
  * Extracts !autorun directives from moderator output.

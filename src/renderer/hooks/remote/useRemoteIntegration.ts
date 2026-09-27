@@ -17,6 +17,7 @@ import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { loadAllSettings } from '../../stores/settingsStore';
+import { useRemoteGroupChat } from './useRemoteGroupChat';
 
 /**
  * Dependencies for the useRemoteIntegration hook.
@@ -1628,6 +1629,9 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		);
 		return unsubscribe;
 	}, [sessionsRef]);
+
+	// Group chat requests from the CLI / web client
+	useRemoteGroupChat();
 
 	return {};
 }

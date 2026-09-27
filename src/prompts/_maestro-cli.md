@@ -23,6 +23,7 @@ Run `<group> --help` for the exact subcommands and flags.
 - **settings** - read/write any global or per-agent setting (`settings list -v`, `settings get/set/reset`, `settings agent ...`). Applies live, no restart.
 - **send / dispatch** - hand a prompt to another agent. `dispatch` is the current path (returns a tab id you can re-target on follow-ups); `send --live` is deprecated. Pass `--background`: without it, handing work to another agent yanks the user's Left Bar selection onto that agent.
 - **list / show** - inspect agents, groups, playbooks, sessions, ssh-remotes.
+- **group-chat start / send / status / list / stop** - hand a multi-agent job to a moderator without the New Group Chat modal. `group-chat start <name> -p <agent> -p <agent> --message-file <brief.md>` creates the chat and sends the brief; participants join by @mention exactly as if the user typed them, and the chat lands in the Left Bar without moving the view. Poll `group-chat status <chat>` for progress instead of sleeping. `send` is refused while the chat is busy.
 - **session list / session show** - enumerate every open AI tab across the fleet (ids, agent, state, and each tab's settings), and print one tab's transcript. This is the read side of `tab`.
 - **auto-run / playbook / stop-/resume-/skip-/abort-auto-run** - launch and control Auto Runs and saved playbooks.
 - **cue** - list and trigger Cue subscriptions, and manage Scheduled Tasks with `cue schedule` (event model + YAML schema live in `_maestro-cue`).
