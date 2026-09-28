@@ -845,6 +845,8 @@ describe('persistence IPC handlers', () => {
 			inputMode: 'ai',
 			toolType: 'claude-code',
 			createdAt: 100,
+			aiLogs: [{ id: 'legacy-ai', text: 'legacy message' }],
+			shellLogs: [{ id: 'old-shell', text: 'old shell output' }],
 			agentCommands: [{ command: '/old', description: 'Old' }],
 			aiCommandHistory: ['old prompt'],
 			aiTabs: [
@@ -866,6 +868,8 @@ describe('persistence IPC handlers', () => {
 			expect(thin.snoozedTabs[0].members[0].tab.logs).toEqual([]);
 			expect(thin.agentCommands).toBeUndefined();
 			expect(thin.aiCommandHistory).toBeUndefined();
+			expect(thin.aiLogs).toEqual([]);
+			expect(thin.shellLogs).toEqual([]);
 			expect(thin.deferredContent).toEqual({
 				tabIds: ['t1', 't2', 'parked'],
 				commands: true,
@@ -875,6 +879,7 @@ describe('persistence IPC handlers', () => {
 				await handlers.get('sessions:getDeferredContent')!({} as any, 's1', 't1', true)
 			).toEqual({
 				logs: stored.aiTabs[0].logs,
+				shellLogs: stored.shellLogs,
 				agentCommands: stored.agentCommands,
 				aiCommandHistory: stored.aiCommandHistory,
 			});
@@ -893,6 +898,7 @@ describe('persistence IPC handlers', () => {
 						thin.aiTabs[1],
 					],
 					aiCommandHistory: ['new prompt'],
+					shellLogs: [{ id: 'new-shell', text: 'new shell output' }],
 				};
 				await handlers.get(channel)!({} as any, [changed], []);
 				const saved = mockSessionsStore.set.mock.calls.at(-1)![1] as (typeof stored)[];
@@ -903,7 +909,36 @@ describe('persistence IPC handlers', () => {
 				expect(saved[0].snoozedTabs[0].members[0].tab.logs).toEqual([{ id: 'parked-log' }]);
 				expect(saved[0].agentCommands).toEqual(stored.agentCommands);
 				expect(saved[0].aiCommandHistory).toEqual(['old prompt', 'new prompt']);
+				expect(saved[0].aiLogs).toEqual(stored.aiLogs);
+				expect(saved[0].shellLogs.map((log) => log.id)).toEqual(['old-shell', 'new-shell']);
 				expect((saved[0] as StoredSession).deferredContent).toBeUndefined();
+			}
+		);
+
+		it.each(['sessions:setAll', 'sessions:setMany'])(
+			'%s saves a rename after another client closes an unloaded tab',
+			async (channel) => {
+				const afterClose = { ...stored, aiTabs: [stored.aiTabs[0]], snoozedTabs: [] };
+				mockSessionsStore.get.mockReturnValueOnce([stored]).mockReturnValue([afterClose]);
+				const [thin] = await handlers.get('sessions:getBootstrap')!({} as any);
+				await handlers.get(channel)!({} as any, [
+					{
+						...thin,
+						name: 'Renamed',
+						activeTabId: 't2',
+						unifiedTabOrder: [
+							{ type: 'ai', id: 't1' },
+							{ type: 'ai', id: 't2' },
+						],
+					},
+				]);
+				const [saved] = mockSessionsStore.set.mock.calls.at(-1)![1];
+				expect(saved.name).toBe('Renamed');
+				expect(saved.aiTabs.map((tab: { id: string }) => tab.id)).toEqual(['t1']);
+				expect(saved.aiTabs[0].logs).toEqual(stored.aiTabs[0].logs);
+				expect(saved.snoozedTabs).toEqual([]);
+				expect(saved.activeTabId).toBe('t1');
+				expect(saved.unifiedTabOrder).toEqual([{ type: 'ai', id: 't1' }]);
 			}
 		);
 

@@ -48,23 +48,27 @@ type StoredAiTab = { id: string; logs: { id?: string; timestamp?: number }[] };
 
 function mapStoredAiTabs(
 	session: StoredSession,
-	mapTab: (tab: StoredAiTab) => StoredAiTab
+	mapTab: (tab: StoredAiTab) => StoredAiTab | undefined
 ): StoredSession {
 	return {
 		...session,
-		aiTabs: session.aiTabs?.map(mapTab),
-		snoozedTabs: session.snoozedTabs?.map((entry: StoredSession) =>
-			entry.type === 'group'
-				? {
-						...entry,
-						members: entry.members?.map((member: StoredSession) =>
-							member.type === 'ai' ? { ...member, tab: mapTab(member.tab) } : member
-						),
-					}
-				: entry.type === 'ai'
-					? { ...entry, tab: mapTab(entry.tab) }
-					: entry
-		),
+		aiTabs: session.aiTabs?.flatMap((tab: StoredAiTab) => {
+			const mapped = mapTab(tab);
+			return mapped ? [mapped] : [];
+		}),
+		snoozedTabs: session.snoozedTabs?.flatMap((entry: StoredSession) => {
+			if (entry.type === 'group') {
+				const members = entry.members?.flatMap((member: StoredSession) => {
+					if (member.type !== 'ai') return [member];
+					const tab = mapTab(member.tab);
+					return tab ? [{ ...member, tab }] : [];
+				});
+				return members?.length || !entry.members?.length ? [{ ...entry, members }] : [];
+			}
+			if (entry.type !== 'ai') return [entry];
+			const tab = mapTab(entry.tab);
+			return tab ? [{ ...entry, tab }] : [];
+		}),
 	};
 }
 
@@ -108,6 +112,8 @@ function projectWebSession(session: StoredSession): StoredSession {
 	return {
 		...projected,
 		createdAt,
+		aiLogs: [],
+		shellLogs: [],
 		agentCommands: undefined,
 		aiCommandHistory: undefined,
 		deferredContent: { tabIds, commands: true } satisfies DeferredSessionContent,
@@ -128,10 +134,14 @@ function mergeDeferredSessionContent(
 		throw new Error(`Refusing to persist invalid deferred content for agent ${incoming.id}`);
 	}
 	const tabIds = new Set(deferred.tabIds);
+	const removedTabIds = new Set<string>();
 	const merged = mapStoredAiTabs(incoming, (tab) => {
 		if (!tabIds.has(tab.id)) return tab;
 		const previousTab = findStoredAiTab(stored, tab.id);
-		if (!previousTab) throw new Error(`Refusing to overwrite unloaded tab ${tab.id}`);
+		if (!previousTab) {
+			removedTabIds.add(tab.id);
+			return undefined;
+		}
 		return {
 			...tab,
 			logs: mergeDeferredItems(
@@ -143,7 +153,26 @@ function mergeDeferredSessionContent(
 		};
 	});
 	const { deferredContent: _deferredContent, ...complete } = merged;
+	if (removedTabIds.size) {
+		complete.unifiedTabOrder = complete.unifiedTabOrder?.filter(
+			(ref: { type: string; id: string }) => ref.type !== 'ai' || !removedTabIds.has(ref.id)
+		);
+		if (removedTabIds.has(complete.activeTabId)) {
+			complete.activeTabId = complete.aiTabs?.[0]?.id ?? '';
+		}
+	}
 	if (deferred.commands) {
+		// This marker also protects legacy session-level logs omitted from the bootstrap.
+		complete.aiLogs = mergeDeferredItems(
+			stored.aiLogs,
+			incoming.aiLogs,
+			(log: { id?: string }) => log.id
+		);
+		complete.shellLogs = mergeDeferredItems(
+			stored.shellLogs,
+			incoming.shellLogs,
+			(log: { id?: string }) => log.id
+		);
 		complete.agentCommands = mergeDeferredItems(
 			stored.agentCommands,
 			incoming.agentCommands,
@@ -623,6 +652,7 @@ export function registerPersistenceHandlers(
 				...(tab ? { logs: tab.logs ?? [] } : {}),
 				...(includeCommands
 					? {
+							shellLogs: session.shellLogs ?? [],
 							agentCommands: session.agentCommands ?? [],
 							aiCommandHistory: session.aiCommandHistory ?? [],
 						}

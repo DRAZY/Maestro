@@ -143,6 +143,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 	const reconcileRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const retrySessionLoad = useRef<() => void>(() => {});
 	const deferredLoadsInFlight = useRef(new Set<string>());
+	const deferredLoadsFailed = useRef(new Set<string>());
 
 	useEffect(
 		() => () => {
@@ -246,6 +247,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 		const includeCommands = deferred.commands === true;
 		if (!tabId && !includeCommands) return;
 		const key = `${session.id}:${tabId ?? ''}:${includeCommands}`;
+		if (deferredLoadsFailed.current.has(key)) return;
 		if (deferredLoadsInFlight.current.has(key)) return;
 		deferredLoadsInFlight.current.add(key);
 		void window.maestro.sessions
@@ -273,6 +275,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 					const commandsLoaded =
 						includeCommands &&
 						pending.commands === true &&
+						content.shellLogs &&
 						content.agentCommands &&
 						content.aiCommandHistory;
 					return {
@@ -280,6 +283,11 @@ export function useSessionRestoration(): SessionRestorationReturn {
 						aiTabs,
 						...(commandsLoaded
 							? {
+									shellLogs: mergeDeferredItems(
+										content.shellLogs,
+										current.shellLogs,
+										(log) => log.id
+									),
 									agentCommands: mergeDeferredItems(
 										content.agentCommands,
 										current.agentCommands,
@@ -304,6 +312,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 				});
 			})
 			.catch((error) => {
+				deferredLoadsFailed.current.add(key);
 				logger.warn(`Failed to load conversation for agent ${session.id}:`, undefined, error);
 			})
 			.finally(() => deferredLoadsInFlight.current.delete(key));
@@ -317,6 +326,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 	}, [loadActiveDeferredContent]);
 
 	useEventListener(WEB_BRIDGE_RECONCILE_EVENT, () => {
+		deferredLoadsFailed.current.clear();
 		if (!useSessionStore.getState().sessionsReadOk) retrySessionLoad.current();
 		loadActiveDeferredContent();
 		void reattachLiveAiTurns();

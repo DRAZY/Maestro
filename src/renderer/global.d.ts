@@ -269,6 +269,7 @@ interface MaestroAPI {
 			includeCommands: boolean
 		) => Promise<{
 			logs?: import('./types').LogEntry[];
+			shellLogs?: import('./types').LogEntry[];
 			agentCommands?: NonNullable<import('./types').Session['agentCommands']>;
 			aiCommandHistory?: string[];
 		}>;

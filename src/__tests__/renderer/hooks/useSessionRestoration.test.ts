@@ -30,7 +30,11 @@ vi.mock('../../../renderer/utils/ids', () => ({
 }));
 
 import { useSessionRestoration } from '../../../renderer/hooks/session/useSessionRestoration';
-import { updateAiTab, useSessionStore } from '../../../renderer/stores/sessionStore';
+import {
+	updateAiTab,
+	updateSessionWith,
+	useSessionStore,
+} from '../../../renderer/stores/sessionStore';
 import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import { gitService } from '../../../renderer/services/git';
 import type { BrowserTab, Session } from '../../../renderer/types';
@@ -1457,11 +1461,13 @@ describe('Session & Group loading effect', () => {
 		runtime.web = true;
 		const thin = createMockSession({
 			id: 'web-agent',
+			shellLogs: [],
 			deferredContent: { tabIds: ['tab-1'], commands: true },
 		});
 		mockGetBootstrap.mockResolvedValueOnce([thin]);
 		let resolveContent!: (content: {
 			logs: Session['aiTabs'][number]['logs'];
+			shellLogs: Session['shellLogs'];
 			agentCommands: NonNullable<Session['agentCommands']>;
 			aiCommandHistory: string[];
 		}) => void;
@@ -1481,10 +1487,15 @@ describe('Session & Group loading effect', () => {
 				...tab,
 				logs: [{ id: 'live', timestamp: 2, source: 'stdout', text: 'new' }],
 			}));
+			updateSessionWith('web-agent', (session) => ({
+				...session,
+				shellLogs: [{ id: 'live-shell', timestamp: 2, source: 'stdout', text: 'new shell' }],
+			}));
 		});
 		await act(async () => {
 			resolveContent({
 				logs: [{ id: 'old', timestamp: 1, source: 'stdout', text: 'saved' }],
+				shellLogs: [{ id: 'old-shell', timestamp: 1, source: 'stdout', text: 'shell' }],
 				agentCommands: [{ command: '/old', description: 'Old' }],
 				aiCommandHistory: ['old prompt'],
 			});
@@ -1492,9 +1503,31 @@ describe('Session & Group loading effect', () => {
 		await vi.waitFor(() => {
 			const session = useSessionStore.getState().sessions[0];
 			expect(session.aiTabs[0].logs.map((log) => log.id)).toEqual(['old', 'live']);
+			expect(session.shellLogs.map((log) => log.id)).toEqual(['old-shell', 'live-shell']);
 			expect(session.deferredContent).toBeUndefined();
 			expect(session.aiCommandHistory).toEqual(['old prompt']);
 		});
+	});
+
+	it('retries a failed deferred read only after the bridge reconnects', async () => {
+		runtime.web = true;
+		mockGetBootstrap.mockResolvedValueOnce([
+			createMockSession({
+				id: 'web-agent',
+				deferredContent: { tabIds: ['tab-1'], commands: true },
+			}),
+		]);
+		mockGetDeferredContent
+			.mockRejectedValueOnce(new Error('bridge disconnected'))
+			.mockResolvedValueOnce({ logs: [], shellLogs: [], agentCommands: [], aiCommandHistory: [] });
+		renderHook(() => useSessionRestoration());
+		await vi.waitFor(() => expect(mockGetDeferredContent).toHaveBeenCalledTimes(1));
+		await act(async () => {
+			updateSessionWith('web-agent', (session) => ({ ...session, name: 'Renamed' }));
+		});
+		expect(mockGetDeferredContent).toHaveBeenCalledTimes(1);
+		act(() => window.dispatchEvent(new Event(WEB_BRIDGE_RECONCILE_EVENT)));
+		await vi.waitFor(() => expect(mockGetDeferredContent).toHaveBeenCalledTimes(2));
 	});
 
 	it('loads sessions from IPC on mount', async () => {
