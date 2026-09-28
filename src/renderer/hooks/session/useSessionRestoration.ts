@@ -242,8 +242,16 @@ export function useSessionRestoration(): SessionRestorationReturn {
 		const deferred = session?.deferredContent;
 		if (!session || !deferred) return;
 		const activeRef = resolveActiveTabRef(session);
-		const tabId =
+		let tabId =
 			activeRef?.type === 'ai' && deferred.tabIds.includes(activeRef.id) ? activeRef.id : null;
+		if (!tabId && session.activeGroupId) {
+			const group = session.tabGroups?.find((item) => item.id === session.activeGroupId);
+			tabId = group
+				? (collectLeafTabRefs(group.layout).find(
+						(ref) => ref.type === 'ai' && deferred.tabIds.includes(ref.id)
+					)?.id ?? null)
+				: null;
+		}
 		const includeCommands = deferred.commands === true;
 		if (!tabId && !includeCommands) return;
 		const key = `${session.id}:${tabId ?? ''}:${includeCommands}`;
