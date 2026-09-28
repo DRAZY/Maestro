@@ -172,6 +172,8 @@ describe('persistence IPC handlers', () => {
 				'settings:set',
 				'settings:getAll',
 				'sessions:getAll',
+				'sessions:getBootstrap',
+				'sessions:getDeferredContent',
 				'images:resolve',
 				'sessions:getActiveSessionId',
 				'sessions:setActiveSessionId',
@@ -830,6 +832,87 @@ describe('persistence IPC handlers', () => {
 			expect(legacyOutput).toBe(output);
 			expect(snoozedOutput).toBe(output);
 			expect(mockSessionsStore.set).toHaveBeenCalledWith('sessions', result);
+		});
+	});
+
+	describe('browser session bootstrap', () => {
+		const stored = {
+			id: 's1',
+			name: 'Agent',
+			cwd: '/test',
+			projectRoot: '/test',
+			state: 'idle',
+			inputMode: 'ai',
+			toolType: 'claude-code',
+			createdAt: 100,
+			agentCommands: [{ command: '/old', description: 'Old' }],
+			aiCommandHistory: ['old prompt'],
+			aiTabs: [
+				{ id: 't1', logs: [{ id: 'old-log', text: 'old message' }] },
+				{ id: 't2', logs: [{ id: 'other-log', text: 'other message' }] },
+			],
+			snoozedTabs: [
+				{
+					type: 'group',
+					members: [{ type: 'ai', tab: { id: 'parked', logs: [{ id: 'parked-log' }] } }],
+				},
+			],
+		};
+
+		it('sends metadata first and reads one conversation on demand', async () => {
+			mockSessionsStore.get.mockReturnValue([stored]);
+			const [thin] = await handlers.get('sessions:getBootstrap')!({} as any);
+			expect(thin.aiTabs.map((tab: { logs: unknown[] }) => tab.logs)).toEqual([[], []]);
+			expect(thin.snoozedTabs[0].members[0].tab.logs).toEqual([]);
+			expect(thin.agentCommands).toBeUndefined();
+			expect(thin.aiCommandHistory).toBeUndefined();
+			expect(thin.deferredContent).toEqual({
+				tabIds: ['t1', 't2', 'parked'],
+				commands: true,
+			});
+			expect(stored.aiTabs[0].logs).toEqual([{ id: 'old-log', text: 'old message' }]);
+			expect(
+				await handlers.get('sessions:getDeferredContent')!({} as any, 's1', 't1', true)
+			).toEqual({
+				logs: stored.aiTabs[0].logs,
+				agentCommands: stored.agentCommands,
+				aiCommandHistory: stored.aiCommandHistory,
+			});
+		});
+
+		it.each(['sessions:setAll', 'sessions:setMany'])(
+			'%s preserves unloaded data while saving browser edits',
+			async (channel) => {
+				mockSessionsStore.get.mockReturnValue([stored, { ...stored, id: 's2' }]);
+				const [thin] = await handlers.get('sessions:getBootstrap')!({} as any);
+				const changed = {
+					...thin,
+					name: 'Renamed',
+					aiTabs: [
+						{ ...thin.aiTabs[0], logs: [{ id: 'new-log', text: 'new message' }] },
+						thin.aiTabs[1],
+					],
+					aiCommandHistory: ['new prompt'],
+				};
+				await handlers.get(channel)!({} as any, [changed], []);
+				const saved = mockSessionsStore.set.mock.calls.at(-1)![1] as (typeof stored)[];
+				expect(saved.map((agent) => agent.id)).toEqual(['s1', 's2']);
+				expect(saved[0].name).toBe('Renamed');
+				expect(saved[0].aiTabs[0].logs.map((log) => log.id)).toEqual(['old-log', 'new-log']);
+				expect(saved[0].aiTabs[1].logs).toEqual(stored.aiTabs[1].logs);
+				expect(saved[0].snoozedTabs[0].members[0].tab.logs).toEqual([{ id: 'parked-log' }]);
+				expect(saved[0].agentCommands).toEqual(stored.agentCommands);
+				expect(saved[0].aiCommandHistory).toEqual(['old prompt', 'new prompt']);
+				expect((saved[0] as StoredSession).deferredContent).toBeUndefined();
+			}
+		);
+
+		it('does not resurrect a tab that the browser deliberately closed', async () => {
+			mockSessionsStore.get.mockReturnValue([stored]);
+			const [thin] = await handlers.get('sessions:getBootstrap')!({} as any);
+			await handlers.get('sessions:setMany')!({} as any, [{ ...thin, aiTabs: [thin.aiTabs[0]] }]);
+			const saved = mockSessionsStore.set.mock.calls.at(-1)![1];
+			expect(saved[0].aiTabs.map((tab: { id: string }) => tab.id)).toEqual(['t1']);
 		});
 	});
 
@@ -1649,6 +1732,30 @@ describe('persistence IPC handlers', () => {
 				added: [expect.objectContaining({ id: 'from-web' })],
 				removedIds: [],
 			});
+		});
+
+		it('sends full new agents to desktop windows and thin agents to browsers', async () => {
+			const peer = {
+				isDestroyed: () => false,
+				webContents: { id: 7, isDestroyed: () => false, send: vi.fn() },
+			};
+			vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([peer] as any);
+			mockSessionsStore.get.mockReturnValue([]);
+			await handlers.get('sessions:setMany')!({} as any, [
+				{ ...baseSession, aiTabs: [{ id: 't1', logs: [{ id: 'l1', text: 'saved' }] }] },
+			]);
+			expect(peer.webContents.send).toHaveBeenCalledWith(
+				SESSION_LIFECYCLE_SYNC_CHANNEL,
+				expect.objectContaining({
+					added: [
+						expect.objectContaining({
+							aiTabs: [{ id: 't1', logs: [{ id: 'l1', text: 'saved' }] }],
+						}),
+					],
+				})
+			);
+			expect(lastBridgePayload()?.added[0].aiTabs[0].logs).toEqual([]);
+			expect(lastBridgePayload()?.added[0].deferredContent.tabIds).toEqual(['t1']);
 		});
 
 		it('tells peers about an agent another client just closed', async () => {

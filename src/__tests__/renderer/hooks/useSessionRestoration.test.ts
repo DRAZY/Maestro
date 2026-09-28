@@ -8,6 +8,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 
+const runtime = vi.hoisted(() => ({ web: false }));
+vi.mock('../../../renderer/utils/runtimeContext', () => ({
+	isWebDesktop: () => runtime.web,
+	isElectronDesktop: () => !runtime.web,
+}));
+
 // Mock gitService before any imports that use it
 vi.mock('../../../renderer/services/git', () => ({
 	gitService: {
@@ -24,11 +30,12 @@ vi.mock('../../../renderer/utils/ids', () => ({
 }));
 
 import { useSessionRestoration } from '../../../renderer/hooks/session/useSessionRestoration';
-import { useSessionStore } from '../../../renderer/stores/sessionStore';
+import { updateAiTab, useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import { gitService } from '../../../renderer/services/git';
 import type { BrowserTab, Session } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
+import { WEB_BRIDGE_RECONCILE_EVENT } from '../../../shared/webClientConfig';
 
 // Cast to access mock methods
 const mockGitService = gitService as {
@@ -93,6 +100,8 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 
 // Mock IPC
 const mockGetAll = vi.fn();
+const mockGetBootstrap = vi.fn();
+const mockGetDeferredContent = vi.fn();
 const mockGroupsGetAll = vi.fn();
 const mockGroupChatList = vi.fn();
 const mockAgentsGet = vi.fn();
@@ -104,6 +113,7 @@ const mockAgentsGet = vi.fn();
 beforeEach(() => {
 	vi.clearAllMocks();
 	idCounter = 0;
+	runtime.web = false;
 
 	useSessionStore.setState({
 		sessions: [],
@@ -125,6 +135,8 @@ beforeEach(() => {
 	}
 	(window as any).maestro.sessions = {
 		getAll: mockGetAll,
+		getBootstrap: mockGetBootstrap,
+		getDeferredContent: mockGetDeferredContent,
 		getActiveSessionId: vi.fn().mockResolvedValue(''),
 		setActiveSessionId: vi.fn(),
 	};
@@ -135,6 +147,7 @@ beforeEach(() => {
 	};
 
 	mockGetAll.mockResolvedValue([]);
+	mockGetBootstrap.mockResolvedValue([]);
 	mockGroupsGetAll.mockResolvedValue([]);
 	mockGroupChatList.mockResolvedValue([]);
 });
@@ -1440,6 +1453,50 @@ describe('initialLoadComplete proxy', () => {
 // ============================================================================
 
 describe('Session & Group loading effect', () => {
+	it('loads browser metadata first, then merges a live log into the selected transcript', async () => {
+		runtime.web = true;
+		const thin = createMockSession({
+			id: 'web-agent',
+			deferredContent: { tabIds: ['tab-1'], commands: true },
+		});
+		mockGetBootstrap.mockResolvedValueOnce([thin]);
+		let resolveContent!: (content: {
+			logs: Session['aiTabs'][number]['logs'];
+			agentCommands: NonNullable<Session['agentCommands']>;
+			aiCommandHistory: string[];
+		}) => void;
+		mockGetDeferredContent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveContent = resolve;
+			})
+		);
+		renderHook(() => useSessionRestoration());
+		await vi.waitFor(() => expect(mockGetBootstrap).toHaveBeenCalled());
+		await vi.waitFor(() =>
+			expect(mockGetDeferredContent).toHaveBeenCalledWith('web-agent', 'tab-1', true)
+		);
+		expect(mockGetAll).not.toHaveBeenCalled();
+		act(() => {
+			updateAiTab('web-agent', 'tab-1', (tab) => ({
+				...tab,
+				logs: [{ id: 'live', timestamp: 2, source: 'stdout', text: 'new' }],
+			}));
+		});
+		await act(async () => {
+			resolveContent({
+				logs: [{ id: 'old', timestamp: 1, source: 'stdout', text: 'saved' }],
+				agentCommands: [{ command: '/old', description: 'Old' }],
+				aiCommandHistory: ['old prompt'],
+			});
+		});
+		await vi.waitFor(() => {
+			const session = useSessionStore.getState().sessions[0];
+			expect(session.aiTabs[0].logs.map((log) => log.id)).toEqual(['old', 'live']);
+			expect(session.deferredContent).toBeUndefined();
+			expect(session.aiCommandHistory).toEqual(['old prompt']);
+		});
+	});
+
 	it('loads sessions from IPC on mount', async () => {
 		const session = createMockSession({ id: 'loaded-1' });
 		mockGetAll.mockResolvedValueOnce([session]);
@@ -1652,6 +1709,25 @@ describe('Session & Group loading effect', () => {
 
 			expect(useSessionStore.getState().sessionsReadOk).toBe(false);
 			expect(useSessionStore.getState().initialLoadComplete).toBe(true);
+		});
+
+		it('retries a failed read after the bridge reconnects', async () => {
+			runtime.web = true;
+			mockGetBootstrap
+				.mockRejectedValueOnce(new Error('bridge disconnected'))
+				.mockResolvedValueOnce([createMockSession({ id: 'recovered' })]);
+			renderHook(() => useSessionRestoration());
+			await vi.waitFor(() => expect(useSessionStore.getState().sessionsLoaded).toBe(true));
+			expect(useSessionStore.getState().sessionsReadOk).toBe(false);
+
+			act(() => window.dispatchEvent(new Event(WEB_BRIDGE_RECONCILE_EVENT)));
+			await vi.waitFor(() => {
+				expect(useSessionStore.getState().sessionsReadOk).toBe(true);
+				expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual([
+					'recovered',
+				]);
+			});
+			expect(mockGetBootstrap).toHaveBeenCalledTimes(2);
 		});
 	});
 

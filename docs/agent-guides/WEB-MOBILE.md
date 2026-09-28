@@ -78,8 +78,9 @@ store. Nothing reconciled those trees, so an agent created in the browser never
 appeared on the desktop, and one closed in the browser was resurrected the moment
 the desktop's stale copy was written again (issues #1398 / #1492).
 
-Two rules follow, and both are load-bearing:
+These rules keep the clients in sync:
 
+- **Browser bootstrap is thin.** `sessions:getBootstrap` returns agent metadata and tab structure without AI tab logs or command history. The selected conversation loads through `sessions:getDeferredContent`; each later selected tab loads when opened. The `deferredContent` marker tells both `sessions:setMany` and `sessions:setAll` to merge any unloaded fields from the main store before saving, including snoozed tabs. A failed initial read shows Retry and keeps persistence disabled; a bridge reconnect retries it. Desktop `sessions:getAll` still reads the full tree.
 - **Agent lifecycle is pushed, not polled.** `sessions:setMany` / `sessions:setAll`
   (`src/main/ipc/handlers/persistence.ts`) report what entered and left the store
   on the `sessions:lifecycleSync` channel, and every other client applies the
