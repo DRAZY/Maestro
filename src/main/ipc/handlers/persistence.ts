@@ -390,18 +390,17 @@ export function registerPersistenceHandlers(
 	 * The sessions of a write, minus any it would resurrect.
 	 *
 	 * An id counts as a resurrection when it was closed and is NOT currently
-	 * stored - the write is re-adding it rather than updating a live agent. A
-	 * tombstoned id that IS in the store means a client legitimately owns it
-	 * again, so updates to it pass through untouched.
+	 * stored - the write is re-adding it rather than updating a live agent.
+	 * A projected browser record without a stored counterpart is stale even
+	 * after its tombstone has aged out. New agents have no deferred marker.
 	 */
 	const dropResurrections = (
 		sessions: StoredSession[],
 		storedIds: Set<string>
 	): StoredSession[] => {
-		if (removedSessionTombstones.size === 0) return sessions;
 		return sessions.filter((session) => {
 			if (storedIds.has(session.id)) return true;
-			if (!removedSessionTombstones.has(session.id)) return true;
+			if (!removedSessionTombstones.has(session.id) && !session.deferredContent) return true;
 			logger.debug('Ignored resurrection of a closed session', 'Sessions', {
 				sessionId: session.id,
 			});

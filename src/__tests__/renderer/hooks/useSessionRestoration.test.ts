@@ -1530,55 +1530,61 @@ describe('Session & Group loading effect', () => {
 		await vi.waitFor(() => expect(mockGetDeferredContent).toHaveBeenCalledTimes(2));
 	});
 
-	it('loads every visible deferred AI pane in an active tiled group', async () => {
-		runtime.web = true;
-		const base = createMockSession({ id: 'web-agent' });
-		mockGetBootstrap.mockResolvedValueOnce([
-			createMockSession({
-				id: 'web-agent',
-				aiTabs: [base.aiTabs[0], { ...base.aiTabs[0], id: 'tab-2' }],
-				unifiedTabOrder: [
-					{ type: 'ai', id: 'tab-1' },
-					{ type: 'ai', id: 'tab-2' },
-				],
-				activeGroupId: 'g1',
-				tabGroups: [
-					{
-						id: 'g1',
-						name: 'G',
-						createdAt: 0,
-						focusedPaneId: 'l1',
-						layout: {
-							kind: 'split',
-							id: 's1',
-							direction: 'row',
-							sizes: [0.5, 0.5],
-							children: [
-								{ kind: 'leaf', id: 'l1', tab: { type: 'ai', id: 'tab-1' } },
-								{ kind: 'leaf', id: 'l2', tab: { type: 'ai', id: 'tab-2' } },
-							],
+	it.each([false, true])(
+		'loads visible deferred AI panes when the focused pane fails: %s',
+		async (failFocusedPane) => {
+			runtime.web = true;
+			const base = createMockSession({ id: 'web-agent' });
+			mockGetBootstrap.mockResolvedValueOnce([
+				createMockSession({
+					id: 'web-agent',
+					aiTabs: [base.aiTabs[0], { ...base.aiTabs[0], id: 'tab-2' }],
+					unifiedTabOrder: [
+						{ type: 'ai', id: 'tab-1' },
+						{ type: 'ai', id: 'tab-2' },
+					],
+					activeGroupId: 'g1',
+					tabGroups: [
+						{
+							id: 'g1',
+							name: 'G',
+							createdAt: 0,
+							focusedPaneId: 'l1',
+							layout: {
+								kind: 'split',
+								id: 's1',
+								direction: 'row',
+								sizes: [0.5, 0.5],
+								children: [
+									{ kind: 'leaf', id: 'l1', tab: { type: 'ai', id: 'tab-1' } },
+									{ kind: 'leaf', id: 'l2', tab: { type: 'ai', id: 'tab-2' } },
+								],
+							},
 						},
-					},
-				],
-				deferredContent: { tabIds: ['tab-1', 'tab-2'], commands: true },
-			}),
-		]);
-		mockGetDeferredContent.mockImplementation(async (_sessionId, tabId: string) => ({
-			logs: [{ id: `saved-${tabId}`, timestamp: 1, source: 'stdout', text: 'saved' }],
-			shellLogs: [],
-			agentCommands: [],
-			aiCommandHistory: [],
-		}));
-		renderHook(() => useSessionRestoration());
-		await vi.waitFor(() => {
-			const session = useSessionStore.getState().sessions[0];
-			expect(session?.aiTabs.map((tab) => tab.logs.map((log) => log.id))).toEqual([
-				['saved-tab-1'],
-				['saved-tab-2'],
+					],
+					deferredContent: { tabIds: ['tab-1', 'tab-2'], commands: true },
+				}),
 			]);
-			expect(session.deferredContent).toBeUndefined();
-		});
-	});
+			mockGetDeferredContent.mockImplementation(async (_sessionId, tabId: string) => {
+				if (failFocusedPane && tabId === 'tab-1') throw new Error('tab unavailable');
+				return {
+					logs: [{ id: `saved-${tabId}`, timestamp: 1, source: 'stdout', text: 'saved' }],
+					shellLogs: [],
+					agentCommands: [],
+					aiCommandHistory: [],
+				};
+			});
+			renderHook(() => useSessionRestoration());
+			await vi.waitFor(() => {
+				const session = useSessionStore.getState().sessions[0];
+				expect(session?.aiTabs.map((tab) => tab.logs.map((log) => log.id))).toEqual([
+					failFocusedPane ? [] : ['saved-tab-1'],
+					['saved-tab-2'],
+				]);
+				expect(session.deferredContent?.tabIds).toEqual(failFocusedPane ? ['tab-1'] : undefined);
+			});
+		}
+	);
 
 	it('loads sessions from IPC on mount', async () => {
 		const session = createMockSession({ id: 'loaded-1' });

@@ -242,17 +242,23 @@ export function useSessionRestoration(): SessionRestorationReturn {
 		const deferred = session?.deferredContent;
 		if (!session || !deferred) return;
 		const activeRef = resolveActiveTabRef(session);
-		let tabId =
-			activeRef?.type === 'ai' && deferred.tabIds.includes(activeRef.id) ? activeRef.id : null;
-		if (!tabId && session.activeGroupId) {
-			const group = session.tabGroups?.find((item) => item.id === session.activeGroupId);
-			tabId = group
-				? (collectLeafTabRefs(group.layout).find(
-						(ref) => ref.type === 'ai' && deferred.tabIds.includes(ref.id)
-					)?.id ?? null)
-				: null;
-		}
 		const includeCommands = deferred.commands === true;
+		const group = session.tabGroups?.find((item) => item.id === session.activeGroupId);
+		const visibleAiTabIds = [
+			...(activeRef?.type === 'ai' ? [activeRef.id] : []),
+			...(group
+				? collectLeafTabRefs(group.layout)
+						.filter((ref) => ref.type === 'ai')
+						.map((ref) => ref.id)
+				: []),
+		];
+		const tabId =
+			visibleAiTabIds.find(
+				(id) =>
+					deferred.tabIds.includes(id) &&
+					!deferredLoadsFailed.current.has(`${session.id}:${id}:${includeCommands}`)
+			) ?? null;
+		if (!tabId && visibleAiTabIds.some((id) => deferred.tabIds.includes(id))) return;
 		if (!tabId && !includeCommands) return;
 		const key = `${session.id}:${tabId ?? ''}:${includeCommands}`;
 		if (deferredLoadsFailed.current.has(key)) return;
@@ -323,7 +329,10 @@ export function useSessionRestoration(): SessionRestorationReturn {
 				deferredLoadsFailed.current.add(key);
 				logger.warn(`Failed to load conversation for agent ${session.id}:`, undefined, error);
 			})
-			.finally(() => deferredLoadsInFlight.current.delete(key));
+			.finally(() => {
+				deferredLoadsInFlight.current.delete(key);
+				if (deferredLoadsFailed.current.has(key)) loadActiveDeferredContent();
+			});
 	}, []);
 
 	useEffect(() => {

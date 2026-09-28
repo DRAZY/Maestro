@@ -942,6 +942,23 @@ describe('persistence IPC handlers', () => {
 			}
 		);
 
+		it.each(['sessions:setAll', 'sessions:setMany'])(
+			'%s ignores an obsolete deferred agent while saving another agent',
+			async (channel) => {
+				mockSessionsStore.get.mockReturnValueOnce([stored]);
+				const [obsolete] = await handlers.get('sessions:getBootstrap')!({} as any);
+				mockSessionsStore.get.mockReturnValue([{ ...stored, id: 'survivor' }]);
+				await handlers.get(channel)!({} as any, [
+					obsolete,
+					{ ...stored, id: 'survivor', name: 'Renamed' },
+				]);
+				const saved = mockSessionsStore.set.mock.calls.at(-1)![1];
+				expect(saved.map((session: StoredSession) => [session.id, session.name])).toEqual([
+					['survivor', 'Renamed'],
+				]);
+			}
+		);
+
 		it('does not resurrect a tab that the browser deliberately closed', async () => {
 			mockSessionsStore.get.mockReturnValue([stored]);
 			const [thin] = await handlers.get('sessions:getBootstrap')!({} as any);
