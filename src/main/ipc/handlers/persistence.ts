@@ -38,6 +38,155 @@ import { createKeyedWriteQueue } from '../../utils/atomic-json-store';
 import { clearGhCache } from '../../utils/cliDetection';
 import { mergeUsagePeaks, type UsagePeaks } from '../../../shared/usagePeaks';
 import { compactSessionToolOutputs } from '../../../shared/toolOutput';
+import {
+	MAX_PERSISTED_SESSION_LOGS,
+	mergeDeferredItems,
+	type DeferredSessionContent,
+} from '../../../shared/deferredSessionContent';
+
+type StoredAiTab = { id: string; logs: { id?: string; timestamp?: number }[] };
+
+function mapStoredAiTabs(
+	session: StoredSession,
+	mapTab: (tab: StoredAiTab) => StoredAiTab | undefined
+): StoredSession {
+	return {
+		...session,
+		aiTabs: session.aiTabs?.flatMap((tab: StoredAiTab) => {
+			const mapped = mapTab(tab);
+			return mapped ? [mapped] : [];
+		}),
+		snoozedTabs: session.snoozedTabs?.flatMap((entry: StoredSession) => {
+			if (entry.type === 'group') {
+				const members = entry.members?.flatMap((member: StoredSession) => {
+					if (member.type !== 'ai') return [member];
+					const tab = mapTab(member.tab);
+					return tab ? [{ ...member, tab }] : [];
+				});
+				return members?.length || !entry.members?.length ? [{ ...entry, members }] : [];
+			}
+			if (entry.type !== 'ai') return [entry];
+			const tab = mapTab(entry.tab);
+			return tab ? [{ ...entry, tab }] : [];
+		}),
+	};
+}
+
+function findStoredAiTab(session: StoredSession, tabId: string): StoredAiTab | undefined {
+	const open = (session.aiTabs as StoredAiTab[] | undefined)?.find((tab) => tab.id === tabId);
+	if (open) return open;
+	for (const entry of session.snoozedTabs ?? []) {
+		if (entry.type === 'ai' && entry.tab?.id === tabId) return entry.tab;
+		if (entry.type === 'group') {
+			const member = entry.members?.find(
+				(item: StoredSession) => item.type === 'ai' && item.tab?.id === tabId
+			);
+			if (member) return member.tab;
+		}
+	}
+	return undefined;
+}
+
+function projectWebSession(session: StoredSession): StoredSession {
+	const tabIds: string[] = [];
+	const projected = mapStoredAiTabs(session, (tab) => {
+		tabIds.push(tab.id);
+		return { ...tab, logs: [] };
+	});
+	// A legacy agent without createdAt must retain its historical age even though
+	// the browser never receives the log timestamps used by renderer restoration.
+	let createdAt = session.createdAt;
+	if (!createdAt) {
+		let earliest = Infinity;
+		for (const tab of session.aiTabs ?? []) {
+			if (tab.createdAt) earliest = Math.min(earliest, tab.createdAt);
+			for (const log of tab.logs ?? []) {
+				if (log.timestamp) earliest = Math.min(earliest, log.timestamp);
+			}
+		}
+		for (const item of session.workLog ?? []) {
+			if (item.timestamp) earliest = Math.min(earliest, item.timestamp);
+		}
+		createdAt = earliest === Infinity ? Date.now() : earliest;
+	}
+	return {
+		...projected,
+		createdAt,
+		aiLogs: [],
+		shellLogs: [],
+		agentCommands: undefined,
+		aiCommandHistory: undefined,
+		deferredContent: { tabIds, commands: true } satisfies DeferredSessionContent,
+	};
+}
+
+function mergeDeferredSessionContent(
+	incoming: StoredSession,
+	stored: StoredSession | undefined
+): StoredSession {
+	const deferred = incoming.deferredContent as DeferredSessionContent | undefined;
+	if (!deferred) return incoming;
+	if (
+		!stored ||
+		!Array.isArray(deferred.tabIds) ||
+		deferred.tabIds.some((id) => typeof id !== 'string')
+	) {
+		throw new Error(`Refusing to persist invalid deferred content for agent ${incoming.id}`);
+	}
+	const tabIds = new Set(deferred.tabIds);
+	const removedTabIds = new Set<string>();
+	const merged = mapStoredAiTabs(incoming, (tab) => {
+		if (!tabIds.has(tab.id)) return tab;
+		const previousTab = findStoredAiTab(stored, tab.id);
+		if (!previousTab) {
+			removedTabIds.add(tab.id);
+			return undefined;
+		}
+		return {
+			...tab,
+			logs: mergeDeferredItems(
+				previousTab.logs,
+				tab.logs,
+				(log) => log.id,
+				MAX_PERSISTED_SESSION_LOGS
+			),
+		};
+	});
+	const { deferredContent: _deferredContent, ...complete } = merged;
+	if (removedTabIds.size) {
+		complete.unifiedTabOrder = complete.unifiedTabOrder?.filter(
+			(ref: { type: string; id: string }) => ref.type !== 'ai' || !removedTabIds.has(ref.id)
+		);
+		if (removedTabIds.has(complete.activeTabId)) {
+			complete.activeTabId = complete.aiTabs?.[0]?.id ?? '';
+		}
+	}
+	if (deferred.commands) {
+		// This marker also protects legacy session-level logs omitted from the bootstrap.
+		complete.aiLogs = mergeDeferredItems(
+			stored.aiLogs,
+			incoming.aiLogs,
+			(log: { id?: string }) => log.id
+		);
+		complete.shellLogs = mergeDeferredItems(
+			stored.shellLogs,
+			incoming.shellLogs,
+			(log: { id?: string }) => log.id
+		);
+		complete.agentCommands = mergeDeferredItems(
+			stored.agentCommands,
+			incoming.agentCommands,
+			(command: { command: string }) => command.command
+		);
+		complete.aiCommandHistory = mergeDeferredItems(
+			stored.aiCommandHistory,
+			incoming.aiCommandHistory,
+			(command: string) => command,
+			50
+		);
+	}
+	return complete;
+}
 
 /**
  * Shallow-compare cliActivity for the diff broadcast.
@@ -139,7 +288,9 @@ function broadcastSessionLifecycle(
 		if (win.webContents.id === senderWebContentsId) continue;
 		win.webContents.send(SESSION_LIFECYCLE_SYNC_CHANNEL, payload);
 	}
-	broadcastBridgeEvent(SESSION_LIFECYCLE_SYNC_CHANNEL, [payload]);
+	broadcastBridgeEvent(SESSION_LIFECYCLE_SYNC_CHANNEL, [
+		{ ...payload, added: payload.added.map(projectWebSession) },
+	]);
 }
 
 /**
@@ -239,18 +390,17 @@ export function registerPersistenceHandlers(
 	 * The sessions of a write, minus any it would resurrect.
 	 *
 	 * An id counts as a resurrection when it was closed and is NOT currently
-	 * stored - the write is re-adding it rather than updating a live agent. A
-	 * tombstoned id that IS in the store means a client legitimately owns it
-	 * again, so updates to it pass through untouched.
+	 * stored - the write is re-adding it rather than updating a live agent.
+	 * A projected browser record without a stored counterpart is stale even
+	 * after its tombstone has aged out. New agents have no deferred marker.
 	 */
 	const dropResurrections = (
 		sessions: StoredSession[],
 		storedIds: Set<string>
 	): StoredSession[] => {
-		if (removedSessionTombstones.size === 0) return sessions;
 		return sessions.filter((session) => {
 			if (storedIds.has(session.id)) return true;
-			if (!removedSessionTombstones.has(session.id)) return true;
+			if (!removedSessionTombstones.has(session.id) && !session.deferredContent) return true;
 			logger.debug('Ignored resurrection of a closed session', 'Sessions', {
 				sessionId: session.id,
 			});
@@ -444,7 +594,7 @@ export function registerPersistenceHandlers(
 	});
 
 	// Sessions persistence
-	ipcMain.handle('sessions:getAll', async () => {
+	const loadStoredSessions = async (): Promise<StoredSession[]> => {
 		const sessions = sessionsStore.get('sessions', []);
 		// Heal legacy sessions files: relocate any images still stored inline as
 		// base64 data URLs into the content-addressed image store, returning
@@ -485,7 +635,30 @@ export function registerPersistenceHandlers(
 		}
 		logger.debug(`Loaded ${sessions.length} sessions from store`, 'Sessions');
 		return sessions;
-	});
+	};
+	ipcMain.handle('sessions:getAll', loadStoredSessions);
+	ipcMain.handle('sessions:getBootstrap', async () =>
+		(await loadStoredSessions()).map(projectWebSession)
+	);
+	ipcMain.handle(
+		'sessions:getDeferredContent',
+		async (_, sessionId: string, tabId: string | null, includeCommands: boolean) => {
+			const session = sessionsStore.get('sessions', []).find((item) => item.id === sessionId);
+			if (!session) throw new Error(`Agent ${sessionId} no longer exists`);
+			const tab = tabId ? findStoredAiTab(session, tabId) : undefined;
+			if (tabId && !tab) throw new Error(`Tab ${tabId} no longer exists`);
+			return {
+				...(tab ? { logs: tab.logs ?? [] } : {}),
+				...(includeCommands
+					? {
+							shellLogs: session.shellLogs ?? [],
+							agentCommands: session.agentCommands ?? [],
+							aiCommandHistory: session.aiCommandHistory ?? [],
+						}
+					: {}),
+			};
+		}
+	);
 
 	// Resolve a `maestro-image://` reference (or passthrough data URL) back to a
 	// data URL. Used by surfaces that cannot load the maestro-image protocol
@@ -558,7 +731,7 @@ export function registerPersistenceHandlers(
 				if (removeSet.has(prev.id)) continue;
 				const update = updateMap.get(prev.id);
 				if (update) {
-					merged.push(update);
+					merged.push(mergeDeferredSessionContent(update, prev));
 					updateMap.delete(prev.id);
 				} else {
 					merged.push(prev);
@@ -566,7 +739,7 @@ export function registerPersistenceHandlers(
 			}
 			for (const newSession of updateMap.values()) {
 				if (removeSet.has(newSession.id)) continue;
-				merged.push(newSession);
+				merged.push(mergeDeferredSessionContent(newSession, undefined));
 			}
 			const sessionsToPersist = merged.map((session) => compactSessionToolOutputs(session).session);
 
@@ -710,7 +883,10 @@ export function registerPersistenceHandlers(
 				}
 			}
 			const sessionsToPersist = sessions.map(
-				(session) => compactSessionToolOutputs(session).session
+				(session) =>
+					compactSessionToolOutputs(
+						mergeDeferredSessionContent(session, previousSessionMap.get(session.id))
+					).session
 			);
 
 			// Log session lifecycle events at DEBUG level

@@ -35,6 +35,7 @@ import { ScrollToBottomButton } from './components/ScrollToBottomButton';
 import { useLogItemUiState } from './hooks/useLogItemUiState';
 import { useTerminalOutputSearch } from './hooks/useTerminalOutputSearch';
 import { useTerminalOutputScroll } from './hooks/useTerminalOutputScroll';
+import { WEB_BRIDGE_RECONCILE_EVENT } from '../../../shared/webClientConfig';
 
 /**
  * Frames a cross-tab search jump keeps re-asserting its scroll position.
@@ -132,6 +133,8 @@ export const TerminalOutput = memo(
 
 		const activeTab = useMemo(() => getActiveTab(session), [session.aiTabs, session.activeTabId]);
 		const activeLogs = useMemo((): LogEntry[] => activeTab?.logs ?? [], [activeTab?.logs]);
+		const transcriptDeferred =
+			!!activeTab && !!session.deferredContent?.tabIds.includes(activeTab.id);
 		// Collapse FIRST so tool logs still act as response boundaries
 		// (collapseAiResponseLogs treats source:'tool' as a boundary between
 		// assistant segments); only THEN hide them. Tool visibility is a pure render
@@ -490,6 +493,23 @@ export const TerminalOutput = memo(
 					}
 				}}
 			>
+				{transcriptDeferred && (
+					<div
+						className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-4 text-sm"
+						style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+					>
+						<Loader2 className="h-6 w-6 animate-spin" aria-label="Loading conversation" />
+						<span>Loading conversation...</span>
+						<button
+							type="button"
+							className="rounded-lg px-3 py-2"
+							style={{ color: theme.colors.accent }}
+							onClick={() => window.dispatchEvent(new Event(WEB_BRIDGE_RECONCILE_EVENT))}
+						>
+							Retry
+						</button>
+					</div>
+				)}
 				{/* CSS for Custom Highlight API - paints matches without mutating DOM */}
 				<style>{`
 					::highlight(terminal-search-all) {

@@ -262,6 +262,17 @@ interface MaestroAPI {
 	};
 	sessions: {
 		getAll: () => Promise<any[]>;
+		getBootstrap: () => Promise<any[]>;
+		getDeferredContent: (
+			sessionId: string,
+			tabId: string | null,
+			includeCommands: boolean
+		) => Promise<{
+			logs?: import('./types').LogEntry[];
+			shellLogs?: import('./types').LogEntry[];
+			agentCommands?: NonNullable<import('./types').Session['agentCommands']>;
+			aiCommandHistory?: string[];
+		}>;
 		setAll: (sessions: any[]) => Promise<boolean>;
 		/**
 		 * Incremental persistence: merge `updates` into the stored sessions and
