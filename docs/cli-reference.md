@@ -1290,7 +1290,7 @@ With `--json`, the output carries `sshOptions` (this remote's overrides),
 to turn back on), and `resolvedSshOptions` (the full set `ssh` will actually
 receive, defaults included) - the last is the one that answers "did my
 `ConnectTimeout` take effect?", and disabled entries are deliberately absent
-from it. `list-ssh-remotes --json` reports the same fields.
+from it. `list ssh-remotes --json` reports the same fields.
 
 ## `maestro-cli remove-ssh-remote <remote-id>`
 
