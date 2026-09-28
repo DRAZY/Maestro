@@ -39,154 +39,10 @@ import { clearGhCache } from '../../utils/cliDetection';
 import { mergeUsagePeaks, type UsagePeaks } from '../../../shared/usagePeaks';
 import { compactSessionToolOutputs } from '../../../shared/toolOutput';
 import {
-	MAX_PERSISTED_SESSION_LOGS,
-	mergeDeferredItems,
-	type DeferredSessionContent,
-} from '../../../shared/deferredSessionContent';
-
-type StoredAiTab = { id: string; logs: { id?: string; timestamp?: number }[] };
-
-function mapStoredAiTabs(
-	session: StoredSession,
-	mapTab: (tab: StoredAiTab) => StoredAiTab | undefined
-): StoredSession {
-	return {
-		...session,
-		aiTabs: session.aiTabs?.flatMap((tab: StoredAiTab) => {
-			const mapped = mapTab(tab);
-			return mapped ? [mapped] : [];
-		}),
-		snoozedTabs: session.snoozedTabs?.flatMap((entry: StoredSession) => {
-			if (entry.type === 'group') {
-				const members = entry.members?.flatMap((member: StoredSession) => {
-					if (member.type !== 'ai') return [member];
-					const tab = mapTab(member.tab);
-					return tab ? [{ ...member, tab }] : [];
-				});
-				return members?.length || !entry.members?.length ? [{ ...entry, members }] : [];
-			}
-			if (entry.type !== 'ai') return [entry];
-			const tab = mapTab(entry.tab);
-			return tab ? [{ ...entry, tab }] : [];
-		}),
-	};
-}
-
-function findStoredAiTab(session: StoredSession, tabId: string): StoredAiTab | undefined {
-	const open = (session.aiTabs as StoredAiTab[] | undefined)?.find((tab) => tab.id === tabId);
-	if (open) return open;
-	for (const entry of session.snoozedTabs ?? []) {
-		if (entry.type === 'ai' && entry.tab?.id === tabId) return entry.tab;
-		if (entry.type === 'group') {
-			const member = entry.members?.find(
-				(item: StoredSession) => item.type === 'ai' && item.tab?.id === tabId
-			);
-			if (member) return member.tab;
-		}
-	}
-	return undefined;
-}
-
-function projectWebSession(session: StoredSession): StoredSession {
-	const tabIds: string[] = [];
-	const projected = mapStoredAiTabs(session, (tab) => {
-		tabIds.push(tab.id);
-		return { ...tab, logs: [] };
-	});
-	// A legacy agent without createdAt must retain its historical age even though
-	// the browser never receives the log timestamps used by renderer restoration.
-	let createdAt = session.createdAt;
-	if (!createdAt) {
-		let earliest = Infinity;
-		for (const tab of session.aiTabs ?? []) {
-			if (tab.createdAt) earliest = Math.min(earliest, tab.createdAt);
-			for (const log of tab.logs ?? []) {
-				if (log.timestamp) earliest = Math.min(earliest, log.timestamp);
-			}
-		}
-		for (const item of session.workLog ?? []) {
-			if (item.timestamp) earliest = Math.min(earliest, item.timestamp);
-		}
-		createdAt = earliest === Infinity ? Date.now() : earliest;
-	}
-	return {
-		...projected,
-		createdAt,
-		aiLogs: [],
-		shellLogs: [],
-		agentCommands: undefined,
-		aiCommandHistory: undefined,
-		deferredContent: { tabIds, commands: true } satisfies DeferredSessionContent,
-	};
-}
-
-function mergeDeferredSessionContent(
-	incoming: StoredSession,
-	stored: StoredSession | undefined
-): StoredSession {
-	const deferred = incoming.deferredContent as DeferredSessionContent | undefined;
-	if (!deferred) return incoming;
-	if (
-		!stored ||
-		!Array.isArray(deferred.tabIds) ||
-		deferred.tabIds.some((id) => typeof id !== 'string')
-	) {
-		throw new Error(`Refusing to persist invalid deferred content for agent ${incoming.id}`);
-	}
-	const tabIds = new Set(deferred.tabIds);
-	const removedTabIds = new Set<string>();
-	const merged = mapStoredAiTabs(incoming, (tab) => {
-		if (!tabIds.has(tab.id)) return tab;
-		const previousTab = findStoredAiTab(stored, tab.id);
-		if (!previousTab) {
-			removedTabIds.add(tab.id);
-			return undefined;
-		}
-		return {
-			...tab,
-			logs: mergeDeferredItems(
-				previousTab.logs,
-				tab.logs,
-				(log) => log.id,
-				MAX_PERSISTED_SESSION_LOGS
-			),
-		};
-	});
-	const { deferredContent: _deferredContent, ...complete } = merged;
-	if (removedTabIds.size) {
-		complete.unifiedTabOrder = complete.unifiedTabOrder?.filter(
-			(ref: { type: string; id: string }) => ref.type !== 'ai' || !removedTabIds.has(ref.id)
-		);
-		if (removedTabIds.has(complete.activeTabId)) {
-			complete.activeTabId = complete.aiTabs?.[0]?.id ?? '';
-		}
-	}
-	if (deferred.commands) {
-		// This marker also protects legacy session-level logs omitted from the bootstrap.
-		complete.aiLogs = mergeDeferredItems(
-			stored.aiLogs,
-			incoming.aiLogs,
-			(log: { id?: string }) => log.id
-		);
-		complete.shellLogs = mergeDeferredItems(
-			stored.shellLogs,
-			incoming.shellLogs,
-			(log: { id?: string }) => log.id
-		);
-		complete.agentCommands = mergeDeferredItems(
-			stored.agentCommands,
-			incoming.agentCommands,
-			(command: { command: string }) => command.command
-		);
-		complete.aiCommandHistory = mergeDeferredItems(
-			stored.aiCommandHistory,
-			incoming.aiCommandHistory,
-			(command: string) => command,
-			50
-		);
-	}
-	return complete;
-}
+	mergeDeferredSessionContent,
+	projectWebSession,
+	readDeferredContent,
+} from '../../stores/deferred-session-content';
 
 /**
  * Shallow-compare cliActivity for the diff broadcast.
@@ -642,22 +498,13 @@ export function registerPersistenceHandlers(
 	);
 	ipcMain.handle(
 		'sessions:getDeferredContent',
-		async (_, sessionId: string, tabId: string | null, includeCommands: boolean) => {
-			const session = sessionsStore.get('sessions', []).find((item) => item.id === sessionId);
-			if (!session) throw new Error(`Agent ${sessionId} no longer exists`);
-			const tab = tabId ? findStoredAiTab(session, tabId) : undefined;
-			if (tabId && !tab) throw new Error(`Tab ${tabId} no longer exists`);
-			return {
-				...(tab ? { logs: tab.logs ?? [] } : {}),
-				...(includeCommands
-					? {
-							shellLogs: session.shellLogs ?? [],
-							agentCommands: session.agentCommands ?? [],
-							aiCommandHistory: session.aiCommandHistory ?? [],
-						}
-					: {}),
-			};
-		}
+		async (_, sessionId: string, tabId: string | null, includeCommands: boolean) =>
+			readDeferredContent(
+				sessionsStore.get('sessions', []).find((item) => item.id === sessionId),
+				sessionId,
+				tabId,
+				includeCommands
+			)
 	);
 
 	// Resolve a `maestro-image://` reference (or passthrough data URL) back to a

@@ -39,9 +39,13 @@ import { readPersistedActiveSessionId } from '../../utils/activeSessionPersisten
 import { useSessionLifecycleSync } from './useSessionLifecycleSync';
 import { useEventListener } from '../utils/useEventListener';
 import { WEB_BRIDGE_RECONCILE_EVENT } from '../../../shared/webClientConfig';
+import { requestWebBridgeReconcile } from '../../services/webBridgeReconcile';
 import { releaseConnectionHeldQueueItems } from '../../utils/executionQueue';
 import { isWebDesktop } from '../../utils/runtimeContext';
-import { mergeDeferredItems } from '../../../shared/deferredSessionContent';
+import {
+	MAX_PERSISTED_AI_COMMAND_HISTORY,
+	mergeDeferredItems,
+} from '../../../shared/deferredSessionContent';
 
 const CONNECTION_RECONCILE_RETRY_MS = 1000;
 
@@ -212,7 +216,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 			if (hasConnectionHold && !reconcileRetryTimer.current) {
 				reconcileRetryTimer.current = setTimeout(() => {
 					reconcileRetryTimer.current = null;
-					window.dispatchEvent(new Event(WEB_BRIDGE_RECONCILE_EVENT));
+					requestWebBridgeReconcile();
 				}, CONNECTION_RECONCILE_RETRY_MS);
 			}
 			return;
@@ -311,7 +315,7 @@ export function useSessionRestoration(): SessionRestorationReturn {
 										content.aiCommandHistory,
 										current.aiCommandHistory,
 										(command) => command,
-										50
+										MAX_PERSISTED_AI_COMMAND_HISTORY
 									),
 								}
 							: {}),

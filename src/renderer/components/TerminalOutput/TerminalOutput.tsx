@@ -17,6 +17,7 @@ import { useDebouncedValue, useProgressiveRenderWindow } from '../../hooks';
 import { jumpToMessageEdge, isTextInputTarget } from '../../utils/messageScrollNavigation';
 import { QueuedItemsList } from '../QueuedItemsList';
 import { SaveMarkdownModal } from '../SaveMarkdownModal';
+import { Spinner } from '../ui/Spinner';
 import { generateTerminalProseStyles } from '../../utils/markdownConfig';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
@@ -35,7 +36,7 @@ import { ScrollToBottomButton } from './components/ScrollToBottomButton';
 import { useLogItemUiState } from './hooks/useLogItemUiState';
 import { useTerminalOutputSearch } from './hooks/useTerminalOutputSearch';
 import { useTerminalOutputScroll } from './hooks/useTerminalOutputScroll';
-import { WEB_BRIDGE_RECONCILE_EVENT } from '../../../shared/webClientConfig';
+import { requestWebBridgeReconcile } from '../../services/webBridgeReconcile';
 
 /**
  * Frames a cross-tab search jump keeps re-asserting its scroll position.
@@ -498,13 +499,13 @@ export const TerminalOutput = memo(
 						className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-4 text-sm"
 						style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
 					>
-						<Loader2 className="h-6 w-6 animate-spin" aria-label="Loading conversation" />
+						<Spinner size={24} ariaLabel="Loading conversation" />
 						<span>Loading conversation...</span>
 						<button
 							type="button"
 							className="rounded-lg px-3 py-2"
 							style={{ color: theme.colors.accent }}
-							onClick={() => window.dispatchEvent(new Event(WEB_BRIDGE_RECONCILE_EVENT))}
+							onClick={requestWebBridgeReconcile}
 						>
 							Retry
 						</button>
