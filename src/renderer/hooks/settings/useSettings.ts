@@ -30,6 +30,7 @@ import type {
 } from '../../types';
 import type { FileExplorerIconTheme } from '../../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../../shared/toastWidth';
+import type { ToastPosition } from '../../../shared/toastPosition';
 import type { GlossLevel } from '../../../shared/themeGloss';
 import {
 	useSettingsStore,
@@ -154,6 +155,8 @@ export interface UseSettingsReturn {
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
 	toastWidth: ToastWidth;
 	setToastWidth: (value: ToastWidth) => void;
+	toastPosition: ToastPosition;
+	setToastPosition: (value: ToastPosition) => void;
 
 	// Logging settings
 	logLevel: string;

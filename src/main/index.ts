@@ -23,8 +23,8 @@ import {
 import { CueEngine } from './cue/cue-engine';
 import { configureCueTelemetry } from './cue/cue-telemetry';
 import { executeCuePrompt, stopCueRun, getCueProcessList } from './cue/cue-executor';
-import { executeCueShell, stopCueShellRun } from './cue/cue-shell-executor';
-import { executeCueCli, stopCueCliRun } from './cue/cue-cli-executor';
+import { executeCueShell } from './cue/cue-shell-executor';
+import { executeCueCli } from './cue/cue-cli-executor';
 import { executeCueNotify } from './cue/cue-notify-executor';
 import { reportCueAuthFailure } from './cue/cue-auth-detector';
 import { setSusFactorNotifier } from './cue/cue-susfactor';
@@ -1228,7 +1228,7 @@ app
 				// see the note on the notify path above.
 				return result;
 			},
-			onStopCueRun: (runId) => stopCueRun(runId) || stopCueShellRun(runId) || stopCueCliRun(runId),
+			onStopCueRun: (runId) => stopCueRun(runId),
 			onLog: (_level, message, data) => {
 				logger.cue(message, 'Cue', data);
 				// Push activity updates to renderer

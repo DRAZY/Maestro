@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Theme } from '../types';
 import { useNotificationStore, type Toast as ToastType } from '../stores/notificationStore';
@@ -6,7 +6,17 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { openUrl } from '../utils/openUrl';
 import { dispatchToastClickAction } from '../services/toastClickActions';
 import { formatDurationParts as formatDuration } from '../../shared/formatters';
-import { getToastWidthDimensions } from '../../shared/toastWidth';
+import { getToastWidthDimensions, TOAST_VIEWPORT_GUTTER } from '../../shared/toastWidth';
+import {
+	isLeftToastPosition,
+	isTopToastPosition,
+	TOAST_BOTTOM_OFFSET,
+	TOAST_STACK_GAP,
+	TOAST_TOP_OFFSET,
+	toastSidePanel,
+} from '../../shared/toastPosition';
+import { useElementWidth } from '../hooks/ui/useElementWidth';
+import { toastBottomInset, useToastAvoidZoneStore } from '../hooks/ui/useToastAvoidZone';
 import { Z_LAYERS } from '../constants/zLayers';
 import { CopyIconButton } from './ui';
 
@@ -34,12 +44,15 @@ const ToastItem = memo(function ToastItem({
 	onRemove,
 	onSessionClick,
 	widthDimensions,
+	fromLeft,
 }: {
 	toast: ToastType;
 	theme: Theme;
 	onRemove: (toastId: string) => void;
 	onSessionClick?: (sessionId: string, tabId?: string) => void;
 	widthDimensions: { minWidth: number; maxWidth: number };
+	/** Slide in from (and out to) the left edge instead of the right. */
+	fromLeft: boolean;
 }) {
 	const [isExiting, setIsExiting] = useState(false);
 	const [isEntering, setIsEntering] = useState(true);
@@ -153,6 +166,8 @@ const ToastItem = memo(function ToastItem({
 		}
 	};
 
+	const offscreen = fromLeft ? 'translateX(-100%)' : 'translateX(100%)';
+
 	/** Fixed orange - no theme defines this slot. Matches CenterFlash. */
 	const ORANGE_HEX = '#f97316';
 
@@ -177,12 +192,7 @@ const ToastItem = memo(function ToastItem({
 			className="relative overflow-hidden transition-all duration-300 ease-out"
 			style={{
 				opacity: isEntering ? 0 : isExiting ? 0 : 1,
-				transform: isEntering
-					? 'translateX(100%)'
-					: isExiting
-						? 'translateX(100%)'
-						: 'translateX(0)',
-				marginBottom: '8px',
+				transform: isEntering || isExiting ? offscreen : 'translateX(0)',
 			}}
 		>
 			<div
@@ -368,19 +378,60 @@ export const ToastContainer = memo(function ToastContainer({
 	const toasts = useNotificationStore((s) => s.toasts);
 	const removeToast = useNotificationStore((s) => s.removeToast);
 	const toastWidth = useSettingsStore((s) => s.toastWidth);
+	const toastPosition = useSettingsStore((s) => s.toastPosition);
+	const isTop = isTopToastPosition(toastPosition);
+	const isLeft = isLeftToastPosition(toastPosition);
 	// Subscribed so 'dynamic' toasts re-render (and re-resize) live as the user
-	// drags the Right Bar; ignored by the fixed presets.
+	// drags the side bar on the toast's side; ignored by the fixed presets.
+	const leftSidebarWidth = useSettingsStore((s) => s.leftSidebarWidth);
 	const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
-	const widthDimensions = getToastWidthDimensions(toastWidth, rightPanelWidth);
+	const widthDimensions = getToastWidthDimensions(
+		toastWidth,
+		toastSidePanel(toastPosition, { leftSidebarWidth, rightPanelWidth }).width
+	);
+
+	// In a bottom corner, lift the stack above the composer when it would cover
+	// it (side bar closed or narrower than the toast). Width falls back to the
+	// preset max until the stack is measured, which errs toward lifting rather
+	// than covering. A top corner never meets the composer.
+	const avoidZones = useToastAvoidZoneStore((s) => s.zones);
+	const stackRef = useRef<HTMLDivElement>(null);
+	const stackWidth = useElementWidth(stackRef, toasts.length > 0) || widthDimensions.maxWidth;
+	const stackLeft = isLeft
+		? TOAST_VIEWPORT_GUTTER
+		: window.innerWidth - TOAST_VIEWPORT_GUTTER - stackWidth;
+	const bottomInset = isTop
+		? 0
+		: toastBottomInset(
+				avoidZones,
+				{ left: stackLeft, right: stackLeft + stackWidth },
+				window.innerHeight
+			);
 
 	if (toasts.length === 0) return null;
 
+	// The stack grows away from its corner with the newest toast nearest the
+	// corner: toasts are appended, so a bottom stack renders in order and a top
+	// stack renders reversed.
 	return createPortal(
 		<div
-			className="fixed bottom-0 right-4 flex flex-col-reverse"
-			style={{ pointerEvents: 'none', zIndex: Z_LAYERS.TOAST }}
+			className="fixed"
+			style={{
+				...(isTop
+					? { top: TOAST_TOP_OFFSET }
+					: { bottom: TOAST_BOTTOM_OFFSET + bottomInset, transition: 'bottom 200ms ease-out' }),
+				...(isLeft ? { left: TOAST_VIEWPORT_GUTTER } : { right: TOAST_VIEWPORT_GUTTER }),
+				pointerEvents: 'none',
+				zIndex: Z_LAYERS.TOAST,
+			}}
+			data-testid="toast-stack"
+			data-position={toastPosition}
 		>
-			<div style={{ pointerEvents: 'auto' }}>
+			<div
+				ref={stackRef}
+				className={`flex ${isTop ? 'flex-col-reverse' : 'flex-col'}`}
+				style={{ pointerEvents: 'auto', gap: TOAST_STACK_GAP }}
+			>
 				{toasts.map((toast) => (
 					<ToastItem
 						key={toast.id}
@@ -389,6 +440,7 @@ export const ToastContainer = memo(function ToastContainer({
 						onRemove={removeToast}
 						onSessionClick={onSessionClick}
 						widthDimensions={widthDimensions}
+						fromLeft={isLeft}
 					/>
 				))}
 			</div>

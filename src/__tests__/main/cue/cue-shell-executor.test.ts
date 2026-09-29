@@ -73,7 +73,8 @@ vi.mock('child_process', async (importOriginal) => {
 	};
 });
 
-import { executeCueShell, stopCueShellRun } from '../../../main/cue/cue-shell-executor';
+import { executeCueShell } from '../../../main/cue/cue-shell-executor';
+import { getProcessList, stopProcess } from '../../../main/cue/cue-process-lifecycle';
 
 function createSession(): SessionInfo {
 	return {
@@ -264,12 +265,28 @@ describe('cue-shell-executor', () => {
 		expect(result.status).toBe('timeout');
 	});
 
-	it('stopCueShellRun signals an active process and returns true', async () => {
+	it('lists a running shell command in the shared Cue registry until it settles', async () => {
 		const config = createConfig();
 		const promise = executeCueShell(config as any);
 		await vi.advanceTimersByTimeAsync(0);
 
-		const stopped = stopCueShellRun('run-1');
+		// The Process Monitor reads this list - a shell run missing from it is
+		// invisible there and cannot be stopped from the UI.
+		expect(getProcessList()).toContainEqual(
+			expect.objectContaining({ runId: 'run-1', pid: 54321, toolType: 'terminal' })
+		);
+
+		mockChild.emit('close', 0);
+		await promise;
+		expect(getProcessList()).not.toContainEqual(expect.objectContaining({ runId: 'run-1' }));
+	});
+
+	it('stopProcess signals an active shell run and returns true', async () => {
+		const config = createConfig();
+		const promise = executeCueShell(config as any);
+		await vi.advanceTimersByTimeAsync(0);
+
+		const stopped = stopProcess('run-1');
 		expect(stopped).toBe(true);
 		expect(mockChild.killed).toBe(true);
 
@@ -277,8 +294,8 @@ describe('cue-shell-executor', () => {
 		await promise;
 	});
 
-	it('stopCueShellRun returns false for unknown runId', () => {
-		expect(stopCueShellRun('does-not-exist')).toBe(false);
+	it('stopProcess returns false for unknown runId', () => {
+		expect(stopProcess('does-not-exist')).toBe(false);
 	});
 
 	it('reports failed status when spawn throws synchronously', async () => {

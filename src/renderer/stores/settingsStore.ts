@@ -73,6 +73,14 @@ import type { MindMapLayoutType } from '../components/DocumentGraph/layoutTypes'
 import { isMindMapLayoutType } from '../components/DocumentGraph/layoutTypes';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth, TOAST_WIDTH_LABELS, describeToastWidth } from '../../shared/toastWidth';
+import type { ToastPosition } from '../../shared/toastPosition';
+import {
+	DEFAULT_TOAST_POSITION,
+	describeToastPosition,
+	isToastPosition,
+	TOAST_POSITION_LABELS,
+	toastSidePanel,
+} from '../../shared/toastPosition';
 import { notifyToast, useNotificationStore } from './notificationStore';
 import type { GlossLevel } from '../../shared/themeGloss';
 import { DEFAULT_GLOSS_LEVEL, asGlossLevel } from '../../shared/themeGloss';
@@ -406,6 +414,7 @@ export interface SettingsStoreState {
 	showHiddenFiles: boolean;
 	fileExplorerIconTheme: FileExplorerIconTheme;
 	toastWidth: ToastWidth;
+	toastPosition: ToastPosition;
 	terminalWidth: number;
 	logLevel: string;
 	maxLogBuffer: number;
@@ -585,6 +594,7 @@ export interface SettingsStoreActions {
 	setShowHiddenFiles: (value: boolean) => void;
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
 	setToastWidth: (value: ToastWidth) => void;
+	setToastPosition: (value: ToastPosition) => void;
 	setTerminalWidth: (value: number) => void;
 	setMaxOutputLines: (value: number) => void;
 	setOsNotificationsEnabled: (value: boolean) => void;
@@ -771,15 +781,39 @@ export type SettingsStore = SettingsStoreState & SettingsStoreActions;
 // Store Implementation
 // ============================================================================
 
-/** How long the toast-width preview stays up. Long enough to read, short enough not to linger. */
-const TOAST_WIDTH_PREVIEW_DURATION_MS = 5000;
+/** How long a toast-setting preview stays up. Long enough to read, short enough not to linger. */
+const TOAST_PREVIEW_DURATION_MS = 5000;
 
 export const useSettingsStore = create<SettingsStore>()((set, get) => {
 	/** Monotonic counter to discard stale async completions in setPersistentWebLink */
 	let persistentWebLinkRequestSeq = 0;
 
-	/** ID of the live toast-width preview, so a new pick replaces it instead of stacking. */
-	let toastWidthPreviewId: string | null = null;
+	/**
+	 * ID of the live toast-setting preview (width or position), so a new pick
+	 * replaces it instead of stacking.
+	 */
+	let toastPreviewId: string | null = null;
+
+	/**
+	 * Fire a sample toast so a width or position change is visible the moment it
+	 * is picked, instead of waiting for the next real notification. Replaces its
+	 * own previous preview so clicking through the presets updates one toast
+	 * rather than stacking several.
+	 */
+	const showToastSettingPreview = (title: string, message: string) => {
+		if (toastPreviewId) {
+			useNotificationStore.getState().removeToast(toastPreviewId);
+		}
+		toastPreviewId = notifyToast({
+			color: 'theme',
+			title,
+			message,
+			duration: TOAST_PREVIEW_DURATION_MS,
+			// In-app preview only: no TTS command, no Notification Center entry.
+			skipCustomNotification: true,
+			skipOsNotification: true,
+		});
+	};
 
 	return {
 		// ============================================================================
@@ -837,6 +871,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		showHiddenFiles: true,
 		fileExplorerIconTheme: 'rich',
 		toastWidth: 'dynamic',
+		toastPosition: DEFAULT_TOAST_POSITION,
 		terminalWidth: 100,
 		logLevel: 'info',
 		maxLogBuffer: 5000,
@@ -1267,22 +1302,20 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setToastWidth: (value) => {
 			set({ toastWidth: value });
 			window.maestro.settings.set('toastWidth', value);
-			// Fire a sample toast at the new width so the size is visible the
-			// moment it is picked, instead of waiting for the next real
-			// notification. Replaces its own previous preview so clicking
-			// through the presets updates one toast rather than stacking four.
-			if (toastWidthPreviewId) {
-				useNotificationStore.getState().removeToast(toastWidthPreviewId);
-			}
-			toastWidthPreviewId = notifyToast({
-				color: 'theme',
-				title: `Toast Width: ${TOAST_WIDTH_LABELS[value]}`,
-				message: describeToastWidth(value, get().rightPanelWidth),
-				duration: TOAST_WIDTH_PREVIEW_DURATION_MS,
-				// In-app preview only: no TTS command, no Notification Center entry.
-				skipCustomNotification: true,
-				skipOsNotification: true,
-			});
+			const sidePanel = toastSidePanel(get().toastPosition, get());
+			showToastSettingPreview(
+				`Toast Width: ${TOAST_WIDTH_LABELS[value]}`,
+				describeToastWidth(value, sidePanel.width, sidePanel.name)
+			);
+		},
+
+		setToastPosition: (value) => {
+			set({ toastPosition: value });
+			window.maestro.settings.set('toastPosition', value);
+			showToastSettingPreview(
+				`Toast Position: ${TOAST_POSITION_LABELS[value]}`,
+				describeToastPosition(value)
+			);
 		},
 
 		setTerminalWidth: (value) => {
@@ -2723,6 +2756,12 @@ export async function loadAllSettings(): Promise<void> {
 				: 'small';
 		}
 
+		if (allSettings['toastPosition'] !== undefined) {
+			patch.toastPosition = isToastPosition(allSettings['toastPosition'])
+				? allSettings['toastPosition']
+				: DEFAULT_TOAST_POSITION;
+		}
+
 		if (allSettings['terminalWidth'] !== undefined)
 			patch.terminalWidth = allSettings['terminalWidth'] as number;
 
@@ -3556,6 +3595,7 @@ export function getSettingsActions() {
 		setShowHiddenFiles: state.setShowHiddenFiles,
 		setFileExplorerIconTheme: state.setFileExplorerIconTheme,
 		setToastWidth: state.setToastWidth,
+		setToastPosition: state.setToastPosition,
 		setTerminalWidth: state.setTerminalWidth,
 		setLogLevel: state.setLogLevel,
 		setMaxLogBuffer: state.setMaxLogBuffer,

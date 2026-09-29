@@ -35,6 +35,7 @@ import { useImageAnnotatorStore } from './ImageAnnotator/imageAnnotatorStore';
 import { normalizeMentionName } from '../utils/participantColors';
 import { logger } from '../utils/logger';
 import { useAutosizeTextarea } from '../hooks/ui/useAutosizeTextarea';
+import { useToastAvoidZone } from '../hooks/ui/useToastAvoidZone';
 import { KEYSTROKE_TEXTAREA_MAX_HEIGHT } from '../utils/textareaSizing';
 
 /** Maximum image file size in bytes (10MB) */
@@ -142,6 +143,8 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 	const prevGroupChatIdRef = useRef(groupChatId);
 	const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
 	const notificationBtnRef = useRef<HTMLButtonElement>(null);
+	// Toasts lift above the composer instead of covering it (Right Bar closed).
+	const toastAvoidRef = useToastAvoidZone();
 
 	// Build list of mentionable items: groups first, then individual agents
 	// Groups expand into all their member @mentions when selected
@@ -456,6 +459,7 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 
 	return (
 		<div
+			ref={toastAvoidRef}
 			className="relative p-4 border-t"
 			style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 		>

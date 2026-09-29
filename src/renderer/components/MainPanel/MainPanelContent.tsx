@@ -15,6 +15,7 @@ import { useBrowserTabMounting } from '../../hooks/browser/useBrowserTabMounting
 import { useUIStore } from '../../stores/uiStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
+import { useToastAvoidZone } from '../../hooks/ui/useToastAvoidZone';
 import { useTabStore } from '../../stores/tabStore';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { outputSearchKeyFor } from '../../utils/outputSearch';
@@ -480,6 +481,8 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 	// focus so keyboard navigation lands in the modal instead of the page. Driving
 	// isActive off this re-blurs the webview the moment a layer opens.
 	const { layerCount } = useLayerStack();
+	// Toasts lift above the composer instead of covering it (Right Bar closed).
+	const inputAreaAvoidRef = useToastAvoidZone();
 	// Per-tab BrowserTabView handles. The single browserViewRef passed from MainPanel must
 	// point at the active (visible) tab's handle so resolveBrowserContent reads that webview.
 	const browserViewRefs = React.useRef<Map<string, BrowserTabViewHandle>>(new Map());
@@ -718,7 +721,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 						!activeTab?.wizardState?.isGeneratingDocs &&
 						!activeBrowserTabId &&
 						activeSession.inputMode !== 'terminal' && (
-							<div data-tour="input-area">
+							<div data-tour="input-area" ref={inputAreaAvoidRef}>
 								<InputArea
 									session={activeSession}
 									theme={theme}
