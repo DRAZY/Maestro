@@ -129,6 +129,10 @@ export type { UsePaginationResult } from './usePagination';
 // ResizeObserver-backed element width, for JS-computed layout
 export { useElementWidth, useFreeHeightInFlexColumn } from './useElementWidth';
 
+// Composer rects the toast stack lifts itself above
+export { useToastAvoidZone, useToastAvoidZoneStore, toastBottomInset } from './useToastAvoidZone';
+export type { ToastAvoidRect } from './useToastAvoidZone';
+
 // Whether an optional inline label still fits, so it can be dropped not clipped
 export { useOptionalLabelFits } from './useOptionalLabelFits';
 

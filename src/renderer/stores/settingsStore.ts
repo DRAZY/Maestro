@@ -2742,6 +2742,7 @@ export function getSettingsActions() {
 		setShowHiddenFiles: state.setShowHiddenFiles,
 		setFileExplorerIconTheme: state.setFileExplorerIconTheme,
 		setToastWidth: state.setToastWidth,
+		setToastPosition: state.setToastPosition,
 		setTerminalWidth: state.setTerminalWidth,
 		setLogLevel: state.setLogLevel,
 		setMaxLogBuffer: state.setMaxLogBuffer,
