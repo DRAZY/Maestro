@@ -172,6 +172,7 @@ import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineW
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
 import { ImageContextMenuHost } from './components/ImageContextMenuHost';
+import { ZoomViewerHost } from './components/ZoomViewer';
 import { MediaPlaybackHost } from './components/MediaPlayback';
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 
@@ -3524,6 +3525,11 @@ function MaestroConsoleInner() {
 				    right-click Copy / Save. Surfaces wire up nothing. See
 				    ImageContextMenuHost. */}
 				<ImageContextMenuHost theme={theme} />
+
+				{/* --- ZOOM VIEWER (single, app-wide) ---
+				    Full-screen pan/zoom for any diagram or image. Opened by expand
+				    buttons and the image right-click menu via openZoomViewer(). */}
+				<ZoomViewerHost theme={theme} />
 
 				{/* --- MEDIA PLAYBACK (single, app-wide, never unmounted) ---
 				    Owns the one <audio>/<video> element so playback survives switching

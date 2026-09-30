@@ -130,6 +130,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Shell tab completion:** `useTabCompletion()`, `commandMode` in `src/renderer/hooks/input/useTabCompletion.ts`
 - **Right-click menu on an image:** `contextmenu`, `onContextMenu` in `src/renderer/components/ImageContextMenuHost.tsx`
 - **Font zoom on a reading pane:** `useFontScale(storageKey)`, `AArrowUp` in `src/renderer/hooks/ui/useFontScale.ts`
+- **Pan and zoom a diagram or image:** `usePanZoom()`, `fitToView` in `src/renderer/hooks/ui/usePanZoom.ts`; full-window viewer via `openZoomViewer(element)` in `src/renderer/components/ZoomViewer/zoomViewerStore.ts`
 - **Bare `+` / `-` / `0` zoom on a surface:** `useScaleShortcuts(control, { enabled })`, `useScalePreference` in `src/renderer/hooks/ui/useScaleShortcuts.ts`
 - **Whether a surface is the topmost layer:** `useIsTopLayer(priority)`, `MODAL_PRIORITIES` in `src/renderer/hooks/ui/useIsTopLayer.ts`
 - **Who asked for this turn (interactive vs automation):** `QUERY_SOURCE_ENV_VAR`, `QuerySource` in `src/shared/querySource.ts`
