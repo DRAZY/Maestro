@@ -229,6 +229,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	}, []);
 	const visibleToastCount = useNotificationStore((s) => s.toasts.length);
 	const clearToasts = useNotificationStore((s) => s.clearToasts);
+	const toastPosition = useSettingsStore((s) => s.toastPosition);
+	const setToastPosition = useSettingsStore((s) => s.setToastPosition);
 	// Which group chat rooms are running. Only the chat list and the active id
 	// arrive as props; the live moderator/participant states are store-only, so
 	// read them here rather than threading four more props through the chain.
@@ -455,6 +457,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			visibleToastCount,
 			clearToasts,
 			clearAllNotificationsShortcut: shortcuts.clearAllNotifications,
+			toastPosition,
+			setToastPosition,
 			setQuickActionOpen,
 		}),
 		...buildNavigationCommands({
