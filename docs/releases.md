@@ -44,9 +44,6 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 - 🧰 **Install/Update CLI no longer breaks an existing `maestro-cli` link**, and its Settings section now sits right below your Conductor Profile.
 - ⏳ **Loading a big file tree shows a spinner** while Load more or Load all is scanning.
 - 📊 **Usage Dashboard agent names stop clipping**, since the name column now fits the longest one.
-- 🛰️ **Director's Notes no longer stalls on an offline SSH remote.** A powered-off host used to hold Rich Mode on "Loading activity..." for 10-40 seconds; it now answers in a few seconds with that host's last known history, and shows a single spinner until the first stats arrive instead of empty widgets claiming there was no activity.
-- 🎯 **The Director's Notes Help tab explains the Ideal End State**, shows whether you have set one, and takes you straight to the setting.
-- 🔎 **Clicking a node in the Document Graph keeps your zoom.** Selecting a node used to re-frame the whole graph and throw away where you had zoomed.
 
 ### Previous Releases in this Series
 
