@@ -3212,6 +3212,7 @@ interface MaestroAPI {
 			exchanges: number;
 			documents: number;
 			tasks: number;
+			activeMs?: number;
 			projectPath?: string;
 		}) => Promise<string | null>;
 		getWizardRuns: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<
@@ -3227,6 +3228,7 @@ interface MaestroAPI {
 				exchanges: number;
 				documents: number;
 				tasks: number;
+				activeMs?: number;
 				projectPath?: string;
 			}>
 		>;
