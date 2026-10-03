@@ -60,21 +60,21 @@ Maestro's own system prompt tells agents to **pass `--background` by default** a
 
 `--focus` is the opposite ask, and it ships on every one of these verbs even where it only names the current default. If both are passed, `--focus` wins.
 
-**The flag is additive: no verb's default changed.** An unflagged call behaves exactly as it always has, so existing scripts, playbooks, and Cue prompts are unaffected.
+**The flag is additive: one verb's default changed.** An unflagged call behaves exactly as it always has, except `refresh-auto-run`, which is now background by default because its old focusing default only ever pulled you away from the agent you were looking at.
 
-| Command                     | Default when neither flag is passed          |
-| --------------------------- | -------------------------------------------- |
-| `open-file`                 | switches to the file                         |
-| `open-terminal`             | switches to the new terminal                 |
-| `open-browser`              | switches to the new browser tab              |
-| `tab new`                   | switches to the new tab                      |
-| `dispatch --new-tab`        | **background** (as it always was)            |
-| `dispatch` (no `--new-tab`) | selects the target agent                     |
-| `create-agent`              | selects the new agent                        |
-| `create-worktree`           | selects the new agent                        |
-| `switch-mode`               | switches the mode                            |
-| `refresh-auto-run`          | selects the target agent and flashes a count |
-| `refresh-files`             | **already quiet**; flag accepted, no effect  |
+| Command                     | Default when neither flag is passed         |
+| --------------------------- | ------------------------------------------- |
+| `open-file`                 | switches to the file                        |
+| `open-terminal`             | switches to the new terminal                |
+| `open-browser`              | switches to the new browser tab             |
+| `tab new`                   | switches to the new tab                     |
+| `dispatch --new-tab`        | **background** (as it always was)           |
+| `dispatch` (no `--new-tab`) | selects the target agent                    |
+| `create-agent`              | selects the new agent                       |
+| `create-worktree`           | selects the new agent                       |
+| `switch-mode`               | switches the mode                           |
+| `refresh-auto-run`          | **background** (`--focus` to switch)        |
+| `refresh-files`             | **already quiet**; flag accepted, no effect |
 
 `focus-agent`, `send --tab`, `open`, and `open-graph` exist _to_ move the view - you named that intent - so they take no placement flag. The graph in particular is a full-window overlay whose only effect is being looked at, so a background one would do nothing at all.
 
@@ -1274,7 +1274,7 @@ replace the set outright. Passing an empty string to `-u` or `-k` clears it.
 
 A command-line `-o` outranks `~/.ssh/config`, so `--ssh-option` is the only way
 to change one of Maestro's connection defaults (`ConnectTimeout`, `BatchMode`,
-and friends). `list-ssh-remotes --json` and `update-ssh-remote --json` both
+and friends). `list ssh-remotes --json` and `update-ssh-remote --json` both
 report `resolvedSshOptions`, the full merged set `ssh` actually receives, which
 is what answers "did my `ConnectTimeout` take effect?". See
 [SSH Remote Execution](/ssh-remote-execution) for the reserved keys and the
@@ -1377,19 +1377,28 @@ Surfaces behind an Encore Feature that you have switched off (Cue, Symphony, Dir
 Open a file as a preview tab in the Maestro desktop app. Without `--agent`, the owning agent is auto-detected by which agent's working directory the file lives in (longest-prefix match, most-recently-active wins on ties), and a path outside every agent's directory is an error. Pass `--agent <id>` to name the agent yourself, which is also how you open a file that lives nowhere near a project.
 
 ```bash
-maestro-cli open-file <file-path> [-a <id>] [--background | --no-switch]
+maestro-cli open-file <file-path> [-a <id>] [--background | --no-switch] [--queue]
 ```
 
-| Flag               | Description                                                                     |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `-a, --agent <id>` | Target agent (defaults to auto-detect by file path's owning agent)              |
-| `--background`     | Open the preview tab without changing anything currently rendered, on any agent |
-| `--focus`          | Switch to the file after opening it (default)                                   |
-| `--no-switch`      | Don't switch to the target agent, but still activate the tab there              |
+| Flag               | Description                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `-a, --agent <id>` | Target agent (defaults to auto-detect by file path's owning agent)                            |
+| `--background`     | Open the preview tab without changing anything currently rendered, on any agent               |
+| `--focus`          | Switch to the file after opening it (default)                                                 |
+| `--no-switch`      | Don't switch to the target agent, but still activate the tab there                            |
+| `--queue`          | Audio/video only: add to the media player queue and show the player without starting playback |
 
 This is also the verb that plays media. A local audio or video file does not become a tab at all: it goes to the [floating media player](/media-player), so `open-file ~/Music/track.mp3 --agent <id>` is how you or an agent starts playback without handing the file to your system's default player. There is no separate `play` command. `--background` has nothing to suppress in that case, since playback is audible either way, and a file on an SSH remote has no stream to play, so it falls back to the ordinary binary-file path.
 
 `--no-switch` and `--background` are different asks, and this is the one command that offers both. `--no-switch` keeps the Left Bar selection where it is but still activates the new tab inside the target agent - so if you were already on that agent, your view still changes. `--background` changes nothing rendered anywhere. Passing both is fine; `--background` is strictly stronger and wins. If `--no-switch` is what you reached for, `--background` is probably what you meant.
+
+Audio and video never open as a tab: they go to the [floating media player](/media-player), and a plain `open-file` starts playing. `--queue` puts the file in the player without pressing play. If nothing is loaded, the file loads paused and the player appears; if something is already loaded, the file lines up behind it and nothing is interrupted. A minimized player comes back either way. It never switches agents, since the player is app-wide. To hand someone a playlist to start themselves, queue each file in order:
+
+```bash
+for f in episodes/*.mp3; do maestro-cli open-file "$f" --queue; done
+```
+
+`--queue` on a file that is not audio or video is an error.
 
 #### Open a Browser Tab
 
@@ -1565,12 +1574,12 @@ Refresh the Auto Run document list after creating or modifying auto-run document
 maestro-cli refresh-auto-run [--agent <id>] [--background | --focus]
 ```
 
-Unflagged, this **switches to the target agent** (that switch is how an off-screen agent gets refreshed at all) and flashes the document count on screen. `--background` gives you neither: an agent already on screen is refreshed silently, and an off-screen one is left alone entirely, since its documents are re-read the moment you switch to it anyway.
+Unflagged (or with `--background`), this never moves the view: an agent already on screen is refreshed silently, and an off-screen one is left alone, since its documents are re-read the moment you switch to it anyway. `--focus` **switches to the target agent** and flashes the document count on screen. This is the one verb whose default is background, because a focusing refresh only ever moved you when you were looking at a different agent.
 
-| Flag           | Description                                                        |
-| -------------- | ------------------------------------------------------------------ |
-| `--background` | Refresh without switching to the target agent, and without a flash |
-| `--focus`      | Switch to the target agent while refreshing (the default)          |
+| Flag           | Description                                                                      |
+| -------------- | -------------------------------------------------------------------------------- |
+| `--background` | Refresh without switching to the target agent, and without a flash (the default) |
+| `--focus`      | Switch to the target agent while refreshing, and flash the count                 |
 
 #### Notifications
 

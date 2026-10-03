@@ -196,6 +196,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	}, [isResumingSession, hasCapability, commandMode]);
 
 	// PERF: Memoize mode-related derived state
+	// `isReadOnlyMode` stays off the destructure: rc's ToolbarControls reads the
+	// read-only state itself rather than taking it as a prop, so main's binding
+	// has no consumer here and would only be an unused local.
 	const { showQueueingBorder } = useMemo(() => {
 		// Check if we're in read-only mode (manual toggle only - Claude will be in plan mode)
 		// NOTE: Auto Run no longer forces read-only mode. Instead:
@@ -523,8 +526,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 				/>
 			)}
 
-			{/* ThinkingStatusPill - only show in AI mode when there are thinking items or AutoRun */}
-			{session.inputMode === 'ai' && (thinkingItems.length > 0 || autoRunState?.isRunning) && (
+			{/* ThinkingStatusPill - AI mode only. It renders nothing when no work is running: it also
+			    watches Auto Runs on OTHER agents, which only it subscribes to. */}
+			{session.inputMode === 'ai' && (
 				<ThinkingStatusPill
 					thinkingItems={thinkingItems}
 					theme={theme}

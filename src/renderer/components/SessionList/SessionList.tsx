@@ -9,7 +9,6 @@ import React, {
 	useSyncExternalStore,
 } from 'react';
 import {
-	Wand2,
 	Plus,
 	ChevronRight,
 	ChevronDown,
@@ -26,7 +25,13 @@ import {
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { HamburgerDropdown } from './HamburgerDropdown';
 import { NowPlayingIndicator } from '../MediaPlayback/NowPlayingIndicator';
-import { subscribeSidebarReveal, getSidebarRevealToken } from '../../utils/sidebarReveal';
+import {
+	subscribeSidebarReveal,
+	getSidebarRevealToken,
+	markLeftBarPointerInput,
+	clearLeftBarPointerInput,
+	takeLeftBarPointerInput,
+} from '../../utils/sidebarReveal';
 import { useMediaPlaybackStore, selectNowPlayingVisible } from '../../stores/mediaPlaybackStore';
 import type { Session, Group, Theme } from '../../types';
 import { isWorktreeGroup } from '../../../shared/types';
@@ -52,12 +57,14 @@ import { useSidebarNavStore } from '../../stores/sidebarNavStore';
 import { useInlineWizardContext } from '../../contexts/InlineWizardContext';
 import { useWindowContextOptional } from '../../contexts/WindowContext';
 import { rollUpWizardActivityToSessions } from '../../utils/wizardActivity';
+import { buildSessionJumpSlotMap } from '../../utils/sessionJumpSlots';
 import { getModalActions, useModalStore } from '../../stores/modalStore';
 import { SessionContextMenu } from './SessionContextMenu';
 import { buildWindowMoveTargets, scopeSessionsToOwningWindow } from '../../utils/windowTargets';
 import { GroupContextMenu } from './GroupContextMenu';
 import { WizardIndicator } from './WizardIndicator';
 import { PluginUiItemsSlot } from '../plugins/PluginUiItemsSlot';
+import { BusyWand } from './BusyWand';
 import { HamburgerMenuContent } from './HamburgerMenuContent';
 import { CollapsedSessionPillRows } from './CollapsedSessionPill';
 import { EscCloseButton } from '../ui/EscCloseButton';
@@ -281,10 +288,17 @@ function SessionListInner(props: SessionListProps) {
 	const showLeftPanelGroupMemberCount = useSettingsStore((s) => s.showLeftPanelGroupMemberCount);
 	const leftPanelCollapsedPillsPerRow = useSettingsStore((s) => s.leftPanelCollapsedPillsPerRow);
 	const autoRunStats = useSettingsStore((s) => s.autoRunStats);
+	// How much wider the header's own labels render in the current interface font
+	// than in the one the thresholds below were measured against. Zero when the
+	// user is on the original monospace face.
+	const headerTextDelta = useHeaderTextDelta();
 	// The badge pill occupies part of the header's left cluster, so both label
-	// thresholds below shift by the same amount when it is showing.
+	// thresholds below shift by the same amount when it is showing. Its box is
+	// rem-built, so it grows with the root size.
 	const headerBadgeWidth =
-		autoRunStats && autoRunStats.currentBadgeLevel > 0 ? HEADER_BADGE_WIDTH : 0;
+		autoRunStats && autoRunStats.currentBadgeLevel > 0
+			? HEADER_BADGE_WIDTH * headerTextDelta.remScale
+			: 0;
 	// Whether the now-playing pill is on screen, and in which form. Read from the
 	// store's own selector rather than re-derived here, so the reserve below
 	// cannot end up describing a header nobody is looking at.
@@ -292,13 +306,8 @@ function SessionListInner(props: SessionListProps) {
 	const nowPlayingCompact = leftSidebarWidthState < NOW_PLAYING_LABEL_MIN_WIDTH + headerBadgeWidth;
 	const nowPlayingReserve = !nowPlayingVisible
 		? 0
-		: nowPlayingCompact
-			? NOW_PLAYING_COMPACT_RESERVE
-			: NOW_PLAYING_LABEL_RESERVE;
-	// How much wider the header's own labels render in the current interface font
-	// than in the one the thresholds below were measured against. Zero when the
-	// user is on the original monospace face.
-	const headerTextDelta = useHeaderTextDelta();
+		: (nowPlayingCompact ? NOW_PLAYING_COMPACT_RESERVE : NOW_PLAYING_LABEL_RESERVE) *
+			headerTextDelta.remScale;
 	// Constant on this build. The indirection is deliberate: a build that hides
 	// the LIVE toggle zeroes this one line instead of re-deriving the threshold.
 	// The label's own delta rides with it, since the reserve exists to hold it.
@@ -475,25 +484,33 @@ function SessionListInner(props: SessionListProps) {
 		]
 	);
 
-	// Bring the keyboard cursor into view - and ONLY when something asked.
-	//
-	// This used to fire on any `activeSessionId` change, which meant a click
-	// re-aimed the list the user had just scrolled by hand. Intent is now
-	// declared by the caller (`requestSidebarReveal`) rather than inferred from
-	// the state a click and a keystroke both produce; see utils/sidebarReveal.ts.
+	// Bring the keyboard cursor into view whenever the active agent or group chat
+	// changes, or when a caller asks (`requestSidebarReveal`) - except when the
+	// switch came from a click in the Left Bar itself, where the user is already
+	// looking at the row. See utils/sidebarReveal.ts.
 	//
 	// Deferred to the next frame so the cursor has settled. Without that, a
 	// programmatic jump scrolls to the row the cursor is leaving and never
 	// corrects, because nothing asks a second time.
 	const revealToken = useSyncExternalStore(subscribeSidebarReveal, getSidebarRevealToken);
-	// Seeded with the token as it stands at mount, because MOUNTING IS NOT A
+	// Seeded with the state as it stands at mount, because MOUNTING IS NOT A
 	// REQUEST. The counter is global and monotonic, so a fresh SessionList (a new
 	// window, a remount) would otherwise run this effect once against whatever
 	// the last reveal left behind and scroll a list nobody had touched.
 	const handledRevealRef = useRef(revealToken);
+	const lastActiveRef = useRef({ sessionId: activeSessionId, groupChatId: activeGroupChatId });
 	useEffect(() => {
-		if (revealToken === handledRevealRef.current) return;
+		const requested = revealToken !== handledRevealRef.current;
 		handledRevealRef.current = revealToken;
+		const prev = lastActiveRef.current;
+		lastActiveRef.current = { sessionId: activeSessionId, groupChatId: activeGroupChatId };
+		// A switch is landing ON something. Closing a group chat drops the view back
+		// to the agent that was already active, which is not a switch.
+		const switched = activeGroupChatId
+			? activeGroupChatId !== prev.groupChatId
+			: activeSessionId !== prev.sessionId;
+		const revealSwitch = switched && !takeLeftBarPointerInput();
+		if (!requested && !revealSwitch) return;
 		const frame = requestAnimationFrame(() => {
 			const container = listScrollRef.current;
 			if (!container) return;
@@ -513,7 +530,15 @@ function SessionListInner(props: SessionListProps) {
 			el?.scrollIntoView({ block: 'nearest' });
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [revealToken]);
+	}, [revealToken, activeSessionId, activeGroupChatId]);
+
+	// Track where the user's latest input went, so a switch made by clicking a
+	// Left Bar row is not re-aimed. Window capture runs before React's root
+	// listener (which fires the Left Bar's onPointerDownCapture below) and before
+	// any handler can stop a keydown, so the order is: clear, then re-mark if the
+	// press was ours. Portaled menus the Left Bar owns count as the Left Bar.
+	useEventListener('pointerdown', clearLeftBarPointerInput, { capture: true });
+	useEventListener('keydown', clearLeftBarPointerInput, { capture: true });
 
 	// Stable store actions
 	const setActiveFocus = useUIStore.getState().setActiveFocus;
@@ -522,12 +547,18 @@ function SessionListInner(props: SessionListProps) {
 	const setGroupChatSortAlphabetical = useSettingsStore.getState().setGroupChatSortAlphabetical;
 	const setActiveSessionIdRaw = useSessionStore.getState().setActiveSessionId;
 	const setActiveGroupChatId = useGroupChatStore.getState().setActiveGroupChatId;
+	const closeLeftSidebarForNavigation = useUIStore.getState().closeLeftSidebarForNavigation;
 	const setActiveSessionId = useCallback(
 		(id: string) => {
 			setActiveGroupChatId(null);
 			setActiveSessionIdRaw(id);
+			// Narrow viewports: the drawer covers the agent that was just picked.
+			// Closed here rather than from an effect on activeSessionId, because
+			// picking the agent that is ALREADY active - the common case behind an
+			// open group chat - changes no id at all.
+			closeLeftSidebarForNavigation();
 		},
-		[setActiveSessionIdRaw, setActiveGroupChatId]
+		[setActiveSessionIdRaw, setActiveGroupChatId, closeLeftSidebarForNavigation]
 	);
 	const setSessions = useSessionStore.getState().setSessions;
 	const setGroups = useSessionStore.getState().setGroups;
@@ -1284,11 +1315,7 @@ function SessionListInner(props: SessionListProps) {
 	// Precomputed jump number map (1-9, 0=10th) for sessions based on position in visibleSessions
 	const jumpNumberMap = useMemo(() => {
 		if (!showSessionJumpNumbers) return new Map<string, string>();
-		const map = new Map<string, string>();
-		for (let i = 0; i < Math.min(visibleSessions.length, 10); i++) {
-			map.set(visibleSessions[i].id, i === 9 ? '0' : String(i + 1));
-		}
-		return map;
+		return buildSessionJumpSlotMap(visibleSessions);
 	}, [showSessionJumpNumbers, visibleSessions]);
 
 	const getSessionJumpNumber = (sessionId: string): string | null => {
@@ -1314,6 +1341,7 @@ function SessionListInner(props: SessionListProps) {
 							: undefined,
 				} as React.CSSProperties
 			}
+			onPointerDownCapture={markLeftBarPointerInput}
 			onClick={() => setActiveFocus('sidebar')}
 			onFocus={() => setActiveFocus('sidebar')}
 			onKeyDown={(e) => {
@@ -1380,11 +1408,11 @@ function SessionListInner(props: SessionListProps) {
 								title="Switch agent"
 								aria-label="Switch agent"
 							>
-								<Wand2
-									className={`w-5 h-5${isAnyBusy ? ' wand-sparkle-active' : ''}${
-										profilingActive ? ' wand-profiling-active' : ''
-									}`}
-									style={{ color: theme.colors.accent }}
+								<BusyWand
+									busy={isAnyBusy}
+									profiling={profilingActive}
+									sizeClass="w-5 h-5"
+									color={theme.colors.accent}
 								/>
 							</button>
 							{showWordmark && (
@@ -1539,11 +1567,11 @@ function SessionListInner(props: SessionListProps) {
 					// nothing else, which fits the rail's width without a label to clip.
 					<div className="w-full flex flex-col items-center gap-2 relative z-30" ref={menuRef}>
 						<GhostIconButton onClick={() => setMenuOpen(!menuOpen)} padding="p-2" title="Menu">
-							<Wand2
-								className={`w-6 h-6${isAnyBusy ? ' wand-sparkle-active' : ''}${
-									profilingActive ? ' wand-profiling-active' : ''
-								}`}
-								style={{ color: theme.colors.accent }}
+							<BusyWand
+								busy={isAnyBusy}
+								profiling={profilingActive}
+								sizeClass="w-6 h-6"
+								color={theme.colors.accent}
 							/>
 						</GhostIconButton>
 						{/* Renders nothing unless the player is actually minimized, so

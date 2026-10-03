@@ -30,7 +30,6 @@ import {
 	QuotaAccountTabs,
 	QuotaAgentCountBadge,
 	QuotaBarRow,
-	QuotaLastRefreshed,
 	QuotaPendingRow,
 	QuotaRefreshControls,
 	QuotaSharedAccountBadge,
@@ -380,7 +379,7 @@ export const ClaudePlanUsage = memo(function ClaudePlanUsage({
 						Claude Plan Usage
 					</h3>
 				</div>
-				<div className="flex flex-wrap items-center justify-end gap-2">
+				<div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
 					{showAllAccounts && hiddenVisibleCount > 0 && (
 						<QuotaShowAllToggle
 							theme={theme}
@@ -492,12 +491,6 @@ export const ClaudePlanUsage = memo(function ClaudePlanUsage({
 					theme={theme}
 				/>
 			) : null}
-
-			<QuotaLastRefreshed
-				sampledAtMs={lastSampledAtMs}
-				theme={theme}
-				testIdPrefix={TEST_ID_PREFIX}
-			/>
 		</div>
 	);
 });

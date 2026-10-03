@@ -149,6 +149,9 @@ describe('queued messages across a quota outage', () => {
 		const entry = getRetryEntry(SESSION, TAB)!;
 		expect(entry.strategy).toBe('token-exhaustion');
 		expect(entry.nextRetryAt).toBe(NOW + TOKEN_EXHAUSTION_POLL_BASE_MS);
+		// The entry names the parked copy, which is what lets the queue card label
+		// it as the pending resend instead of a second send of the same text.
+		expect(entry.heldItemId).toBe('q0');
 
 		// Quota is back by the time that probe lands. It fires and replays the
 		// ORIGINAL failed prompt.
@@ -194,6 +197,7 @@ describe('queued messages across a quota outage', () => {
 		// Same outage continued, not a fresh one - the card keeps one running count.
 		expect(getRetryEntry(SESSION, TAB)?.outageId).toBe(first.outageId);
 		expect(getRetryEntry(SESSION, TAB)?.attempt).toBe(1);
+		expect(getRetryEntry(SESSION, TAB)?.heldItemId).toBe('q0');
 	});
 });
 

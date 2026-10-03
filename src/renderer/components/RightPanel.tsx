@@ -38,6 +38,8 @@ import { useBatchStore } from '../stores/batchStore';
 import { useThoughtStreamStore, selectActivityCount } from '../stores/thoughtStreamStore';
 import { useSessionStore, selectActiveSession } from '../stores/sessionStore';
 import { useWindowOwnsSession } from '../contexts/WindowContext';
+import { notifyToast } from '../stores/notificationStore';
+import { isAutoRunDocumentLocked, reconcileDiskContent } from '../utils/autoRunDraft';
 import type { FileNode } from '../types/fileTree';
 import type { FileClickOptions } from '../hooks/ui/useAppHandlers';
 import {
@@ -47,7 +49,7 @@ import {
 	RIGHT_PANEL_TAB_LINE_HEIGHT,
 } from '../constants/rightPanel';
 import { PluginUiItemsSlot } from './plugins/PluginUiItemsSlot';
-import { sleepAwareElapsedSince } from '../services/systemSleep';
+import { autoRunActiveElapsedMs } from '../hooks/batch/useTimeTracking';
 import {
 	MIRRORED_RUN_CONTROL_TITLE,
 	useIsMirroredBatchRun,
@@ -271,7 +273,7 @@ export const RightPanel = memo(
 			side: 'right',
 		});
 
-		// Elapsed time for Auto Run display - tracks wall clock time from startTime
+		// Elapsed time for Auto Run display - active run time, excluding sleep and pauses
 		const [elapsedTime, setElapsedTime] = useState<string>('');
 
 		// Kill confirmation modal for force-killing during Auto Run stop
@@ -288,21 +290,59 @@ export const RightPanel = memo(
 		const prevSessionIdRef = useRef(session?.id);
 		const prevSelectedFileRef = useRef(session?.autoRunSelectedFile);
 
+		// A run driving the document owns it: disk replaces the draft outright.
+		const autoRunDiskWins = isAutoRunDocumentLocked(
+			currentSessionBatchState,
+			session?.autoRunSelectedFile ?? null,
+			errorPaused
+		);
+
 		useEffect(() => {
 			const contentChanged = autoRunContent !== prevAutoRunContentRef.current;
 			const versionChanged = autoRunContentVersion !== prevAutoRunContentVersionRef.current;
 			const sessionChanged = session?.id !== prevSessionIdRef.current;
 			const fileChanged = session?.autoRunSelectedFile !== prevSelectedFileRef.current;
+			if (!contentChanged && !versionChanged && !sessionChanged && !fileChanged) return;
 
-			if (contentChanged || versionChanged || sessionChanged || fileChanged) {
+			prevAutoRunContentRef.current = autoRunContent;
+			prevAutoRunContentVersionRef.current = autoRunContentVersion;
+			prevSessionIdRef.current = session?.id;
+			prevSelectedFileRef.current = session?.autoRunSelectedFile;
+
+			if (sessionChanged || fileChanged) {
 				setSharedLocalContent(autoRunContent);
 				setSharedSavedContent(autoRunContent);
-				prevAutoRunContentRef.current = autoRunContent;
-				prevAutoRunContentVersionRef.current = autoRunContentVersion;
-				prevSessionIdRef.current = session?.id;
-				prevSelectedFileRef.current = session?.autoRunSelectedFile;
+				return;
 			}
-		}, [autoRunContent, autoRunContentVersion, session?.id, session?.autoRunSelectedFile]);
+
+			// Same document re-read from disk. This layer holds the draft while the
+			// Auto Run tab is hidden, so it applies the same rule the editor does,
+			// and it is the one place that tells the user about a conflict.
+			const next = reconcileDiskContent({
+				draft: sharedLocalContent,
+				saved: sharedSavedContent,
+				incoming: autoRunContent,
+				diskWins: autoRunDiskWins,
+			});
+			setSharedLocalContent(next.draft);
+			setSharedSavedContent(next.saved);
+			if (next.conflict) {
+				notifyToast({
+					color: 'orange',
+					title: 'Auto Run document changed on disk',
+					message:
+						'Your unsaved edits were kept. Save to overwrite it, or Revert to load the new version.',
+				});
+			}
+		}, [
+			autoRunContent,
+			autoRunContentVersion,
+			session?.id,
+			session?.autoRunSelectedFile,
+			sharedLocalContent,
+			sharedSavedContent,
+			autoRunDiskWins,
+		]);
 
 		// Auto-follow: automatically select the active document during batch runs
 		const { autoFollowEnabled, setAutoFollowEnabled } = useAutoRunAutoFollow({
@@ -354,18 +394,26 @@ export const RightPanel = memo(
 			}
 		}, []);
 
-		// Update elapsed time display from startTime, minus any machine sleep, so
-		// the live counter matches the duration the run actually records.
+		// Update elapsed time display from the run's tracker fields, so the live
+		// counter matches the duration the run actually records: machine sleep and
+		// paused spans (error, HITL gate) are excluded, and a paused run's clock stops.
 		// Uses an interval to update every second while running
+		const runStartTime = currentSessionBatchState?.startTime;
+		const runAccumulatedMs = currentSessionBatchState?.accumulatedElapsedMs;
+		const runActiveSince = currentSessionBatchState?.lastActiveTimestamp;
 		useEffect(() => {
-			if (!currentSessionBatchState?.isRunning || !currentSessionBatchState?.startTime) {
+			if (!currentSessionBatchState?.isRunning || !runStartTime) {
 				setElapsedTime('');
 				return;
 			}
 
 			// Calculate elapsed immediately
 			const updateElapsed = () => {
-				const elapsed = sleepAwareElapsedSince(currentSessionBatchState.startTime!);
+				const elapsed = autoRunActiveElapsedMs({
+					startTime: runStartTime,
+					accumulatedElapsedMs: runAccumulatedMs,
+					lastActiveTimestamp: runActiveSince,
+				});
 				setElapsedTime(formatElapsed(elapsed));
 			};
 
@@ -373,7 +421,13 @@ export const RightPanel = memo(
 			const interval = setInterval(updateElapsed, 1000);
 
 			return () => clearInterval(interval);
-		}, [currentSessionBatchState?.isRunning, currentSessionBatchState?.startTime, formatElapsed]);
+		}, [
+			currentSessionBatchState?.isRunning,
+			runStartTime,
+			runAccumulatedMs,
+			runActiveSince,
+			formatElapsed,
+		]);
 
 		// Expose methods to parent
 		useImperativeHandle(

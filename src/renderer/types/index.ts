@@ -95,6 +95,9 @@ export type SettingsTab =
 	| 'theme'
 	| 'notifications'
 	| 'aicommands'
+	// Same story as Display: rendered and accepted by SettingsModal, missing
+	// here, so Director's Notes could not deep-link to its own settings.
+	| 'encore'
 	| 'prompts';
 // Note: ScratchPadMode was removed as part of the Scratchpad → Auto Run migration
 export type FocusArea = 'sidebar' | 'main' | 'right';
@@ -864,6 +867,15 @@ export interface ThinkingItem {
 	tab: AITab | null; // null for legacy sessions without tab-level tracking
 }
 
+// An Auto Run in progress on an agent other than the one being viewed. Auto Run
+// never marks a tab busy, so these are not ThinkingItems; the pill lists them
+// separately so work running elsewhere stays visible.
+export interface BackgroundAutoRun {
+	sessionId: string;
+	sessionName: string;
+	state: BatchRunState;
+}
+
 // Closed tab entry for undo functionality (Cmd+Shift+T)
 // Stores tab data with original position for restoration
 // This is the legacy interface for AI tabs only - kept for backwards compatibility
@@ -1246,6 +1258,8 @@ export type SnoozedGroupEntry = SnoozedGroupPayload & SnoozedTabEntryBase;
 
 export interface Session {
 	id: string;
+	/** Browser-only marker. Main restores omitted content on every partial save. */
+	deferredContent?: import('../../shared/deferredSessionContent').DeferredSessionContent;
 	groupId?: string;
 	name: string;
 	toolType: ToolType;

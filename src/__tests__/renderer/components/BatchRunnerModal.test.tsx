@@ -27,6 +27,7 @@ import {
 	validateAgentPromptHasTaskReference,
 } from '../../../renderer/components/BatchRunnerModal';
 import type { Theme, Playbook } from '../../../renderer/types';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 
 // Mock LayerStackContext
 const mockRegisterLayer = vi.fn(() => 'layer-123');
@@ -163,6 +164,10 @@ describe('BatchRunnerModal', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 
+		// Remembered textarea heights are persisted settings, so a height seeded
+		// by one test would otherwise pin the boxes for every test after it.
+		useSettingsStore.setState({ textareaHeights: {} });
+
 		// Mock crypto.randomUUID
 		vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-123');
 
@@ -267,7 +272,7 @@ describe('BatchRunnerModal', () => {
 			render(<BatchRunnerModal {...createDefaultProps()} />);
 
 			expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: /Save/ })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /^Save$/ })).toBeInTheDocument();
 			expect(screen.getByRole('button', { name: 'Go' })).toBeInTheDocument();
 		});
 	});
@@ -1177,6 +1182,30 @@ describe('BatchRunnerModal', () => {
 			expect(screen.getAllByTitle('Expand editor')).toHaveLength(2);
 		});
 
+		it('lets both free-text fields be dragged taller and restores the remembered height', async () => {
+			// A height the user dragged is a preference, so it has to survive a
+			// restart: the store is what persists, and each field has its own key.
+			useSettingsStore.setState({
+				textareaHeights: { 'autorun-goal': 320, 'autorun-exit-criteria': 240 },
+			});
+
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(GOAL_PLACEHOLDER)).toBeInTheDocument();
+			});
+
+			const goalInput = screen.getByPlaceholderText(GOAL_PLACEHOLDER);
+			const exitInput = screen.getByPlaceholderText(EXIT_PLACEHOLDER);
+
+			// The native grip is what the user drags, so it must not be disabled.
+			expect(goalInput).toHaveClass('resize-y');
+			expect(exitInput).toHaveClass('resize-y');
+			expect(goalInput.style.height).toBe('320px');
+			expect(exitInput.style.height).toBe('240px');
+		});
+
 		it('opens the full-screen editor and writes back to the goal field', async () => {
 			render(<BatchRunnerModal {...createDefaultProps()} />);
 			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
@@ -1353,7 +1382,7 @@ describe('BatchRunnerModal', () => {
 			const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
 			fireEvent.change(textarea, { target: { value: 'Custom prompt' } });
 
-			fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+			fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
 			expect(props.onSave).toHaveBeenCalledWith('Custom prompt');
 		});
@@ -1361,7 +1390,7 @@ describe('BatchRunnerModal', () => {
 		it('disables Save button when no unsaved changes', async () => {
 			render(<BatchRunnerModal {...createDefaultProps()} />);
 
-			const saveButton = screen.getByRole('button', { name: /Save/ });
+			const saveButton = screen.getByRole('button', { name: /^Save$/ });
 			expect(saveButton).toBeDisabled();
 		});
 	});
@@ -1396,13 +1425,86 @@ describe('BatchRunnerModal', () => {
 			fireEvent.change(textarea, { target: { value: 'Modified prompt text' } });
 
 			// Save
-			fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+			fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 			expect(props.onSave).toHaveBeenCalledWith('Modified prompt text');
 
 			// Cancel should close directly without showConfirmation
 			fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 			expect(props.onClose).toHaveBeenCalled();
 			expect(props.showConfirmation).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('Save & Exit', () => {
+		it('closes without a warning after the loaded playbook is saved', async () => {
+			const saved = createMockPlaybook();
+			(window.maestro as Record<string, unknown>).playbooks = {
+				...window.maestro.playbooks,
+				list: vi.fn().mockResolvedValue({ success: true, playbooks: [saved] }),
+				update: vi.fn().mockResolvedValue({
+					success: true,
+					playbook: { ...saved, prompt: 'Edited - handle each - [ ] task' },
+				}),
+			};
+			const props = createDefaultProps();
+			props.showConfirmation = vi.fn();
+			render(<BatchRunnerModal {...props} />);
+
+			await waitFor(() => screen.getByText('Load Playbook'));
+			fireEvent.click(screen.getByRole('button', { name: 'Load Playbook' }));
+			fireEvent.click(screen.getByText('Test Playbook'));
+
+			const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+			fireEvent.change(textarea, { target: { value: 'Edited - handle each - [ ] task' } });
+			fireEvent.click(screen.getByRole('button', { name: /Save Update/ }));
+			await waitFor(() => expect(screen.queryByText('Save Update')).not.toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+			expect(props.showConfirmation).not.toHaveBeenCalled();
+			expect(props.onClose).toHaveBeenCalled();
+		});
+
+		it('creates a dated playbook named after the first document and closes', async () => {
+			vi.useFakeTimers({ toFake: ['Date'] });
+			vi.setSystemTime(new Date(2026, 8, 26, 12, 0, 0));
+			const create = vi
+				.fn()
+				.mockImplementation((_sid: string, data: { name: string }) =>
+					Promise.resolve({ success: true, playbook: createMockPlaybook({ name: data.name }) })
+				);
+			(window.maestro as Record<string, unknown>).playbooks = {
+				...window.maestro.playbooks,
+				create,
+			};
+			const props = createDefaultProps();
+			props.presetDocuments = [
+				'2026-09-25-Desktop-Apps/CONTEXT',
+				'2026-09-25-Desktop-Apps/APPS-01',
+			];
+			render(<BatchRunnerModal {...props} />);
+
+			fireEvent.click(screen.getByRole('button', { name: /Save & Exit/ }));
+
+			await waitFor(() => expect(props.onClose).toHaveBeenCalled());
+			expect(create).toHaveBeenCalledWith(
+				'session-123',
+				expect.objectContaining({ name: '2026-09-26-Desktop-Apps' })
+			);
+			vi.useRealTimers();
+		});
+
+		it('stays open when the save fails', async () => {
+			(window.maestro as Record<string, unknown>).playbooks = {
+				...window.maestro.playbooks,
+				create: vi.fn().mockResolvedValue({ success: false }),
+			};
+			const props = createDefaultProps();
+			render(<BatchRunnerModal {...props} />);
+
+			fireEvent.click(screen.getByRole('button', { name: /Save & Exit/ }));
+
+			await waitFor(() => expect(window.maestro.playbooks.create).toHaveBeenCalled());
+			expect(props.onClose).not.toHaveBeenCalled();
 		});
 	});
 

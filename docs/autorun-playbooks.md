@@ -33,7 +33,7 @@ Use markdown checkboxes in your documents:
 
 **Tip**: Press `Cmd+L` (Mac) or `Ctrl+L` (Windows/Linux) to quickly insert a new checkbox at your cursor position.
 
-**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is executing that document, matching its disabled editor.
+**Ticking a box by hand**: in the Auto Run panel's rendered preview, click a checkbox to toggle it and the document is rewritten on disk - useful for marking something you finished yourself, or for re-arming a task by unticking it. The boxes are read-only while an Auto Run is actively driving that document, matching its disabled editor. A **paused** run is the exception: when the engine parks on an agent error or a human-in-the-loop gate it is waiting on you rather than working, so the checkboxes and the editor both open back up until you click Resume.
 
 ### Task Granularity: Two Approaches
 
@@ -134,6 +134,8 @@ Save your Auto Run configurations as Playbooks for reuse:
 2. Click **Save as Playbook** and enter a name
 3. Load saved playbooks from the **Load Playbook** dropdown
 4. Update or discard changes to loaded playbooks
+
+**Save & Exit** saves and closes in one click. With a playbook loaded, it saves your changes to that playbook. Otherwise it creates a new playbook named `YYYY-MM-DD-CODENAME`, with the codename taken from the first document (its folder, or its file name minus the phase number). A `-2`, `-3`, ... suffix keeps the name unique.
 
 ![Playbooks](./screenshots/autorun-2.png)
 
@@ -249,6 +251,28 @@ Once a run finishes, the Right Panel's run card goes away and takes its **View T
 
 Capture is in-memory only - it does not survive an app restart, and it is bounded on three axes so a fleet of agents running all day can't grow memory without limit: timeline entries per agent, characters per agent, and how many agents keep a buffer at all (the least recently active is dropped first, and the agent you have open is never dropped). Trimming within an agent is noted as "trimmed" in the panel header. Running several Auto Runs at once? Each agent buffers independently; opening the panel for one agent never mixes in another's thoughts.
 
+## Steering a Run in Flight
+
+You do not have to stop a run to change its direction. Open the **Thought Stream** for the running agent, click the **compass** button in its header, type what you want changed, and press Enter: the message becomes a **steering note** and is delivered at the start of the next task.
+
+Steering lives in the Thought Stream and nowhere else. The agent's chat composer keeps its ordinary meaning during a run: a message you type there is a message to the agent, queued for when the run finishes.
+
+A steering note is not a conversation turn. It spawns no agent of its own and costs no extra run time - it rides in front of a task prompt that was going to be sent anyway, in a block the agent is told to treat as newer than the document and newer than its instructions. The agent is asked to begin its synopsis with `[steered]` when it acts on one.
+
+Use it for the things you notice while watching:
+
+- `Important notice: Maestro error - stop touching the Cue engine and fix the build first.`
+- `The API changed. Use the v3 endpoint for the rest of these tasks.`
+- `Do not commit anything else until I say so.`
+
+**Where to see it.** Notes are listed in the Thought Stream just under the search box: amber with a compass while a note is waiting, green with a check once a task has picked it up. The `x` on a waiting note takes it back. The Auto Run pill above the composer also shows how many notes are still waiting, so you can see one is pending without opening the panel.
+
+**What it applies to.** The note goes to the next task and stays in force for the rest of the run wherever it still makes sense. It is delivered once - a later task does not get a repeat - so if the change is permanent, also edit the document.
+
+**When the compass is not there.** The button only appears while a run this copy of Maestro started is in flight. Nothing is running, the run already finished, or the run belongs to another Maestro client watching the same agent: there is no next task to hand a note to, so no button.
+
+Notes belong to the run they were typed during. Anything still waiting when the run ends is discarded rather than ambushing a later run, and the delivered list is cleared with it.
+
 ## Session Isolation
 
 Each task executes in a completely fresh AI session with its own unique session ID. This provides:
@@ -358,7 +382,9 @@ Click **Collapse** or press `Esc` to return to the sidebar panel view.
 
 ## Saving Documents
 
-Save your changes with `Cmd+S` (Mac) or `Ctrl+S` (Windows/Linux), or click the **Save** button in the editor footer. The editor shows "Unsaved changes" and a **Revert** button when you have pending edits. Full undo/redo support with `Cmd+Z` / `Cmd+Shift+Z`.
+Save your changes with `Cmd+S` (Mac) or `Ctrl+S` (Windows/Linux), or click the **Save** button in the editor footer. The editor shows "Unsaved changes" and a **Revert** button when you have pending edits. Revert discards everything since the last save, including pasted text, inserted images, and checkboxes ticked in preview. Full undo/redo support with `Cmd+Z` / `Cmd+Shift+Z`.
+
+If the file changes on disk while you have unsaved edits (an agent, a sync tool, or another editor wrote to it), your edits are kept and a toast tells you. **Save** overwrites the file with your version; **Revert** loads the version now on disk. With no unsaved edits, the editor simply shows the new version. The one exception is a document an Auto Run is actively driving: the editor is read-only then and always follows the disk.
 
 **Note**: Switching documents discards unsaved changes. Save before switching if you want to preserve your edits.
 
@@ -528,7 +554,7 @@ The badge disappears when the run continues, so a run that rescued itself leaves
 
 Every Maestro marker is an HTML comment, which means it renders as nothing. That is right for the file - other markdown tools ignore it, and an agent editing the document leaves it alone - but it is wrong for you. Two of the three markers do not merely change how a run behaves, they stop it:
 
-- A leftover **HITL gate** pauses every re-run until the box below it is ticked.
+- A leftover **HITL gate** pauses every re-run until someone passes it.
 - A leftover **halt marker** makes Auto Run refuse to start at all.
 
 Both present the same way: you press **Run** and nothing happens, with the cause sitting in text the panel does not draw.
@@ -537,7 +563,7 @@ So Maestro renders each marker as a small pill wherever the document is previewe
 
 | Pill                          | Meaning                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| ⏸ **Pauses here**             | A live HITL gate. The run stops here until you tick the box.                                           |
+| ⏸ **Pauses here**             | A live HITL gate. The run stops here until you click **Done, Resume**.                                 |
 | ✓ **Approved**                | A gate you already passed. Inert, shown dimmed.                                                        |
 | ■ **Halted**                  | A halt marker. Auto Run will refuse to start until you delete it.                                      |
 | ◆ **high model, high effort** | A model hint. Full strength when it governs the next task, slightly muted when it governs a later one. |
@@ -565,7 +591,7 @@ When a task needs a person - manual testing, visual judgment, sign-off, or a cre
 <!-- MAESTRO:HITL reason="Add SENDGRID_API_KEY to .env before the mailer tasks run" artifact="https://staging.example.com/checkout" -->
 ```
 
-In the desktop app the run **pauses** there, surfaces the reason (and the optional `artifact` to look at) in the Auto Run panel and a toast, and waits. You resume by ticking the box above the marker or clicking Resume. That is a deliberate, visible pause, the opposite of a stall.
+In the desktop app the run **pauses** there, surfaces the reason (and the optional `artifact` to look at) in the Auto Run panel and a toast, and waits. When you have done the step, click **Done, Resume**: Maestro writes a ticked `Human step done` box under the marker, so the gate shows as Approved and a re-run does not stop there again. That is a deliberate, visible pause, the opposite of a stall.
 
 A headless CLI run has no human to wait for, so `maestro run-playbook` reports the gate as a `document_gated` event naming the reason and the line, then moves to the next document. The marker means the same thing on both surfaces; only the response differs.
 
@@ -604,7 +630,7 @@ Halting should be **rare**. Agents are told to reserve it for the case where con
 
 | Situation                                                              | Right mechanism                                        |
 | ---------------------------------------------------------------------- | ------------------------------------------------------ |
-| A task needs a person                                                  | HITL gate - pauses, then resumes on a tick             |
+| A task needs a person                                                  | HITL gate - pauses until you click Done, Resume        |
 | A task the agent cannot do                                             | Leave it unchecked; the stall guard skips the document |
 | One task failed, others are independent                                | Nothing; the run continues                             |
 | Everything downstream is now invalid, or continuing would cause damage | Halt                                                   |

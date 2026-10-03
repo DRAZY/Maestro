@@ -262,6 +262,17 @@ interface MaestroAPI {
 	};
 	sessions: {
 		getAll: () => Promise<any[]>;
+		getBootstrap: () => Promise<any[]>;
+		getDeferredContent: (
+			sessionId: string,
+			tabId: string | null,
+			includeCommands: boolean
+		) => Promise<{
+			logs?: import('./types').LogEntry[];
+			shellLogs?: import('./types').LogEntry[];
+			agentCommands?: NonNullable<import('./types').Session['agentCommands']>;
+			aiCommandHistory?: string[];
+		}>;
 		setAll: (sessions: any[]) => Promise<boolean>;
 		/**
 		 * Incremental persistence: merge `updates` into the stored sessions and
@@ -488,7 +499,11 @@ interface MaestroAPI {
 			callback: (
 				sessionId: string,
 				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
+				options: {
+					background: boolean;
+					switchToAgent: boolean;
+					mediaMode: import('../shared/mediaTypes').MediaOpenMode;
+				}
 			) => void
 		) => () => void;
 		onRemoteOpenModal: (
@@ -674,6 +689,38 @@ interface MaestroAPI {
 				totalLines?: number;
 			}
 		) => void;
+		onRemoteGetGroupChats: (callback: (responseChannel: string) => void) => () => void;
+		sendRemoteGetGroupChatsResponse: (
+			responseChannel: string,
+			result: import('../shared/groupChatRemote').RemoteGroupChatState[]
+		) => void;
+		onRemoteStartGroupChat: (
+			callback: (
+				topic: string,
+				participantIds: string[],
+				responseChannel: string,
+				options?: { moderatorAgentId?: string; message?: string }
+			) => void
+		) => () => void;
+		sendRemoteStartGroupChatResponse: (
+			responseChannel: string,
+			result: { chatId?: string; error?: string } | null
+		) => void;
+		onRemoteGetGroupChatState: (
+			callback: (chatId: string, responseChannel: string) => void
+		) => () => void;
+		sendRemoteGetGroupChatStateResponse: (
+			responseChannel: string,
+			result: import('../shared/groupChatRemote').RemoteGroupChatState | null
+		) => void;
+		onRemoteStopGroupChat: (
+			callback: (chatId: string, responseChannel: string) => void
+		) => () => void;
+		sendRemoteStopGroupChatResponse: (responseChannel: string, success: boolean) => void;
+		onRemoteSendGroupChatMessage: (
+			callback: (chatId: string, message: string, responseChannel: string) => void
+		) => () => void;
+		sendRemoteSendGroupChatMessageResponse: (responseChannel: string, success: boolean) => void;
 		onRemoteNewAITabWithPrompt: (
 			callback: (
 				sessionId: string,
@@ -1728,6 +1775,10 @@ interface MaestroAPI {
 		getCustomEnvVars: (agentId: string) => Promise<Record<string, string> | null>;
 		getAllCustomEnvVars: () => Promise<Record<string, Record<string, string>>>;
 		getKnownAuthDirs: () => Promise<{ claudeConfigDirs: string[]; codexHomes: string[] }>;
+		getKnownEnvVarKeys: () => Promise<{
+			byProvider: Record<string, string[]>;
+			global: string[];
+		}>;
 		getModels: (agentId: string, forceRefresh?: boolean, sshRemoteId?: string) => Promise<string[]>;
 		getConfigOptions: (
 			agentId: string,
@@ -3759,6 +3810,7 @@ interface MaestroAPI {
 			exchanges: number;
 			documents: number;
 			tasks: number;
+			activeMs?: number;
 			projectPath?: string;
 		}) => Promise<string | null>;
 		getWizardRuns: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<
@@ -3774,6 +3826,7 @@ interface MaestroAPI {
 				exchanges: number;
 				documents: number;
 				tasks: number;
+				activeMs?: number;
 				projectPath?: string;
 			}>
 		>;
