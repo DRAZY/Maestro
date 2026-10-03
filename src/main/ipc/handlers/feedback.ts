@@ -15,6 +15,7 @@ import {
 	buildFeedbackConversationPrompt,
 	checkFeedbackGhAuth,
 	composeFeedbackPromptFromText,
+	getFeedbackGhLoginCommand,
 	searchFeedbackIssues,
 	submitFeedback,
 	submitFeedbackConversation,
@@ -59,7 +60,14 @@ export function registerFeedbackHandlers(deps: FeedbackHandlerDependencies): voi
 
 	ipcMain.handle(
 		'feedback:check-gh-auth',
-		withIpcErrorLogging(handlerOpts('check-gh-auth'), () => checkFeedbackGhAuth())
+		withIpcErrorLogging(handlerOpts('check-gh-auth'), (payload?: { fresh?: boolean }) =>
+			checkFeedbackGhAuth({ fresh: payload?.fresh === true })
+		)
+	);
+
+	ipcMain.handle(
+		'feedback:gh-login-command',
+		withIpcErrorLogging(handlerOpts('gh-login-command'), () => getFeedbackGhLoginCommand())
 	);
 
 	ipcMain.handle(

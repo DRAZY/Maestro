@@ -50,6 +50,7 @@ import {
 import { generateDebugPackage, type DebugPackageDependencies } from '../../debug-package';
 import {
 	checkFeedbackGhAuth,
+	getFeedbackGhLoginCommand,
 	searchFeedbackIssues,
 	submitFeedbackConversation,
 	subscribeFeedbackIssue,
@@ -890,6 +891,12 @@ export class WebSocketMessageHandler {
 
 			case 'feedback_search':
 				void this.handleFeedbackSearch(client, message);
+				break;
+
+			case 'feedback_gh_login_command':
+				void this.answerFeedback(client, message, async () => ({
+					...(await getFeedbackGhLoginCommand()),
+				}));
 				break;
 
 			case 'feedback_submit':
@@ -5306,7 +5313,9 @@ export class WebSocketMessageHandler {
 
 	/** Handle feedback_check_auth - is `gh` installed and logged in. */
 	private handleFeedbackCheckAuth(client: WebClient, message: WebClientMessage): Promise<void> {
-		return this.answerFeedback(client, message, async () => ({ ...(await checkFeedbackGhAuth()) }));
+		return this.answerFeedback(client, message, async () => ({
+			...(await checkFeedbackGhAuth({ fresh: message.fresh === true })),
+		}));
 	}
 
 	/** Handle feedback_search - possible duplicate issues for a query. */

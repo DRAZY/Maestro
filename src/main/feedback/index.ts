@@ -18,6 +18,7 @@ import path from 'path';
 import { logger } from '../utils/logger';
 import { getPrompt } from '../prompt-manager';
 import {
+	clearGhCache,
 	isGhInstalled,
 	setCachedGhStatus,
 	getCachedGhStatus,
@@ -46,7 +47,10 @@ import {
 	type FeedbackIssueSearchResponse,
 	type FeedbackSubmissionPayload as FeedbackSubmitPayload,
 	type FeedbackSubmitResponse,
+	type FeedbackGhLoginCommand,
+	GH_LOGIN_ARGS,
 } from '../../shared/feedback';
+import { formatAgentLoginCommand } from '../../shared/agentMetadata';
 
 const LOG_CONTEXT = '[Feedback]';
 const ATTACHMENTS_REPO = 'maestro-feedback-attachments';
@@ -54,7 +58,7 @@ const ATTACHMENTS_REPO = 'maestro-feedback-attachments';
 const GH_NOT_INSTALLED_MESSAGE =
 	'GitHub CLI (gh) is not installed. Install it from https://cli.github.com';
 const GH_NOT_AUTHENTICATED_MESSAGE =
-	'GitHub CLI is not authenticated. Run "gh auth login" in your terminal.';
+	'GitHub CLI (gh) is not signed in to GitHub, so feedback cannot be filed.';
 
 // The GitHub CLI's OAuth app. Its settings page is where a user grants (or
 // requests) an organization's approval for gh.
@@ -72,6 +76,47 @@ const GH_OAUTH_APP_SETTINGS_URL =
  * failure is translated here, and anything unrecognised keeps gh's own words.
  */
 export function describeGhFailure(stderr: string | undefined, fallback: string): string {
+	return classifyGhFailure(stderr, fallback).message;
+}
+
+/**
+ * {@link describeGhFailure}, plus whether signing gh in again can fix it, so
+ * the Feedback chat can offer its embedded login instead of only naming one.
+ */
+export function classifyGhFailure(
+	stderr: string | undefined,
+	fallback: string
+): { message: string; needsGhLogin: boolean } {
+	const message = describeGhFailureText(stderr, fallback);
+	const detail = stderr?.trim() ?? '';
+	const needsGhLogin =
+		isGitHubOAuthRestrictionError(detail) ||
+		isGitHubAuthError(detail) ||
+		isGitHubMissingScopeError(detail);
+	return { message, needsGhLogin };
+}
+
+/** A gh call failed. Carries whether a fresh login can fix it. */
+export class GhCommandError extends Error {
+	readonly needsGhLogin: boolean;
+	constructor(stderr: string | undefined, fallback: string) {
+		const { message, needsGhLogin } = classifyGhFailure(stderr, fallback);
+		super(message);
+		this.name = 'GhCommandError';
+		this.needsGhLogin = needsGhLogin;
+	}
+}
+
+/** The failure half of a feedback result for a gh call that failed. */
+function ghFailureResult(
+	stderr: string | undefined,
+	fallback: string
+): { success: false; error: string; needsGhLogin: boolean } {
+	const { message, needsGhLogin } = classifyGhFailure(stderr, fallback);
+	return { success: false, error: message, needsGhLogin };
+}
+
+function describeGhFailureText(stderr: string | undefined, fallback: string): string {
 	const detail = stderr?.trim() ?? '';
 	if (isGitHubOAuthRestrictionError(detail)) {
 		return `GitHub refused the request because an organization restricts third-party apps and has not approved the GitHub CLI for your account. Open ${GH_OAUTH_APP_SETTINGS_URL}, grant or request access for RunMaestro, then submit again. You can also run "gh auth login" again and approve RunMaestro on the authorization page.`;
@@ -238,7 +283,7 @@ async function getGitHubLogin(): Promise<string> {
 		getExpandedEnv()
 	);
 	if (result.exitCode !== 0 || !result.stdout.trim()) {
-		throw new Error(describeGhFailure(result.stderr, 'Failed to resolve GitHub login.'));
+		throw new GhCommandError(result.stderr, 'Failed to resolve GitHub login.');
 	}
 	return result.stdout.trim();
 }
@@ -289,8 +334,9 @@ async function ensureAttachmentsRepo(owner: string): Promise<void> {
 		getExpandedEnv()
 	);
 	if (repoCreate.exitCode !== 0 && !repoCreate.stderr.includes('name already exists')) {
-		throw new Error(
-			describeGhFailure(repoCreate.stderr, 'Failed to create screenshot attachment repository.')
+		throw new GhCommandError(
+			repoCreate.stderr,
+			'Failed to create screenshot attachment repository.'
 		);
 	}
 }
@@ -338,8 +384,9 @@ async function uploadAttachments(
 		);
 		await fs.unlink(payloadPath).catch(() => {});
 		if (uploadResult.exitCode !== 0) {
-			throw new Error(
-				describeGhFailure(uploadResult.stderr, `Failed to upload screenshot ${attachment.name}.`)
+			throw new GhCommandError(
+				uploadResult.stderr,
+				`Failed to upload screenshot ${attachment.name}.`
 			);
 		}
 		const uploadJson = JSON.parse(uploadResult.stdout);
@@ -392,9 +439,7 @@ async function ensureFeedbackLabel(): Promise<void> {
 		getExpandedEnv()
 	);
 	if (labelCreate.exitCode !== 0 && !labelCreate.stderr.includes('already exists')) {
-		throw new Error(
-			describeGhFailure(labelCreate.stderr, 'Failed to ensure Maestro-feedback label exists.')
-		);
+		throw new GhCommandError(labelCreate.stderr, 'Failed to ensure Maestro-feedback label exists.');
 	}
 }
 
@@ -476,22 +521,35 @@ function buildIssueBody(
  * Whether `gh` is installed and authenticated. Feedback cannot be filed
  * without it, so every caller checks this first.
  */
-export async function checkFeedbackGhAuth(): Promise<FeedbackAuthResponse> {
+export async function checkFeedbackGhAuth(
+	options: { fresh?: boolean } = {}
+): Promise<FeedbackAuthResponse> {
+	// A fresh check is what "Check again" and the end of an embedded login ask
+	// for: the cached verdict is the very answer the user just changed.
+	if (options.fresh) clearGhCache();
+
 	// A configured custom path is authoritative: it exists precisely for
 	// binaries that PATH lookup cannot find. Resolve it before reading the
 	// cache, because the cache is keyed by the command a verdict was reached
 	// against, and the other gh callers probe the PATH-resolved binary.
 	const ghCommand = await resolveFeedbackGhCommand();
+	const notInstalled: FeedbackAuthResponse = {
+		authenticated: false,
+		reason: 'not-installed',
+		message: GH_NOT_INSTALLED_MESSAGE,
+	};
+	const notAuthenticated = (): FeedbackAuthResponse => ({
+		authenticated: false,
+		reason: 'not-authenticated',
+		message: GH_NOT_AUTHENTICATED_MESSAGE,
+		login: ghLoginCommandFor(ghCommand),
+	});
 
 	// Prefer cache when available
 	const cached = getCachedGhStatus(ghCommand);
 	if (cached) {
-		if (!cached.installed) {
-			return { authenticated: false, message: GH_NOT_INSTALLED_MESSAGE };
-		}
-		if (!cached.authenticated) {
-			return { authenticated: false, message: GH_NOT_AUTHENTICATED_MESSAGE };
-		}
+		if (!cached.installed) return notInstalled;
+		if (!cached.authenticated) return notAuthenticated();
 		return { authenticated: true };
 	}
 
@@ -504,7 +562,7 @@ export async function checkFeedbackGhAuth(): Promise<FeedbackAuthResponse> {
 			: (await execFileNoThrow(ghCommand, ['--version'], undefined, env)).exitCode === 0;
 	if (!installed) {
 		setCachedGhStatus(ghCommand, false, false);
-		return { authenticated: false, message: GH_NOT_INSTALLED_MESSAGE };
+		return notInstalled;
 	}
 
 	// Check auth status (command output ignored; exit code is the signal)
@@ -512,11 +570,27 @@ export async function checkFeedbackGhAuth(): Promise<FeedbackAuthResponse> {
 	const authenticated = authResult.exitCode === 0;
 	setCachedGhStatus(ghCommand, true, authenticated);
 
-	if (!authenticated) {
-		return { authenticated: false, message: GH_NOT_AUTHENTICATED_MESSAGE };
-	}
+	if (!authenticated) return notAuthenticated();
 
 	return { authenticated: true };
+}
+
+function ghLoginCommandFor(ghCommand: string): FeedbackGhLoginCommand {
+	const args = [...GH_LOGIN_ARGS];
+	return {
+		command: ghCommand,
+		args,
+		display: formatAgentLoginCommand({ binary: ghCommand, args: args.join(' ') }),
+	};
+}
+
+/**
+ * The gh login the Feedback chat's "Log in to GitHub" runs, and that
+ * `maestro-cli feedback login` runs, with the gh binary feedback itself uses
+ * (a configured custom path wins).
+ */
+export async function getFeedbackGhLoginCommand(): Promise<FeedbackGhLoginCommand> {
+	return ghLoginCommandFor(await resolveFeedbackGhCommand());
 }
 
 /**
@@ -691,10 +765,7 @@ export async function subscribeFeedbackIssue(payload: {
 		);
 
 		if (commentResult.exitCode !== 0) {
-			return {
-				success: false,
-				error: describeGhFailure(commentResult.stderr, 'Failed to add comment.'),
-			};
+			return ghFailureResult(commentResult.stderr, 'Failed to add comment.');
 		}
 	}
 
@@ -812,10 +883,7 @@ export async function submitFeedback(
 	);
 	await fs.unlink(bodyPath).catch(() => {});
 	if (issueCreate.exitCode !== 0) {
-		return {
-			success: false,
-			error: describeGhFailure(issueCreate.stderr, 'Failed to create GitHub issue.'),
-		};
+		return ghFailureResult(issueCreate.stderr, 'Failed to create GitHub issue.');
 	}
 
 	return { success: true };
@@ -947,6 +1015,7 @@ export async function submitFeedbackConversation(
 		return {
 			success: false,
 			error: error instanceof Error ? error.message : 'Failed to upload screenshots.',
+			needsGhLogin: error instanceof GhCommandError && error.needsGhLogin,
 		};
 	}
 
@@ -1047,10 +1116,7 @@ export async function submitFeedbackConversation(
 		);
 
 		if (issueCreate.exitCode !== 0) {
-			return {
-				success: false,
-				error: describeGhFailure(issueCreate.stderr, 'Failed to create GitHub issue.'),
-			};
+			return ghFailureResult(issueCreate.stderr, 'Failed to create GitHub issue.');
 		}
 
 		// gh issue create prints the issue URL to stdout

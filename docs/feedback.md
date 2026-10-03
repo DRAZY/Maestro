@@ -9,7 +9,9 @@ Maestro includes a built-in feedback system that uses AI to help you craft well-
 ## Prerequisites
 
 - [GitHub CLI](https://cli.github.com/) (`gh`) must be installed
-- You must be authenticated (`gh auth login`)
+- gh must be signed in to GitHub. If it is not, the Feedback modal offers **Log in to GitHub**, which runs `gh auth login` (one-time code plus browser) in a terminal inside Maestro and continues into the chat as soon as it finishes. **Check Again** re-checks if you signed in somewhere else.
+
+If filing fails later because the gh login expired, was revoked, or an organization has not approved the GitHub CLI, the same **Log in to GitHub** button appears beside the error and files the issue again once you are signed in.
 
 ## Sending Feedback
 
@@ -90,7 +92,8 @@ Once submitted, you'll see a confirmation with:
 Agents and scripts can file the same issue through `maestro-cli`, with no modal:
 
 ```bash
-maestro-cli feedback auth                          # gh installed and logged in?
+maestro-cli feedback auth                          # gh installed and logged in? (--fresh skips the cache)
+maestro-cli feedback login                         # sign gh in (device code + browser)
 maestro-cli feedback accounts                      # which account the chat runs as (--use <key> to pick)
 maestro-cli feedback search "tab closes on escape" # find duplicates first
 maestro-cli feedback submit -c bug -s "..." -e "..." -a "..." --attach shot.png --support-package

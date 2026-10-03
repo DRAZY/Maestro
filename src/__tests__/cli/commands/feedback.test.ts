@@ -10,6 +10,15 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+const spawnState = vi.hoisted(() => ({ exitCode: 0, calls: [] as unknown[][] }));
+// Never run the real gh: it would start a live device-code login.
+vi.mock('../../../cli/services/gh-login', () => ({
+	runGhLogin: vi.fn(async (...args: unknown[]) => {
+		spawnState.calls.push(args);
+		return spawnState.exitCode;
+	}),
+}));
+
 vi.mock('../../../cli/services/maestro-client', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../../cli/services/maestro-client')>()),
 	withMaestroClient: vi.fn(),
@@ -18,6 +27,7 @@ vi.mock('../../../cli/services/maestro-client', async (importOriginal) => ({
 import {
 	feedbackAccounts,
 	feedbackAuth,
+	feedbackLogin,
 	feedbackSearch,
 	feedbackSubmit,
 	feedbackSubscribe,
@@ -88,6 +98,29 @@ describe('feedback commands', () => {
 			expect(exitSpy).toHaveBeenCalledWith(ExitCode.GeneralError);
 		});
 
+		it('prints the exact login command when gh is not signed in', async () => {
+			mockBridge({
+				feedback_check_auth: {
+					success: true,
+					authenticated: false,
+					reason: 'not-authenticated',
+					message: 'GitHub CLI (gh) is not signed in to GitHub, so feedback cannot be filed.',
+					login: { command: 'gh', args: [], display: 'gh auth login --web' },
+				},
+			});
+			await expect(feedbackAuth({})).rejects.toThrow('__exit__');
+			const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+			expect(out).toContain('not signed in');
+			expect(out).toContain('gh auth login --web');
+			expect(out).toContain('maestro-cli feedback login');
+		});
+
+		it('passes --fresh through to skip the cached verdict', async () => {
+			const sent = mockBridge({ feedback_check_auth: { success: true, authenticated: true } });
+			await feedbackAuth({ fresh: true });
+			expect(sent[0].payload).toEqual({ type: 'feedback_check_auth', fresh: true });
+		});
+
 		it('maps an old app build to the Unsupported exit code', async () => {
 			vi.mocked(withMaestroClient).mockRejectedValue(
 				new UnsupportedCommandError('feedback_check_auth')
@@ -141,6 +174,79 @@ describe('feedback commands', () => {
 		it('rejects --use together with --clear', async () => {
 			await expect(feedbackAccounts({ use: 'x', clear: true })).rejects.toThrow('__exit__');
 			expect(exitSpy).toHaveBeenCalledWith(ExitCode.InvalidUsage);
+		});
+	});
+
+	describe('login', () => {
+		const login = {
+			command: '/opt/homebrew/bin/gh',
+			args: ['auth', 'login', '--web'],
+			display: '/opt/homebrew/bin/gh auth login --web',
+		};
+
+		beforeEach(() => {
+			spawnState.calls = [];
+			spawnState.exitCode = 0;
+		});
+
+		it('runs the app-resolved gh login attached to this terminal, then re-checks fresh', async () => {
+			let checks = 0;
+			const sent: Sent[] = [];
+			vi.mocked(withMaestroClient).mockImplementation(async (action) =>
+				action({
+					sendCommand: vi.fn((payload: Record<string, unknown>, rt: string) => {
+						sent.push({ payload, responseType: rt });
+						if (payload.type === 'feedback_gh_login_command') {
+							return Promise.resolve({ success: true, ...login });
+						}
+						checks += 1;
+						return Promise.resolve({
+							success: true,
+							authenticated: checks > 1,
+							reason: checks > 1 ? undefined : 'not-authenticated',
+						});
+					}),
+				} as never)
+			);
+
+			await feedbackLogin({});
+
+			expect(spawnState.calls[0]).toEqual([
+				{ command: login.command, args: login.args, display: login.display },
+				false,
+			]);
+			expect(
+				sent.filter((s) => s.payload.type === 'feedback_check_auth').every((s) => s.payload.fresh)
+			).toBe(true);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+
+		it('keeps --json stdout clean by sending gh output to stderr, and fails when still signed out', async () => {
+			mockBridge({
+				feedback_gh_login_command: { success: true, ...login },
+				feedback_check_auth: { success: true, authenticated: false, reason: 'not-authenticated' },
+			});
+			spawnState.exitCode = 1;
+
+			await expect(feedbackLogin({ json: true })).rejects.toThrow('__exit__');
+
+			expect(spawnState.calls[0][1]).toBe(true);
+			const out = JSON.parse(String(logSpy.mock.calls[0][0]));
+			expect(out).toMatchObject({ success: false, exitCode: 1, authenticated: false });
+			expect(exitSpy).toHaveBeenCalledWith(ExitCode.GeneralError);
+		});
+
+		it('refuses when gh is not installed', async () => {
+			mockBridge({
+				feedback_check_auth: {
+					success: true,
+					authenticated: false,
+					reason: 'not-installed',
+					message: 'GitHub CLI (gh) is not installed.',
+				},
+			});
+			await expect(feedbackLogin({})).rejects.toThrow('__exit__');
+			expect(spawnState.calls).toHaveLength(0);
 		});
 	});
 

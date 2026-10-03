@@ -12,6 +12,7 @@ import type {
 	FeedbackAttachmentPayload,
 	FeedbackAuthResponse,
 	FeedbackConversationSubmitPayload,
+	FeedbackGhLoginCommand,
 	FeedbackIssueSearchResponse,
 	FeedbackSubmissionPayload,
 	FeedbackSubmitResponse,
@@ -32,9 +33,14 @@ export type {
  */
 export interface FeedbackApi {
 	/**
-	 * Check whether gh CLI is available and authenticated
+	 * Check whether gh CLI is available and authenticated. `fresh` skips the
+	 * cached verdict (after a login, or "Check again").
 	 */
-	checkGhAuth: () => Promise<FeedbackAuthResponse>;
+	checkGhAuth: (options?: { fresh?: boolean }) => Promise<FeedbackAuthResponse>;
+	/**
+	 * The gh login command, with the gh binary feedback uses
+	 */
+	getGhLoginCommand: () => Promise<FeedbackGhLoginCommand>;
 	/**
 	 * Submit structured user feedback and create a GitHub issue
 	 */
@@ -76,7 +82,11 @@ export interface FeedbackApi {
  */
 export function createFeedbackApi(): FeedbackApi {
 	return {
-		checkGhAuth: (): Promise<FeedbackAuthResponse> => ipcRenderer.invoke('feedback:check-gh-auth'),
+		checkGhAuth: (options?: { fresh?: boolean }): Promise<FeedbackAuthResponse> =>
+			ipcRenderer.invoke('feedback:check-gh-auth', { fresh: options?.fresh === true }),
+
+		getGhLoginCommand: (): Promise<FeedbackGhLoginCommand> =>
+			ipcRenderer.invoke('feedback:gh-login-command'),
 
 		submit: (payload: FeedbackSubmissionPayload): Promise<FeedbackSubmitResponse> =>
 			ipcRenderer.invoke('feedback:submit', {

@@ -89,6 +89,7 @@ import { supportPackage } from './commands/support-package';
 import {
 	feedbackAccounts,
 	feedbackAuth,
+	feedbackLogin,
 	feedbackSearch,
 	feedbackSubmit,
 	feedbackSubscribe,
@@ -1510,9 +1511,20 @@ const feedback = program
 
 feedback
 	.command('auth')
-	.description('Check that the GitHub CLI (gh) is installed and logged in (required to file)')
+	.description(
+		'Check that the GitHub CLI (gh) is installed and logged in (required to file); prints the login command when it is not'
+	)
+	.option('--fresh', 'Skip the cached verdict (after logging in elsewhere)')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(feedbackAuth);
+
+feedback
+	.command('login')
+	.description(
+		'Sign the GitHub CLI in for feedback (gh auth login, device code + browser), as the modal\'s "Log in to GitHub" does'
+	)
+	.option('--json', 'Output the result as JSON (for scripting)')
+	.action(feedbackLogin);
 
 feedback
 	.command('accounts')

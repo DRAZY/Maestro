@@ -45,6 +45,7 @@ vi.mock('../../../../main/prompt-manager', () => ({
 }));
 
 vi.mock('../../../../main/utils/cliDetection', () => ({
+	clearGhCache: vi.fn(),
 	isGhInstalled: vi.fn(),
 	setCachedGhStatus: vi.fn(),
 	getCachedGhStatus: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock('../../../../main/process-manager/utils/imageUtils', () => ({
 import fs from 'fs/promises';
 import os from 'os';
 import {
+	clearGhCache,
 	getCachedGhStatus,
 	isGhInstalled,
 	setCachedGhStatus,
@@ -564,8 +566,67 @@ describe('feedback handlers', () => {
 		expect(setCachedGhStatus).toHaveBeenCalledWith('/custom/bin/gh', false, false);
 		expect(result).toEqual({
 			authenticated: false,
+			reason: 'not-installed',
 			message: expect.stringContaining('not installed'),
 		});
+	});
+
+	it('reports a gh that is not signed in with the exact login command for that binary', async () => {
+		vi.mocked(getSettingsStore).mockReturnValue({
+			get: vi.fn(() => '/custom/bin/gh'),
+		} as any);
+		vi.mocked(getCachedGhStatus).mockReturnValue(null);
+		vi.mocked(execFileNoThrow)
+			.mockResolvedValueOnce({ exitCode: 0, stdout: 'gh version 2', stderr: '' } as any)
+			.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'not logged in' } as any);
+
+		const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+		expect(result).toMatchObject({
+			authenticated: false,
+			reason: 'not-authenticated',
+			login: {
+				command: '/custom/bin/gh',
+				args: ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
+				display: '/custom/bin/gh auth login --hostname github.com --git-protocol https --web',
+			},
+		});
+	});
+
+	it('skips the cached verdict when asked for a fresh check', async () => {
+		vi.mocked(getSettingsStore).mockReturnValue({ get: vi.fn(() => '') } as any);
+		vi.mocked(getCachedGhStatus).mockReturnValue(null);
+		vi.mocked(isGhInstalled).mockResolvedValue(true);
+		vi.mocked(execFileNoThrow).mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' } as any);
+
+		const result = await registeredHandlers.get('feedback:check-gh-auth')!({}, { fresh: true });
+
+		expect(clearGhCache).toHaveBeenCalledOnce();
+		expect(result).toEqual({ authenticated: true });
+	});
+
+	it('flags a submit that gh refused for an expired login, so the chat can offer to sign in', async () => {
+		vi.mocked(execFileNoThrow)
+			.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' } as any)
+			.mockResolvedValueOnce({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'HTTP 401: Bad credentials',
+			} as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.unlink).mockResolvedValue(undefined);
+
+		const result = await registeredHandlers.get('feedback:submit-conversation')!(
+			{},
+			{
+				category: 'bug_report',
+				summary: 'Player stuck',
+				expectedBehavior: 'It moves',
+				actualBehavior: 'It does not',
+			}
+		);
+
+		expect(result).toMatchObject({ success: false, needsGhLogin: true });
 	});
 
 	it('falls back to which-based detection when no custom path is configured', async () => {
