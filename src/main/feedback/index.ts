@@ -25,6 +25,11 @@ import {
 	resolveGhPath,
 } from '../utils/cliDetection';
 import { execFileNoThrow } from '../utils/execFile';
+import {
+	isGitHubAuthError,
+	isGitHubMissingScopeError,
+	isGitHubOAuthRestrictionError,
+} from '../utils/ghErrors';
 import { getSettingsStore } from '../stores/getters';
 import { isInitialized } from '../stores/instances';
 import { generateDebugPackage, type DebugPackageDependencies } from '../debug-package';
@@ -50,6 +55,35 @@ const GH_NOT_INSTALLED_MESSAGE =
 	'GitHub CLI (gh) is not installed. Install it from https://cli.github.com';
 const GH_NOT_AUTHENTICATED_MESSAGE =
 	'GitHub CLI is not authenticated. Run "gh auth login" in your terminal.';
+
+// The GitHub CLI's OAuth app. Its settings page is where a user grants (or
+// requests) an organization's approval for gh.
+const GH_OAUTH_APP_SETTINGS_URL =
+	'https://github.com/settings/connections/applications/178c6fc778ccc68e1d6a';
+
+/**
+ * Turn a failed gh call into something the user can act on.
+ *
+ * gh reports auth trouble as raw API text ("HTTP 401: Bad credentials", "the
+ * RunMaestro organization has enabled OAuth App access restrictions"), which
+ * reads like a Maestro bug and names no fix. The up-front `gh auth status`
+ * check cannot catch these: it is cached for a minute, and an org's OAuth
+ * restriction refuses a token that `gh auth status` reports as valid. So every
+ * failure is translated here, and anything unrecognised keeps gh's own words.
+ */
+export function describeGhFailure(stderr: string | undefined, fallback: string): string {
+	const detail = stderr?.trim() ?? '';
+	if (isGitHubOAuthRestrictionError(detail)) {
+		return `GitHub refused the request because an organization restricts third-party apps and has not approved the GitHub CLI for your account. Open ${GH_OAUTH_APP_SETTINGS_URL}, grant or request access for RunMaestro, then submit again. You can also run "gh auth login" again and approve RunMaestro on the authorization page.`;
+	}
+	if (isGitHubAuthError(detail)) {
+		return 'Your GitHub CLI login has expired or was revoked. Run "gh auth login" in a terminal, then submit again.';
+	}
+	if (isGitHubMissingScopeError(detail)) {
+		return 'Your GitHub CLI login is missing a permission feedback needs. Run "gh auth refresh -h github.com -s repo" in a terminal, then submit again.';
+	}
+	return detail || fallback;
+}
 
 function getPromptPath(): string {
 	if (app.isPackaged) {
@@ -204,7 +238,7 @@ async function getGitHubLogin(): Promise<string> {
 		getExpandedEnv()
 	);
 	if (result.exitCode !== 0 || !result.stdout.trim()) {
-		throw new Error(result.stderr || 'Failed to resolve GitHub login.');
+		throw new Error(describeGhFailure(result.stderr, 'Failed to resolve GitHub login.'));
 	}
 	return result.stdout.trim();
 }
@@ -255,7 +289,9 @@ async function ensureAttachmentsRepo(owner: string): Promise<void> {
 		getExpandedEnv()
 	);
 	if (repoCreate.exitCode !== 0 && !repoCreate.stderr.includes('name already exists')) {
-		throw new Error(repoCreate.stderr || 'Failed to create screenshot attachment repository.');
+		throw new Error(
+			describeGhFailure(repoCreate.stderr, 'Failed to create screenshot attachment repository.')
+		);
 	}
 }
 
@@ -302,7 +338,9 @@ async function uploadAttachments(
 		);
 		await fs.unlink(payloadPath).catch(() => {});
 		if (uploadResult.exitCode !== 0) {
-			throw new Error(uploadResult.stderr || `Failed to upload screenshot ${attachment.name}.`);
+			throw new Error(
+				describeGhFailure(uploadResult.stderr, `Failed to upload screenshot ${attachment.name}.`)
+			);
 		}
 		const uploadJson = JSON.parse(uploadResult.stdout);
 		const rawUrl =
@@ -354,7 +392,9 @@ async function ensureFeedbackLabel(): Promise<void> {
 		getExpandedEnv()
 	);
 	if (labelCreate.exitCode !== 0 && !labelCreate.stderr.includes('already exists')) {
-		throw new Error(labelCreate.stderr || 'Failed to ensure Maestro-feedback label exists.');
+		throw new Error(
+			describeGhFailure(labelCreate.stderr, 'Failed to ensure Maestro-feedback label exists.')
+		);
 	}
 }
 
@@ -653,7 +693,7 @@ export async function subscribeFeedbackIssue(payload: {
 		if (commentResult.exitCode !== 0) {
 			return {
 				success: false,
-				error: commentResult.stderr || 'Failed to add comment.',
+				error: describeGhFailure(commentResult.stderr, 'Failed to add comment.'),
 			};
 		}
 	}
@@ -772,7 +812,10 @@ export async function submitFeedback(
 	);
 	await fs.unlink(bodyPath).catch(() => {});
 	if (issueCreate.exitCode !== 0) {
-		return { success: false, error: issueCreate.stderr || 'Failed to create GitHub issue.' };
+		return {
+			success: false,
+			error: describeGhFailure(issueCreate.stderr, 'Failed to create GitHub issue.'),
+		};
 	}
 
 	return { success: true };
@@ -895,7 +938,17 @@ export async function submitFeedbackConversation(
 					a.dataUrl.startsWith('data:image/')
 			)
 		: [];
-	const { markdown: attachmentMarkdown } = await uploadAttachments(normalizedAttachments);
+	// An upload failure is reported as a result, not thrown: a throw crosses IPC
+	// as "Error invoking remote method ...", burying the gh guidance it carries.
+	let attachmentMarkdown: string;
+	try {
+		({ markdown: attachmentMarkdown } = await uploadAttachments(normalizedAttachments));
+	} catch (error) {
+		return {
+			success: false,
+			error: error instanceof Error ? error.message : 'Failed to upload screenshots.',
+		};
+	}
 
 	// Generate and upload debug package if requested
 	let debugPackageMarkdown = '';
@@ -996,7 +1049,7 @@ export async function submitFeedbackConversation(
 		if (issueCreate.exitCode !== 0) {
 			return {
 				success: false,
-				error: issueCreate.stderr || 'Failed to create GitHub issue.',
+				error: describeGhFailure(issueCreate.stderr, 'Failed to create GitHub issue.'),
 			};
 		}
 
