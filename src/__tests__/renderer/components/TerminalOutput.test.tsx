@@ -545,6 +545,66 @@ describe('TerminalOutput', () => {
 		});
 	});
 
+	describe('turn duration in the timestamp gutter', () => {
+		const MINUTE = 60_000;
+		const renderTurn = (logs: LogEntry[]) => {
+			const tabs = [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }];
+			const session = createDefaultSession({ tabs, aiTabs: tabs, activeTabId: 'tab-1' } as never);
+			return render(<TerminalOutput {...createDefaultProps({ session })} />);
+		};
+
+		it('reports user-message-to-reply elapsed time on the agent reply only', () => {
+			const sentAt = Date.now() - 30 * MINUTE;
+			renderTurn([
+				createLogEntry({ text: 'How long?', source: 'user', timestamp: sentAt }),
+				createLogEntry({
+					text: 'Twenty five minutes.',
+					source: 'stdout',
+					timestamp: sentAt + 25 * MINUTE,
+				}),
+			]);
+
+			// Once, not twice: the user's own message is instantaneous and carries no
+			// duration line of its own.
+			expect(screen.getAllByText('25m')).toHaveLength(1);
+		});
+
+		it('measures to the END of a turn broken up by thinking, not the first reply', () => {
+			const sentAt = Date.now() - 30 * MINUTE;
+			renderTurn([
+				createLogEntry({ text: 'Go', source: 'user', timestamp: sentAt }),
+				createLogEntry({ text: 'Starting', source: 'stdout', timestamp: sentAt + MINUTE }),
+				createLogEntry({ text: 'Pondering', source: 'thinking', timestamp: sentAt + 5 * MINUTE }),
+				createLogEntry({ text: 'Done', source: 'stdout', timestamp: sentAt + 10 * MINUTE }),
+			]);
+
+			// One badge, on the last reply, covering the whole turn - not '1m' on the
+			// opening fragment and a climbing count on each one after it.
+			expect(screen.getAllByText('10m')).toHaveLength(1);
+			expect(screen.queryByText('1m')).not.toBeInTheDocument();
+		});
+
+		it('reads as instant when the agent answered inside a minute', () => {
+			const sentAt = Date.now() - 5 * MINUTE;
+			renderTurn([
+				createLogEntry({ text: 'Quick one', source: 'user', timestamp: sentAt }),
+				createLogEntry({ text: 'Done', source: 'stdout', timestamp: sentAt + 8_000 }),
+			]);
+
+			expect(screen.getByText('<1m')).toBeInTheDocument();
+		});
+
+		it('stays silent when no user message anchors the turn', () => {
+			// A transcript paged in mid-conversation starts on an agent reply. With
+			// nothing to measure from, printing anything would be a guess.
+			renderTurn([
+				createLogEntry({ text: 'Orphan reply', source: 'stdout', timestamp: Date.now() }),
+			]);
+
+			expect(screen.queryByText('<1m')).not.toBeInTheDocument();
+		});
+	});
+
 	describe('cross-tab search jump anchors', () => {
 		it('tags every rendered row with its entry id', () => {
 			const logs: LogEntry[] = [
@@ -1127,7 +1187,8 @@ describe('TerminalOutput', () => {
 		});
 
 		it('truncates long queued messages and shows expand button', () => {
-			const longMessage = 'A'.repeat(250);
+			// Collapse only kicks in past the 600-char preview plus 400 hidden chars.
+			const longMessage = 'A'.repeat(2000);
 			const session = createDefaultSession({
 				executionQueue: [{ id: 'q1', type: 'message', text: longMessage, tabId: 'tab-1' }],
 			});
@@ -1142,13 +1203,12 @@ describe('TerminalOutput', () => {
 		});
 
 		it('expands and collapses long queued messages when toggle is clicked', async () => {
-			// Create a message with >200 characters and multiple lines to trigger isLongMessage
-			// isLongMessage check: displayText.length > 200
+			// Long enough to collapse: the card previews 600 chars and only offers the
+			// toggle when at least 400 more stay hidden.
 			const longMessage = Array.from(
-				{ length: 20 },
+				{ length: 60 },
 				(_, i) => `This is line number ${i + 1} with some text`
 			).join('\n');
-			// Each line is ~35 chars, 20 lines = 700 chars (>200)
 			const session = createDefaultSession({
 				executionQueue: [{ id: 'q1', type: 'message', text: longMessage, tabId: 'tab-1' }],
 			});
@@ -1156,8 +1216,8 @@ describe('TerminalOutput', () => {
 			const props = createDefaultProps({ session });
 			render(<TerminalOutput {...props} />);
 
-			// Should show expand button initially (Show all X lines)
-			const expandButton = screen.getByText(/Show all.*lines/);
+			// Should show expand button initially (Show all N more characters)
+			const expandButton = screen.getByText(/Show all.*characters/);
 			expect(expandButton).toBeInTheDocument();
 
 			// Click to expand
@@ -1175,7 +1235,7 @@ describe('TerminalOutput', () => {
 			});
 
 			// Should show expand button again
-			expect(screen.getByText(/Show all.*lines/)).toBeInTheDocument();
+			expect(screen.getByText(/Show all.*characters/)).toBeInTheDocument();
 		});
 
 		it('dismisses confirmation modal when Cancel button is clicked', async () => {
@@ -1299,7 +1359,7 @@ describe('TerminalOutput', () => {
 			// The inline card mirrors the Execution Queue modal exactly: present
 			// when force sending is possible or one settings toggle away, absent
 			// when the block is a dead end the user cannot act on from the card.
-			it('renders Force Send disabled when forced parallel is off and another tab is busy', () => {
+			it('renders Force Send dimmed when forced parallel is off and another tab is busy', () => {
 				const props = createDefaultProps({
 					session: forceSendSession(),
 					forcedParallelEnabled: false,
@@ -1313,7 +1373,11 @@ describe('TerminalOutput', () => {
 					}),
 				});
 				render(<TerminalOutput {...props} />);
-				expect(screen.getByRole('button', { name: /Force Send/ })).toBeDisabled();
+				// Dimmed but clickable: the click explains which setting unlocks it.
+				expect(screen.getByRole('button', { name: /Force Send/ })).toHaveAttribute(
+					'aria-disabled',
+					'true'
+				);
 			});
 
 			it('hides Force Send when the target tab is busy', () => {

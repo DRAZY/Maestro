@@ -449,18 +449,44 @@ when a user reports lag.
    top-left Left Bar header turns recording-red and pulses for as long as the
    capture is running, so it's obvious profiling is on.
 2. Reproduce the slow interaction (type in the prompt, switch agents, open a
-   file, etc.). **Keep it short - seconds, not minutes.** The trace buffer
-   (`buildTraceConfig` in `src/main/profiling/categories.ts`) is applied _per
-   process_, not per capture, and a busy renderer fills its own in well under a
-   minute. What survives an overrun is the TAIL, so a 14-minute recording can
-   end up describing only its last 90 seconds while silently discarding the
-   start - including whatever the user was actually reporting.
+   file, etc.). **The recording ends itself when it has to** - see "The buffer
+   watchdog" below. There is no duration to aim for, because the limit is trace
+   buffer pressure, not time.
 3. `Cmd+K` -> **Debug: End Performance Profiling** (this entry only appears while
-   recording). A native Save dialog writes a compressed `.zip` (default to the
-   Desktop, `maestro-profile-<timestamp>.zip`). A progress modal
+   recording; its subtext shows how full the trace buffer is). A native Save
+   dialog writes a compressed `.zip` (default to the Desktop,
+   `maestro-profile-<timestamp>.zip`). A progress modal
    (`ProfilingCaptureModal`) owns the stop-and-bundle flow and shows live
    compression progress, driven by `debug:profilingProgress` events from the main
-   process, since zipping a large trace can take tens of seconds.
+   process, since zipping a large trace can take tens of seconds. When it
+   finishes it states whether the capture is complete.
+
+**The buffer watchdog.** Chromium records into a fixed per-process buffer
+(`TRACE_BUFFER_SIZE_KB` in `src/main/profiling/categories.ts`). Once it fills,
+events are dropped and _nothing says so_: the trace simply covers less time than
+the recording ran for, and every question asked of it is answered from a
+fragment. Two field captures in Sep 2026 retained 22% and 43% of their
+recordings, and the finding that mattered most could not be closed because the
+evidence had been thrown away.
+
+The guidance that failed was "keep captures short", which asks a person to
+estimate trace-buffer pressure by watching an app window. Nobody can do that. So
+`content-tracing.ts` polls `contentTracing.getTraceBufferUsage()` once a second
+and ends the recording at `BUFFER_STOP_THRESHOLD` (85%), before any events are
+lost. Three consequences:
+
+- A capture is allowed to run as long as the app stays quiet enough, and is cut
+  short when it does not. Duration is an output, not an input.
+- A desktop capture auto-stops by opening the same `ProfilingCaptureModal` the
+  user's own "End Performance Profiling" opens - one stop path, not two.
+- A **CLI capture is never auto-stopped** (it would raise a save dialog in the
+  middle of an unattended loop and write the bundle somewhere the caller never
+  looks). It sets `autoStopRequested`, which `maestro-cli profiling status`
+  reports, and the caller stops itself.
+
+Every capture now records `peakBufferPercent`, `autoStopped` and
+`bufferExhausted` in its metadata, so a bundle states its own completeness
+instead of leaving a reader to infer it.
 
 The capture uses Electron `contentTracing` (Chromium's built-in trace engine).
 When profiling is off the trace points compile to a disabled-flag check, so
@@ -469,11 +495,11 @@ through `debug:startProfiling` / `debug:stopProfiling` / `debug:getProfilingStat
 
 **What's in the bundle (`.zip`):**
 
-| File            | Purpose                                                                                                     |
-| --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `trace.json`    | Full Chromium trace (Trace Event format). The raw data.                                                     |
-| `metadata.json` | Capture context: app/Electron/Chrome versions, hardware, CPU, memory, recording duration, trace categories. |
-| `README.md`     | Short pointer back to this workflow.                                                                        |
+| File            | Purpose                                                                                                                                                                                      |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trace.json`    | Full Chromium trace (Trace Event format). The raw data.                                                                                                                                      |
+| `metadata.json` | Capture context: app/Electron/Chrome versions, hardware, CPU, memory, recording duration, trace categories, and buffer completeness (`peakBufferPercent`, `autoStopped`, `bufferExhausted`). |
+| `README.md`     | Whether the capture is complete, plus a short pointer back to this workflow.                                                                                                                 |
 
 Trace analysis is intentionally **not** done in the app - it is a development /
 agent activity. Do not add in-app trace parsing.
@@ -490,12 +516,15 @@ agent activity. Do not add in-app trace parsing.
    # accepts a .zip bundle, a raw trace.json, or a trace.json.gz
    ```
 
-   It prints, in Markdown: a buffer-overrun warning when the bundle covers less
-   than the recording asked for, the longest main-thread tasks (the jank the
-   user feels), frame production and V8 idle share, self-time grouped by
-   subsystem (Layout / RecalcStyles / Paint / GC), and the hottest JS functions
-   with `url:line`. Pipe to a file and read it, or let the script's output drive
-   the fix.
+   It prints, in Markdown: **a completeness verdict first** (read it - a
+   truncated trace answers questions about the fragment that survived, and
+   nothing in the numbers reveals that), the longest main-thread tasks (the jank
+   the user feels), frame production and V8 idle share, self-time grouped by
+   subsystem (Layout / RecalcStyles / Paint / GC), the hottest JS functions with
+   `url:line`, and **what dirtied style and layout** - the invalidation reason
+   plus the JS frame that scheduled it, which is the half that leads to a fix
+   rather than just a cost. Pipe to a file and read it, or let the script's
+   output drive the fix.
 
    The script streams the trace line by line, so a multi-gigabyte `trace.json`
    is fine. Do not "simplify" it back to `JSON.parse(readFileSync(...))`: a real

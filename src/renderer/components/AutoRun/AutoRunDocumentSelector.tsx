@@ -21,14 +21,23 @@ import { getExplorerFileIcon } from '../../utils/theme';
 import { fuzzyMatchWithScore } from '../../utils/search';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { useResizableModal } from '../../hooks/ui/useResizableModal';
+import { useResizableDropdownHeight } from '../../hooks/ui/useResizableDropdownHeight';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { ResizeHandles } from '../ui/ResizeHandles';
+import { aggregateFolderTaskCounts } from './documentTaskAggregation';
 
 // Module-level cache so the user's expand/collapse choices survive the dropdown
 // closing/reopening and the component remounting (e.g. switching agents) until
 // the app restarts. Folders start collapsed; only paths the user explicitly
 // expands land here.
 const persistedExpandedFolders = new Set<string>();
+
+/** Where the dropdown's dragged height is remembered (survives app restarts). */
+export const DOCUMENT_DROPDOWN_HEIGHT_KEY = 'maestro:autoRunDocumentDropdownHeight';
+/** Height before the user has ever dragged the bottom edge. */
+const DOCUMENT_DROPDOWN_DEFAULT_HEIGHT = 562;
+/** Filter row, a couple of entries, and the Change Folder row. */
+const DOCUMENT_DROPDOWN_MIN_HEIGHT = 160;
 
 // Tree node type for folder structure
 export interface DocTreeNode {
@@ -91,6 +100,15 @@ export const AutoRunDocumentSelector = forwardRef<
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const createInputRef = useRef<HTMLInputElement>(null);
 	const filterInputRef = useRef<HTMLInputElement>(null);
+
+	// The user drags the bottom edge; the height is remembered, and clamped to
+	// the window on every open and resize so the bottom row never leaves screen.
+	const dropdownHeight = useResizableDropdownHeight({
+		storageKey: DOCUMENT_DROPDOWN_HEIGHT_KEY,
+		open: isOpen,
+		defaultHeight: DOCUMENT_DROPDOWN_DEFAULT_HEIGHT,
+		minHeight: DOCUMENT_DROPDOWN_MIN_HEIGHT,
+	});
 
 	// Fuzzy filter input + keyboard navigation (active while dropdown is open).
 	const [filterQuery, setFilterQuery] = useState('');
@@ -260,16 +278,30 @@ export const AutoRunDocumentSelector = forwardRef<
 		: normalizedNewName;
 	const isDuplicate = !!fullNewPath && documents.some((doc) => doc.toLowerCase() === fullNewPath);
 
-	// Get percentage and total task count for a document
-	const getTaskStats = (docPath: string): { pct: number; total: number } | null => {
-		if (!documentTaskCounts) return null;
-		const counts = documentTaskCounts.get(docPath);
+	// Per-folder rollup of the task counts of every document beneath it. Built
+	// from the unfiltered tree on purpose: a folder's badge describes the whole
+	// folder, not just the files that survived the current filter.
+	const folderTaskCounts = useMemo(
+		() => aggregateFolderTaskCounts(documentTree, documentTaskCounts),
+		[documentTree, documentTaskCounts]
+	);
+
+	// Turn raw counts into the percentage/total pair the badge renders.
+	const toTaskStats = (counts: DocumentTaskCount | undefined) => {
 		if (!counts || counts.total === 0) return null;
 		return {
 			pct: Math.round((counts.completed / counts.total) * 100),
 			total: counts.total,
 		};
 	};
+
+	// Get percentage and total task count for a document
+	const getTaskStats = (docPath: string): { pct: number; total: number } | null =>
+		toTaskStats(documentTaskCounts?.get(docPath));
+
+	// Same, for a folder: the sum of every document in its subtree.
+	const getFolderTaskStats = (folderPath: string): { pct: number; total: number } | null =>
+		toTaskStats(folderTaskCounts.get(folderPath));
 
 	// Pill badge showing "{pct}% ({total})" - rendered next to file entries in
 	// the dropdown list. Green when 100% complete, dim accent otherwise.
@@ -294,11 +326,12 @@ export const AutoRunDocumentSelector = forwardRef<
 		const paddingLeft = depth * 16 + 12;
 
 		if (node.type === 'folder') {
+			const folderStats = getFolderTaskStats(node.path);
 			return (
 				<div key={node.path}>
 					<button
 						onClick={() => toggleFolder(node.path)}
-						className="w-full flex items-center gap-1.5 py-1.5 text-sm transition-colors hover:bg-white/5"
+						className="w-full flex items-center gap-1.5 py-1.5 pr-3 text-sm transition-colors hover:bg-white/5"
 						style={{ paddingLeft, color: theme.colors.textDim }}
 					>
 						{isExpanded ? (
@@ -308,6 +341,7 @@ export const AutoRunDocumentSelector = forwardRef<
 						)}
 						<Folder className="w-3.5 h-3.5 shrink-0" style={{ color: theme.colors.accent }} />
 						<span className="truncate">{node.name}</span>
+						{folderStats && renderTaskBadge(folderStats, 'ml-auto')}
 					</button>
 					{isExpanded && node.children && (
 						<div>{node.children.map((child) => renderTreeNode(child, depth + 1))}</div>
@@ -475,11 +509,13 @@ export const AutoRunDocumentSelector = forwardRef<
 					{/* Dropdown Menu - extends right under the action buttons for more width */}
 					{isOpen && (
 						<div
+							ref={dropdownHeight.panelRef}
+							data-testid="autorun-document-dropdown"
 							className="absolute top-full left-0 mt-1 rounded shadow-lg overflow-hidden z-50 flex flex-col"
 							style={{
 								backgroundColor: theme.colors.bgSidebar,
 								border: `1px solid ${theme.colors.border}`,
-								maxHeight: '562px',
+								maxHeight: `${dropdownHeight.maxHeight}px`,
 								minWidth: '100%',
 								width: 'calc(100% + 120px)', // Extend under the +, refresh, and folder buttons
 							}}
@@ -602,6 +638,15 @@ export const AutoRunDocumentSelector = forwardRef<
 									Change Folder...
 								</button>
 							</div>
+							<ResizeHandles
+								directions={['s']}
+								contained
+								accentColor={theme.colors.accent}
+								testIdPrefix="autorun-document-dropdown-resize"
+								onResizeStart={dropdownHeight.onResizeStart}
+								onResetSize={dropdownHeight.reset}
+								canReset={dropdownHeight.isCustomized}
+							/>
 						</div>
 					)}
 				</div>

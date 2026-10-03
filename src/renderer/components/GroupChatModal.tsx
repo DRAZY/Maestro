@@ -22,6 +22,7 @@ import { Modal, ModalFooter, FormInput, ToggleSwitch } from './ui';
 import { AGENT_TILES } from './Wizard/screens/AgentSelectionScreen';
 import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { useAgentConfiguration } from '../hooks/agent';
+import { withBlankEnvVarRow } from '../../shared/envVarCatalog';
 
 interface GroupChatModalCreateProps {
 	mode: 'create';
@@ -583,15 +584,7 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 									ac.setCustomEnvVars(newVars);
 								}}
 								onEnvVarAdd={() => {
-									let newKey = 'NEW_VAR';
-									let counter = 1;
-									// A parked key still occupies the name - reusing it would collide
-									// the moment the user switches that row back on.
-									while (newKey in ac.customEnvVars || newKey in ac.customEnvVarsDisabled) {
-										newKey = `NEW_VAR_${counter}`;
-										counter++;
-									}
-									ac.setCustomEnvVars({ ...ac.customEnvVars, [newKey]: '' });
+									ac.setCustomEnvVars(withBlankEnvVarRow(ac.customEnvVars));
 								}}
 								onEnvVarsBlur={() => {
 									/* Local state only */

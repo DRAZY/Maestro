@@ -250,6 +250,8 @@ const mockMaestro = {
 		submitConversation: vi.fn().mockResolvedValue({ success: true }),
 		searchIssues: vi.fn().mockResolvedValue({ issues: [] }),
 		subscribeIssue: vi.fn().mockResolvedValue({ success: true }),
+		listAccounts: vi.fn().mockResolvedValue({ accounts: [], lastWorkingKey: null }),
+		rememberAccount: vi.fn().mockResolvedValue(undefined),
 	},
 	git: {
 		branch: vi.fn().mockResolvedValue({ stdout: 'main' }),
@@ -316,6 +318,7 @@ const mockMaestro = {
 		getCustomArgs: vi.fn().mockResolvedValue(null),
 		setCustomArgs: vi.fn().mockResolvedValue(undefined),
 		getAllCustomEnvVars: vi.fn().mockResolvedValue({}),
+		getKnownEnvVarKeys: vi.fn().mockResolvedValue({ byProvider: {}, global: [] }),
 		getCustomEnvVars: vi.fn().mockResolvedValue(null),
 		setCustomEnvVars: vi.fn().mockResolvedValue(undefined),
 		refresh: vi.fn().mockResolvedValue({ agents: [], debugInfo: null }),

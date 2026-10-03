@@ -24,6 +24,7 @@ vi.mock('../../../main/utils/sentry', () => ({
 const mockGetShellPath = vi.fn(async () => '/login/shell/bin:/usr/bin:/bin');
 vi.mock('../../../main/runtime/getShellPath', () => ({
 	getShellPath: () => mockGetShellPath(),
+	peekShellPath: () => null,
 }));
 
 // Keep the ssh-spawn-wrapper inert in this suite; the tests exercise the local
@@ -72,7 +73,8 @@ vi.mock('child_process', async (importOriginal) => {
 	};
 });
 
-import { executeCueShell, stopCueShellRun } from '../../../main/cue/cue-shell-executor';
+import { executeCueShell } from '../../../main/cue/cue-shell-executor';
+import { getProcessList, stopProcess } from '../../../main/cue/cue-process-lifecycle';
 
 function createSession(): SessionInfo {
 	return {
@@ -162,19 +164,49 @@ describe('cue-shell-executor', () => {
 		await promise;
 	});
 
-	it('falls back to default PATH when getShellPath fails', async () => {
-		mockGetShellPath.mockRejectedValueOnce(new Error('shell probe timed out'));
+	it('falls back to the expanded PATH, not the launchd PATH, when getShellPath fails (#1573)', async () => {
+		const launchdPath = '/usr/bin:/bin:/usr/sbin:/sbin';
+		const originalPath = process.env.PATH;
+		process.env.PATH = launchdPath;
+		try {
+			mockGetShellPath.mockRejectedValueOnce(new Error('shell probe timed out'));
+			const config = createConfig();
+			const promise = executeCueShell(config as any);
+			await vi.advanceTimersByTimeAsync(0);
+
+			const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
+			const env = opts.env as Record<string, string>;
+			expect(env.PATH).not.toBe(launchdPath);
+			expect(env.PATH).toContain('/usr/bin');
+			if (process.platform !== 'win32') {
+				const parts = env.PATH.split(':');
+				expect(parts).toContain('/opt/homebrew/bin');
+				expect(parts).toContain('/usr/local/bin');
+			}
+			expect(mockCaptureMessage).toHaveBeenCalledWith(
+				expect.stringContaining('cue:shell falling back to expanded PATH'),
+				'warning'
+			);
+
+			mockChild.emit('close', 0);
+			await promise;
+		} finally {
+			process.env.PATH = originalPath;
+		}
+	});
+
+	it('falls back to the expanded PATH when getShellPath returns nothing', async () => {
+		mockGetShellPath.mockResolvedValueOnce('');
 		const config = createConfig();
 		const promise = executeCueShell(config as any);
 		await vi.advanceTimersByTimeAsync(0);
 
 		const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
 		const env = opts.env as Record<string, string>;
-		expect(env.PATH).toBe(process.env.PATH);
-		expect(mockCaptureMessage).toHaveBeenCalledWith(
-			expect.stringContaining('cue:shell falling back to default PATH'),
-			'warning'
-		);
+		expect(env.PATH).toBeTruthy();
+		if (process.platform !== 'win32') {
+			expect(env.PATH.split(':')).toContain('/opt/homebrew/bin');
+		}
 
 		mockChild.emit('close', 0);
 		await promise;
@@ -233,12 +265,28 @@ describe('cue-shell-executor', () => {
 		expect(result.status).toBe('timeout');
 	});
 
-	it('stopCueShellRun signals an active process and returns true', async () => {
+	it('lists a running shell command in the shared Cue registry until it settles', async () => {
 		const config = createConfig();
 		const promise = executeCueShell(config as any);
 		await vi.advanceTimersByTimeAsync(0);
 
-		const stopped = stopCueShellRun('run-1');
+		// The Process Monitor reads this list - a shell run missing from it is
+		// invisible there and cannot be stopped from the UI.
+		expect(getProcessList()).toContainEqual(
+			expect.objectContaining({ runId: 'run-1', pid: 54321, toolType: 'terminal' })
+		);
+
+		mockChild.emit('close', 0);
+		await promise;
+		expect(getProcessList()).not.toContainEqual(expect.objectContaining({ runId: 'run-1' }));
+	});
+
+	it('stopProcess signals an active shell run and returns true', async () => {
+		const config = createConfig();
+		const promise = executeCueShell(config as any);
+		await vi.advanceTimersByTimeAsync(0);
+
+		const stopped = stopProcess('run-1');
 		expect(stopped).toBe(true);
 		expect(mockChild.killed).toBe(true);
 
@@ -246,8 +294,8 @@ describe('cue-shell-executor', () => {
 		await promise;
 	});
 
-	it('stopCueShellRun returns false for unknown runId', () => {
-		expect(stopCueShellRun('does-not-exist')).toBe(false);
+	it('stopProcess returns false for unknown runId', () => {
+		expect(stopProcess('does-not-exist')).toBe(false);
 	});
 
 	it('reports failed status when spawn throws synchronously', async () => {

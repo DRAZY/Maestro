@@ -166,6 +166,22 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 		],
 	},
 	{
+		id: 'general-forced-parallel',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Forced Parallel Execution',
+		description:
+			'Send a message (or Force Send a queued one) while another tab in the same agent is still working',
+		keywords: [
+			'parallel',
+			'forced parallel execution',
+			'force send',
+			'busy',
+			'concurrent',
+			'queue',
+		],
+	},
+	{
 		id: 'general-autorun-inactivity-timeout',
 		tab: 'general',
 		tabLabel: 'General',
@@ -1150,12 +1166,32 @@ export const NOTIFICATION_SETTINGS: SearchableSetting[] = [
 		],
 	},
 	{
+		id: 'notifications-toast-position',
+		tab: 'notifications',
+		tabLabel: 'Notifications',
+		label: 'Toast Notification Position',
+		description:
+			'Which window corner toast notifications appear in: Top Left, Top Right, Bottom Left, or Bottom Right',
+		keywords: [
+			'toast',
+			'notification',
+			'position',
+			'corner',
+			'placement',
+			'top',
+			'bottom',
+			'left',
+			'right',
+			'location',
+		],
+	},
+	{
 		id: 'notifications-toast-width',
 		tab: 'notifications',
 		tabLabel: 'Notifications',
 		label: 'Toast Notification Width',
 		description:
-			'Width of toast notifications: Small, Medium, Large, or Dynamic (match the Right Bar)',
+			'Width of toast notifications: Small, Medium, Large, or Dynamic (match the side bar)',
 		keywords: [
 			'toast',
 			'notification',
@@ -1413,6 +1449,27 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'beta',
 			'fleet',
 			'unified',
+		],
+	},
+	{
+		id: 'encore-director-notes-provider',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Synopsis Provider (Director's Notes)",
+		description:
+			'Use the first available provider, or pin the synopsis to one agent and customize it',
+		keywords: [
+			'director',
+			'notes',
+			'synopsis',
+			'provider',
+			'agent',
+			'auto',
+			'automatic',
+			'first available',
+			'claude',
+			'codex',
+			'opencode',
 		],
 	},
 	{

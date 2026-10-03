@@ -258,6 +258,35 @@ describe('feedback handlers', () => {
 		expect(result).toEqual({ success: true });
 	});
 
+	it('tells the user to re-run gh auth login when gh rejects an expired token', async () => {
+		vi.mocked(execFileNoThrow)
+			.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' } as any)
+			.mockResolvedValueOnce({
+				exitCode: 1,
+				stdout: '',
+				stderr:
+					'HTTP 401: Bad credentials (https://api.github.com/graphql)\nTry authenticating with:  gh auth login',
+			} as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.unlink).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:submit');
+		const result = await handler!(
+			{},
+			{
+				sessionId: 'session-123',
+				category: 'feature_request',
+				summary: 'Add a diagnostics copy action',
+				expectedBehavior: 'Users should be able to copy a sanitized diagnostics block.',
+				details: 'Issue reporting still requires manual environment gathering.',
+			}
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain('Run "gh auth login"');
+		expect(result.error).not.toContain('HTTP 401');
+	});
+
 	it('composes feedback prompts with uploaded screenshot markdown', async () => {
 		vi.mocked(fs.readFile).mockResolvedValue(
 			'# Feedback\n\n{{FEEDBACK}}\n\n{{ATTACHMENT_CONTEXT}}\n'

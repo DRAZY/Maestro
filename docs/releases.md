@@ -15,34 +15,41 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ## v0.17.x - Maestro Cue
 
-**Latest: v0.17.3** | Released July 4, 2026
+**Latest: v0.17.6** | Released October 2, 2026
 
-# Major 0.17.x Additions
+# 0.17.6 Highlights
 
-🔐 Claude Token Source control keeps Claude running on your Max/Pro subscription quota by driving Claude's interactive session instead of the headless API path. A three-way Interactive / API / Dynamic selector is available everywhere agents run (new and existing agents, Cue runs, Group Chat, and background tasks). Dynamic mode uses your subscription quota automatically and only falls back to API billing when that quota is exhausted.
+🔍 **Pan and zoom any diagram or image, full window.** Mermaid diagrams and markdown images get an expand button, chat images open with a click, and anything else opens from its right-click menu with Expand (Pan and Zoom). Zoom at the cursor with the wheel or a pinch, drag or arrow-key to pan, double-click to fit, and diagrams stay vector-sharp however far you go in. Pinching an image in the file preview no longer zooms the whole window either.
 
-🪄 Maestro Cue is a new trigger-based cross-agent orchestration capability that lets heartbeats, GitHub issues/PRs, file system monitors, and other data sources bring your agents to life and pass work between one another.
+📨 **Send to Agent waits its turn.** Handing context to a busy agent used to start it right on top of the running turn. It now opens a new tab and queues the context for when the current turn finishes, and with Forced Parallel Execution on, Force Send to Agent still runs it alongside. A dimmed Force Send also tells you why it is dimmed and takes you straight to the setting that unlocks it.
 
-💻 Full-featured xterm.js terminal tabs sit alongside your AI and file preview tabs, with support for opening and renaming multiple terminals.
+🍞 **Toasts go where you want them and stay out of your way.** Pick any corner in Settings > Notifications, or search Move Toast Notifications in Quick Actions. In a bottom corner they now lift above the message input, group chat included, instead of covering what you are typing.
 
-🧑‍✈️ GitHub Copilot-CLI joins Maestro as a first-class agent with end-to-end integration for both local and remote (over SSH) execution.
+🩹 **The outage card tells the truth.** It clears the moment a resend gets through, counts the retry that worked, and says "Quota restored." when it was your quota that came back. When a resend fails for a different reason, like an expired login, the card says auto-retry ended and names the real error instead of showing a green "Connection recovered." above it.
 
-🛠️ A vastly expanded `maestro-cli` now drives the whole running desktop app, and your agents know how to use it. You can just talk to an agent in plain language to create and run Auto Run playbooks, change settings, set up Maestro Cue pipelines, and manage groups, agents, tabs, and themes, instead of clicking through menus yourself.
+🗣️ **Your agents can do more of Maestro for you.** `maestro-cli` now starts and drives group chats, files feedback (searching for duplicates and adding a +1 first), writes a support package, flips any Cue subscription on or off, lists recent Cue runs, reads and redirects an agent's Auto Run, browses and installs from the Playbook Exchange, and queues audio or video in the player without starting it. A failing call now reports back right away instead of hanging until it times out.
 
-## 0.17.3 Highlights
+## Also in 0.17.6
 
-⌨️ Typing in the AI and terminal composer no longer lags, and the transcript no longer reflows on every keystroke, so the app stays smooth under heavy load.
-
-🔁 Maestro now automatically retries a prompt when an agent hits a recoverable error such as an overloaded API, a rate limit, or exhausted quota, showing an inline outage card with a live countdown instead of dropping the run.
-
-🎨 Agent replies now render rich markdown, including GitHub-style `[!NOTE]`/`[!WARNING]` callouts, LaTeX math, and sanitized inline SVG diagrams, so answers can be formatted and illustrated instead of landing as plain text.
-
-🖼️ Pasted screenshots now live in a content-addressed store outside the main sessions file, so a workspace full of images no longer bloats that file or freezes the UI.
-
-⭐ Maestro now keeps its own copy of every starred conversation's transcript, so a starred session survives even after the provider rotates or deletes its file and still resumes natively on restore.
+- 💾 **Auto Run gets Save & Exit**, which saves to the loaded playbook and closes, or creates a dated, codenamed playbook when none is loaded.
+- ↕️ **Drag the Auto Run document list taller** by its bottom edge; it remembers the height, never runs off the bottom of a smaller screen, and a double-click resets it.
+- 📋 **Every code block has a working copy button**, in documents, release notes, and wizard replies as well as chat.
+- 🧭 **The Left Bar scrolls to the agent you jump to**, whether you got there by shortcut, Cmd+K, Cmd+O, a toast, or the CLI.
+- ⌨️ **Quick Actions shows each agent's Opt+Cmd+number chord** next to its name, so you pick up the shortcut while you search.
+- 📎 **@-mentions search every file in a big repo**, so the file you meant no longer loses to loose matches from deep folders.
+- 🔁 **Cue GitHub triggers fire on new comments again**, and `max_notifications` is honored, for subscriptions that set `retrigger_on_comments`.
+- ⏹️ **Cue shell commands and CLI runs appear in the Process Monitor**, badged with their trigger, and Stop ends them.
+- ⏱️ **"Time in the Wizard" counts the time you spent working**, so a wizard tab left open overnight no longer logs the whole night.
+- 🔑 **Codex sign-in works on SSH remotes** through device-code login, and the remote login hint names your provider's own command.
+- 🧰 **Install/Update CLI no longer breaks an existing `maestro-cli` link**, and its Settings section now sits right below your Conductor Profile.
+- ⏳ **Loading a big file tree shows a spinner** while Load more or Load all is scanning.
+- 📊 **Usage Dashboard agent names stop clipping**, since the name column now fits the longest one.
 
 ### Previous Releases in this Series
 
+- **v0.17.5** (September 25, 2026) - Maestro Cue
+- **v0.17.4** (September 21, 2026) - Maestro Cue
+- **v0.17.3** (July 4, 2026) - Maestro Cue
 - **v0.17.2** (June 27, 2026) - Maestro Cue
 - **v0.17.1** (June 20, 2026) - Maestro Cue
 - **v0.17.0** (June 15, 2026) - Maestro Cue

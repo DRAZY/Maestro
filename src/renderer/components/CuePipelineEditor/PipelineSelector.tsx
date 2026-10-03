@@ -13,12 +13,49 @@ import { useClickOutside } from '../../hooks/ui/useClickOutside';
 import { useResizableModal } from '../../hooks/ui/useResizableModal';
 import { ModalResizeGrip } from '../ui/ModalResizeGrip';
 import { compareNamesIgnoringEmojis } from '../../../shared/emojiUtils';
+import { widestLabelWidth } from '../../utils/labelWidth';
 import { PIPELINE_COLORS } from './pipelineColors';
 
-/** Size the menu opens at before the user has ever dragged its grip. */
-const MENU_DEFAULT_SIZE = { width: 220, height: 320 };
+const ALL_PIPELINES_LABEL = 'All Pipelines';
+
+/** A `px-3 py-2 text-xs` row: 16px line box plus 8px of padding either side. */
+const MENU_ROW_HEIGHT = 32;
+const MENU_DIVIDER_HEIGHT = 1;
+/** Pipelines visible without scrolling, on top of the All Pipelines row. */
+const MENU_DEFAULT_VISIBLE_PIPELINES = 10;
+/** Everything in a row that is not the name: padding, color dot, check, pencil, delete, gaps. */
+const MENU_ROW_CHROME_WIDTH = 112;
+/** Never open narrower than this, however short the names are. */
+const MENU_DEFAULT_MIN_WIDTH = 220;
+/** Never open wider than this, however long one name is; the user can still drag past it. */
+const MENU_DEFAULT_MAX_WIDTH = 460;
 /** Small enough to be a compact picker, large enough to still show a row and the footer. */
 const MENU_MIN_SIZE = { width: 180, height: 140 };
+
+/**
+ * The menu opens wide enough to read the longest pipeline name without
+ * truncation, and tall enough for ten pipelines plus the All Pipelines row and
+ * the New Pipeline footer. A dropdown that clips the names it exists to let you
+ * pick between defeats itself, and the old fixed 220 x 320 did both.
+ */
+export function pipelineMenuDefaultSize(pipelineNames: string[]): {
+	width: number;
+	height: number;
+} {
+	const width = widestLabelWidth([ALL_PIPELINES_LABEL, ...pipelineNames], {
+		fontSizePx: 12,
+		chromePx: MENU_ROW_CHROME_WIDTH,
+		minPx: MENU_DEFAULT_MIN_WIDTH,
+		maxPx: MENU_DEFAULT_MAX_WIDTH,
+	});
+	const rows = MENU_DEFAULT_VISIBLE_PIPELINES + 1; // + the All Pipelines row
+	const height =
+		rows * MENU_ROW_HEIGHT + // scrolling list
+		MENU_DIVIDER_HEIGHT + // rule under All Pipelines
+		MENU_DIVIDER_HEIGHT + // rule above the footer
+		MENU_ROW_HEIGHT; // New Pipeline footer
+	return { width, height };
+}
 
 export interface PipelineSelectorProps {
 	pipelines: CuePipeline[];
@@ -60,12 +97,19 @@ export function PipelineSelector({
 		isOpen
 	);
 
+	// Recomputed only when a name actually changes: the hook re-clamps the live
+	// size on viewport resize, and a default that moves under it fights that.
+	const defaultSize = useMemo(
+		() => pipelineMenuDefaultSize(pipelines.map((p) => p.name)),
+		[pipelines]
+	);
+
 	// A pipeline list can run long or short, so the menu is the user's to size.
 	// It hangs off the trigger's top-left corner, hence the 'top-left' anchor and
 	// the corner-only grip.
 	const menuResize = useResizableModal({
 		resizeKey: 'cue-pipeline-selector',
-		defaultSize: MENU_DEFAULT_SIZE,
+		defaultSize,
 		minSize: MENU_MIN_SIZE,
 		anchor: 'top-left',
 		externalRef: dropdownRef as React.RefObject<HTMLDivElement>,
@@ -159,7 +203,7 @@ export function PipelineSelector({
 				) : (
 					<MultiColorIcon />
 				)}
-				<span>{selectedPipeline ? selectedPipeline.name : 'All Pipelines'}</span>
+				<span>{selectedPipeline ? selectedPipeline.name : ALL_PIPELINES_LABEL}</span>
 				<ChevronDown size={10} style={{ opacity: 0.5 }} />
 			</button>
 
@@ -196,7 +240,7 @@ export function PipelineSelector({
 							}}
 						>
 							<MultiColorIcon />
-							<span className="flex-1">All Pipelines</span>
+							<span className="flex-1">{ALL_PIPELINES_LABEL}</span>
 							{selectedPipelineId === null && (
 								<Check
 									size={12}

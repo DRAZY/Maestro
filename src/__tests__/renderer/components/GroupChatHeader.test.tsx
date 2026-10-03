@@ -64,6 +64,28 @@ describe('GroupChatHeader', () => {
 		expect(screen.getByText('3 participants')).toBeTruthy();
 	});
 
+	// The name is rendered whole or dropped, never clipped, so it must not carry
+	// `truncate`. jsdom reports zero for both widths, so useOptionalLabelFits
+	// keeps the name up here and the layout contract is what these assert.
+	it('lays the name out so it can be dropped rather than truncated', () => {
+		render(<GroupChatHeader {...defaultProps} />);
+		const title = screen.getByText('Group Chat: Test Chat');
+		expect(title).toHaveClass('shrink-0', 'whitespace-nowrap');
+		expect(title).not.toHaveClass('truncate');
+	});
+
+	it('clips the row so overflow is measurable', () => {
+		const { container } = render(<GroupChatHeader {...defaultProps} />);
+		expect(container.firstElementChild).toHaveClass('overflow-hidden');
+	});
+
+	// Survives the name being dropped at narrow widths.
+	it('names the chat on the rename button so it stays reachable', () => {
+		render(<GroupChatHeader {...defaultProps} />);
+		expect(screen.getByTitle('Rename "Test Chat"')).toBeTruthy();
+		expect(screen.getByLabelText('Rename group chat "Test Chat"')).toBeTruthy();
+	});
+
 	it('does not render a close (X) button', () => {
 		render(<GroupChatHeader {...defaultProps} />);
 		expect(screen.queryByTitle('Close')).toBeNull();
@@ -74,9 +96,15 @@ describe('GroupChatHeader', () => {
 		expect(screen.getByTitle('Info')).toBeTruthy();
 	});
 
-	it('calls onRename when title is clicked', () => {
+	it('calls onRename when the title is clicked', () => {
 		render(<GroupChatHeader {...defaultProps} />);
 		fireEvent.click(screen.getByText('Group Chat: Test Chat'));
+		expect(defaultProps.onRename).toHaveBeenCalled();
+	});
+
+	it('calls onRename when the edit button is clicked', () => {
+		render(<GroupChatHeader {...defaultProps} />);
+		fireEvent.click(screen.getByTitle('Rename "Test Chat"'));
 		expect(defaultProps.onRename).toHaveBeenCalled();
 	});
 

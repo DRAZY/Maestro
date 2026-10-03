@@ -17,6 +17,13 @@ interface InputTextareaProps {
 	/** True while an AI-mode draft is an AI command request (prose, not a line). */
 	isAiCommandDraft: boolean;
 	/**
+	 * True when an Auto Run is in flight and this draft would become a steering
+	 * note for the next task rather than a turn of its own. Placeholder-only:
+	 * the routing decision is made in useInputProcessing, this just says so
+	 * before the operator commits to Enter.
+	 */
+	isSteeringDestination: boolean;
+	/**
 	 * True while a suggestion is in flight or a proposal is awaiting an answer.
 	 * The textarea goes read-only rather than unmounting: the caret has to stay
 	 * here, because Enter / arrows / Escape all answer the card from this
@@ -40,6 +47,7 @@ export const InputTextarea = memo(function InputTextarea({
 	isTerminalMode,
 	isCommandModeDraft,
 	isAiCommandDraft,
+	isSteeringDestination,
 	awaitingAiCommand,
 	inputValue,
 	spellCheckEnabled,
@@ -92,7 +100,9 @@ export const InputTextarea = memo(function InputTextarea({
 								? 'Describe what you want to accomplish... (Esc for Command Mode)'
 								: isCommandModeDraft
 									? 'Run shell command... (! for AI Command, Esc for the agent)'
-									: `Talking to ${session.name} powered by ${getProviderDisplayName(session.toolType)}`
+									: isSteeringDestination
+										? 'Steer the Auto Run - delivered at the start of the next task'
+										: `Talking to ${session.name} powered by ${getProviderDisplayName(session.toolType)}`
 				}
 				value={inputValue}
 				// Read-only, not disabled: a disabled textarea cannot hold focus, and

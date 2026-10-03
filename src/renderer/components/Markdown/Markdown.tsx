@@ -21,6 +21,7 @@ import type { FileNode } from '../../types/fileTree';
 import { buildFileTreeIndices } from '../../utils/remarkFileLinks';
 import { urlTransformAllowingMaestro } from '../../utils/markdownUrlTransform';
 import { getHomeDir, getHomeDirAsync } from '../../utils/homeDir';
+import { copyTextWithFlash } from '../../utils/inlineCodeCopy';
 import {
 	createMarkdownComponents,
 	createWizardBubbleMarkdownComponents,
@@ -29,6 +30,7 @@ import {
 } from '../../utils/markdownConfig';
 import { LinkContextMenu, type LinkContextMenuState } from '../LinkContextMenu';
 import { FileContextMenu, type FileContextMenuState } from '../FileContextMenu';
+import { remarkStripHtmlComments } from '../../../shared/remarkStripHtmlComments';
 import { buildMarkdownPlugins } from './plugins';
 import { preprocessMarkdown } from './preprocess';
 import { createChatMarkdownComponents } from './chatComponents';
@@ -62,7 +64,7 @@ export interface MarkdownProps {
 	bionifyAlgorithm?: string;
 
 	// --- Chat preset ---
-	/** Copy callback for code-fence copy buttons (required for chat). */
+	/** Copy callback for code-fence copy buttons. Defaults to clipboard write + center flash. */
 	onCopy?: (text: string) => void;
 	/** Allow raw HTML passthrough via rehype-raw (DOMPurify-sanitized). */
 	allowRawHtml?: boolean;
@@ -94,7 +96,10 @@ export interface MarkdownProps {
 	extraRehypePlugins?: PluggableList;
 }
 
-const EMPTY_PLUGINS: PluggableList = [];
+// Release notes get no GFM and no frontmatter, but they still must not show
+// their own HTML comments: without rehype-raw, react-markdown renders raw HTML
+// as visible text. See `remarkStripHtmlComments`.
+const RELEASE_NOTES_PLUGINS: PluggableList = [remarkStripHtmlComments];
 
 export const Markdown = memo(function Markdown({
 	content,
@@ -158,7 +163,7 @@ export const Markdown = memo(function Markdown({
 	const { remarkPlugins, rehypePlugins } = useMemo(() => {
 		// Release notes render plain CommonMark (no GFM, no frontmatter) - preserved.
 		if (preset === 'release-notes') {
-			return { remarkPlugins: EMPTY_PLUGINS, rehypePlugins: undefined };
+			return { remarkPlugins: RELEASE_NOTES_PLUGINS, rehypePlugins: undefined };
 		}
 		// Wizard bubbles: GFM only.
 		if (preset === 'wizard-bubble') {
@@ -205,7 +210,7 @@ export const Markdown = memo(function Markdown({
 			case 'chat':
 				return createChatMarkdownComponents({
 					theme,
-					onCopy: onCopy ?? (() => {}),
+					onCopy: onCopy ?? copyTextWithFlash,
 					onFileClick,
 					projectRoot,
 					sshRemoteId,

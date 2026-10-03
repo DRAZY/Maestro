@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'path';
 
 // Mock chokidar
 const mockChokidarOn = vi.fn().mockReturnThis();
@@ -270,6 +271,53 @@ subscriptions:
 			// resolved content on `prompt`. The raw `prompt_file` field from YAML is
 			// internal-only (CueSubscriptionDocument) and not part of the runtime contract.
 			expect(result!.subscriptions[0].prompt).toBe('Prompt from external file');
+		});
+
+		describe('prompt_file behind a symlinked .maestro directory', () => {
+			// Two agents share one Cue config: /projects/cue/.maestro -> /projects/main/.maestro.
+			// The loader resolves every path, which on Windows adds a drive letter and
+			// backslashes, so the fixtures are built the same way rather than as literals.
+			const cueMaestro = path.resolve('/projects/cue/.maestro');
+			const mainMaestro = path.resolve('/projects/main/.maestro');
+			const sharedPrompt = path.join(mainMaestro, 'prompts', 'shared.md');
+			const evilPrompt = path.join(cueMaestro, 'prompts', 'evil.md');
+			const etcPasswd = path.resolve('/etc/passwd');
+			const canonicalize = (p: string) => p.replace(cueMaestro, mainMaestro);
+			const yamlWith = (promptFile: string) => `
+subscriptions:
+  - name: shared-sub
+    event: time.heartbeat
+    prompt_file: ${promptFile}
+    interval_minutes: 5
+`;
+
+			afterEach(() => {
+				mockRealpathSyncNative.mockImplementation((p: string) => p);
+			});
+
+			it('resolves the prompt through the link', () => {
+				mockRealpathSyncNative.mockImplementation(canonicalize);
+				mockExistsSync.mockReturnValue(true);
+				mockReadFileSync.mockImplementation((p: string) =>
+					String(p) === sharedPrompt ? 'Shared prompt' : yamlWith('.maestro/prompts/shared.md')
+				);
+
+				const result = loadCueConfig('/projects/cue');
+				expect(result!.subscriptions[0].prompt).toBe('Shared prompt');
+			});
+
+			it('still rejects a prompt file that escapes both the root and .maestro', () => {
+				mockRealpathSyncNative.mockImplementation((p: string) =>
+					p === evilPrompt ? etcPasswd : canonicalize(p)
+				);
+				mockExistsSync.mockReturnValue(true);
+				mockReadFileSync.mockImplementation((p: string) =>
+					String(p) === etcPasswd ? 'root:x:0:0' : yamlWith('.maestro/prompts/evil.md')
+				);
+
+				const result = loadCueConfig('/projects/cue');
+				expect(result!.subscriptions[0].prompt).toBe('');
+			});
 		});
 
 		it('keeps inline prompt when both prompt and prompt_file exist', () => {

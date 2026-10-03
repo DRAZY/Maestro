@@ -88,6 +88,9 @@ export type SettingsTab =
 	| 'theme'
 	| 'notifications'
 	| 'aicommands'
+	// Same story as Display: rendered and accepted by SettingsModal, missing
+	// here, so Director's Notes could not deep-link to its own settings.
+	| 'encore'
 	| 'prompts';
 // Note: ScratchPadMode was removed as part of the Scratchpad → Auto Run migration
 export type FocusArea = 'sidebar' | 'main' | 'right';
@@ -228,6 +231,14 @@ export interface LogEntry {
 	readOnly?: boolean;
 	// For user messages - tracks if message was sent via forced parallel execution
 	forceParallel?: boolean;
+	// For user messages sent while an Auto Run was in flight: this message is a
+	// steering note, not a conversation turn. It rides in front of the next
+	// task's prompt instead of spawning an agent of its own.
+	//   'pending'   - parked, waiting for the next task to pick it up
+	//   'delivered' - handed to a task's prompt
+	//   'dropped'   - cancelled by the operator before any task saw it
+	// See shared/autorunSteering.ts and services/autoRunSteering.ts.
+	steeringNote?: 'pending' | 'delivered' | 'dropped';
 	// For error entries - stores the full AgentError for "View Details" functionality
 	agentError?: AgentError;
 	// For tool execution entries - stores tool state and details
@@ -688,6 +699,15 @@ export interface AITab {
 export interface ThinkingItem {
 	session: Session;
 	tab: AITab | null; // null for legacy sessions without tab-level tracking
+}
+
+// An Auto Run in progress on an agent other than the one being viewed. Auto Run
+// never marks a tab busy, so these are not ThinkingItems; the pill lists them
+// separately so work running elsewhere stays visible.
+export interface BackgroundAutoRun {
+	sessionId: string;
+	sessionName: string;
+	state: BatchRunState;
 }
 
 // Closed tab entry for undo functionality (Cmd+Shift+T)
@@ -1334,8 +1354,19 @@ export type { EncoreFeatureFlags } from '../../shared/encoreFeatures';
 
 // Director's Notes settings for synopsis generation
 export interface DirectorNotesSettings {
-	/** Agent type to use for synopsis generation */
+	/**
+	 * Agent type to use for synopsis generation when `autoSelectProvider` is off.
+	 * Kept even while auto is on so toggling auto off restores the conductor's
+	 * last manual pick rather than resetting to the first provider in the list.
+	 */
 	provider: ToolType;
+	/**
+	 * Pick the first installed supported provider at generation time instead of
+	 * using `provider`. Defaults to true (undefined counts as on), so a fresh
+	 * install generates a synopsis without anyone opening Settings, and a broken
+	 * account is not a dead end when a second provider is present.
+	 */
+	autoSelectProvider?: boolean;
 	/** Default lookback period in days (1-90) */
 	defaultLookbackDays: number;
 	/** Default AI Overview reading mode (Rich widget dashboard vs Plain markdown). Defaults to 'rich'. */

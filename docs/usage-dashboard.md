@@ -78,6 +78,8 @@ The Agents tab shows one card per agent, so you can scan your whole fleet at onc
 
 The **N agents** chip on each row of the Anthropic Usage and OpenAI Usage tabs is a shortcut into this: click it and Maestro opens the Agents tab already narrowed to that account, so you can see which agents are burning the plan you are looking at. Agents that run over SSH are marked **remote**: on the remote host that directory holds the host's own login, which can be a different account from the one the row measures. A row the last refresh could not update shows a **stale** chip with the time its bars were read.
 
+An account keeps its row after you move every agent off it, which is what you normally do the moment that plan hits its limit. The row holds the last reading Maestro took, badged **stale** with its age, so you can watch for the reset without keeping an agent parked on a capped account. Maestro remembers an account because it sampled it for a real agent, not because a directory looks like one, and it forgets the row only when that account directory is gone from disk.
+
 **Sorting:** the **Sort by** control orders the grid by Name, Created, Queries, Tabs, Auto %, or Provider (which groups the fleet one account at a time). The stat being sorted on is highlighted on every card, so it is obvious what the order means. When a filter is active, the default Name sort ranks the best match first; any other sort keeps the order you chose.
 
 **Tile size:** `+` and `-` resize the tiles, and `0` returns them to the default. The buttons beside the **Sort by** control do the same. A wider tile shows more of a long agent name before it truncates; a narrower one fits more agents on screen at once. Maestro remembers the size you picked, and the Groups tab keeps its own separate size.
@@ -129,6 +131,10 @@ The Auto Run tab focuses specifically on automated playbook execution:
 
 **Tasks Completed Over Time:**
 A mini bar chart showing task completions by date (last 14 days). Hover over bars to see exact counts and success percentages for each day.
+
+**How a run's duration is measured:** wall-clock time from start to finish, minus any time the machine spent asleep. Whether the Maestro window was on screen makes no difference - the agent runs in its own process and keeps working while you do something else, so a run you walked away from is timed the same as one you watched.
+
+Older builds also subtracted time the window was hidden, which on macOS includes being minimized or fully covered by another app. That under-recorded exactly the unattended overnight runs whose length matters most, and recorded some as zero. If your history predates the fix, `scripts/repair-autorun-durations.mjs` rebuilds each affected run's duration from its own task timestamps (dry run by default; `--apply` writes, after a backup). Runs with no recorded tasks cannot be reconstructed and are left as they are.
 
 ## Time Range Filtering
 

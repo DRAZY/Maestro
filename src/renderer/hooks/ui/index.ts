@@ -33,6 +33,10 @@ export type {
 export { useScrollIntoView } from './useScrollIntoView';
 export { useStickToBottom } from './useStickToBottom';
 
+// Edge auto-scroll while an HTML5 drag hovers a scrollable container
+export { useDragAutoScroll } from './useDragAutoScroll';
+export type { UseDragAutoScrollOptions } from './useDragAutoScroll';
+
 // Hover tooltip management
 export { useHoverTooltip } from './useHoverTooltip';
 
@@ -93,6 +97,10 @@ export { useScaleShortcuts } from './useScaleShortcuts';
 export type { UseScaleShortcutsOptions } from './useScaleShortcuts';
 export { useIsTopLayer } from './useIsTopLayer';
 
+// Wheel zoom + drag pan for an image or diagram canvas
+export { usePanZoom } from './usePanZoom';
+export type { UsePanZoomOptions, UsePanZoomReturn, PanZoomView } from './usePanZoom';
+
 // Persisted view toggle (collapsed banners, folded sections)
 export { usePersistedToggle } from './usePersistedToggle';
 export type { UsePersistedToggleReturn } from './usePersistedToggle';
@@ -108,6 +116,10 @@ export type { UsePaginationResult } from './usePagination';
 
 // ResizeObserver-backed element width, for JS-computed layout
 export { useElementWidth } from './useElementWidth';
+
+// Composer rects the toast stack lifts itself above
+export { useToastAvoidZone, useToastAvoidZoneStore, toastBottomInset } from './useToastAvoidZone';
+export type { ToastAvoidRect } from './useToastAvoidZone';
 
 // Whether an optional inline label still fits, so it can be dropped not clipped
 export { useOptionalLabelFits } from './useOptionalLabelFits';

@@ -177,6 +177,13 @@ export const APPEARANCE_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: null,
 		category: 'appearance',
 	},
+	feedbackAccountKey: {
+		description:
+			'Provider account (profile key) that last carried a Send Feedback conversation. The next conversation tries it first. Null until one succeeds. Set by hand with `maestro-cli feedback accounts --use <key>`.',
+		type: 'string',
+		default: null,
+		category: 'internal',
+	},
 	mediaPlaybackRate: {
 		description:
 			'Playback speed for audio and video files opened in the file preview. Persists across files and restarts. Range 0.25 to 4.',
@@ -361,9 +368,16 @@ export const APPEARANCE_SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	},
 	toastWidth: {
 		description:
-			'Width of toast notifications. Options: small, medium, large, dynamic (default, matches the Right Bar width).',
+			"Width of toast notifications. Options: small, medium, large, dynamic (default, matches the width of the side bar on the toast's side).",
 		type: 'string',
 		default: 'dynamic',
+		category: 'appearance',
+	},
+	toastPosition: {
+		description:
+			'Window corner toast notifications appear in. Options: top-left, top-right, bottom-left, bottom-right (default). Bottom corners stack upward, top corners stack downward.',
+		type: 'string',
+		default: 'bottom-right',
 		category: 'appearance',
 	},
 	disableConfetti: {

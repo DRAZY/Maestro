@@ -1,16 +1,20 @@
 /**
  * GroupChatHeader.tsx
  *
- * Header bar for the Group Chat view. Displays the chat name with participant count
- * and provides actions for rename and info.
+ * Header bar for the Group Chat view. Carries the chat name, the team/moderator
+ * view switch, the participant count, cost, and the rename and info actions.
+ * The name is the one thing here that yields when the row runs out of width -
+ * see the comment on the left zone below.
  */
 
+import { useRef } from 'react';
 import { Info, Edit2, Columns, DollarSign, StopCircle } from 'lucide-react';
 import type { Theme, Shortcut, GroupChatState } from '../types';
 import type { GroupChatViewMode } from '../../shared/groupChatModeratorView';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useOptionalLabelFits } from '../hooks/ui/useOptionalLabelFits';
 
 interface GroupChatHeaderProps {
 	theme: Theme;
@@ -52,51 +56,68 @@ export function GroupChatHeader({
 	// Same Display setting that governs the main header's cost pill.
 	const showSessionCostPill = useSettingsStore((s) => s.showSessionCostPill);
 
+	// Whether the name still fits. Measured rather than guessed at a breakpoint,
+	// because what is left for it depends on which conditional controls (Stop
+	// All, the cost pill, the panel toggle) are rendered right now, and on the
+	// user's font size - neither of which a px threshold can see.
+	const rowRef = useRef<HTMLDivElement>(null);
+	const nameFits = useOptionalLabelFits(rowRef);
+
 	// `group-chat-header-container` drives the yield ladder in index.css: the
 	// participant count goes first, then the view switch shortens its labels.
 	// `-busy` shifts those rungs wider while Stop All occupies the row.
 	return (
 		<div
-			className={`group-chat-header-container flex items-center justify-between px-6 h-16 border-b shrink-0 ${state !== 'idle' ? 'group-chat-header-busy' : ''}`}
+			ref={rowRef}
+			className={`group-chat-header-container flex items-center justify-between gap-3 px-6 h-16 border-b shrink-0 overflow-hidden ${state !== 'idle' ? 'group-chat-header-busy' : ''}`}
 			style={{
 				backgroundColor: theme.colors.bgSidebar,
 				borderColor: theme.colors.border,
 			}}
 		>
-			<div className="flex items-center gap-3 flex-1 min-w-0 mr-3">
-				<h1
-					className="text-lg font-semibold cursor-pointer hover:opacity-80 truncate"
-					style={{ color: theme.colors.textMain }}
-					onClick={onRename}
-					onKeyDown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							e.preventDefault();
-							onRename();
-						}
-					}}
-					tabIndex={0}
-					role="button"
-					title="Click to rename"
-				>
-					Group Chat: {name}
-				</h1>
+			{/*
+			  The name is shown IN FULL or not at all, never clipped: "Group Chat:
+			  Maes..." costs the same row space as the whole name and says less,
+			  and every other control here is fixed-width, so the name is the only
+			  thing that can yield. `shrink-0` + the root's `overflow-hidden` are
+			  what make that decidable - see useOptionalLabelFits. When it is
+			  dropped the name is still on the rename button's tooltip and is the
+			  info overlay's title.
+			*/}
+			<div className="flex items-center gap-3 shrink-0">
+				{nameFits && (
+					<h1
+						className="text-lg font-semibold cursor-pointer hover:opacity-80 shrink-0 whitespace-nowrap"
+						style={{ color: theme.colors.textMain }}
+						onClick={onRename}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								onRename();
+							}
+						}}
+						tabIndex={0}
+						role="button"
+						title="Click to rename"
+					>
+						Group Chat: {name}
+					</h1>
+				)}
 				<button
 					onClick={onRename}
 					className="p-1 rounded hover:opacity-80 shrink-0"
 					style={{ color: theme.colors.textDim }}
-					title="Rename"
+					title={`Rename "${name}"`}
+					aria-label={`Rename group chat "${name}"`}
 				>
 					<Edit2 className="w-4 h-4" />
 				</button>
 			</div>
 
 			{/*
-			  Everything except the title is one right-hand cluster that never
-			  shrinks, so the title (the only `min-w-0` element) is handed every
-			  spare pixel and truncates only when the row genuinely runs out. The
-			  switch used to sit in a centered third zone between two `flex-1`
-			  sides, which reserved half the free space to keep it centered and
-			  clipped the chat name while the bar still had room to spare.
+			  One right-hand cluster that never shrinks. The switch used to sit in
+			  a centered third zone between two `flex-1` sides, which reserved half
+			  the free space just to keep it centered.
 			*/}
 			<div className="flex items-center gap-2 shrink-0">
 				<SegmentedControl<GroupChatViewMode>

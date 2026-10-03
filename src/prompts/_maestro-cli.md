@@ -23,9 +23,11 @@ Run `<group> --help` for the exact subcommands and flags.
 - **settings** - read/write any global or per-agent setting (`settings list -v`, `settings get/set/reset`, `settings agent ...`). Applies live, no restart.
 - **send / dispatch** - hand a prompt to another agent. `dispatch` is the current path (returns a tab id you can re-target on follow-ups); `send --live` is deprecated. Pass `--background`: without it, handing work to another agent yanks the user's Left Bar selection onto that agent.
 - **list / show** - inspect agents, groups, playbooks, sessions, ssh-remotes.
+- **group-chat start / send / status / list / stop** - hand a multi-agent job to a moderator without the New Group Chat modal. `group-chat start <name> -p <agent> -p <agent> --message-file <brief.md>` creates the chat and sends the brief; participants join by @mention exactly as if the user typed them, and the chat lands in the Left Bar without moving the view. Poll `group-chat status <chat>` for progress instead of sleeping. `send` is refused while the chat is busy.
 - **session list / session show** - enumerate every open AI tab across the fleet (ids, agent, state, and each tab's settings), and print one tab's transcript. This is the read side of `tab`.
 - **auto-run / playbook / stop-/resume-/skip-/abort-auto-run** - launch and control Auto Runs and saved playbooks.
-- **cue** - list and trigger Cue subscriptions, and manage Scheduled Tasks with `cue schedule` (event model + YAML schema live in `_maestro-cue`).
+- **cue** - list and trigger Cue subscriptions, turn any one on or off (`cue enable|disable <name>`), read recent runs (`cue activity`), and manage Scheduled Tasks with `cue schedule` (event model + YAML schema live in `_maestro-cue`).
+- **marketplace list / show / import** - browse the Playbook Exchange and install a playbook into an agent's Auto Run folder. `auto-run-status -a <agent>` reads a run's progress; `auto-run-folder <path> -a <agent>` repoints the folder.
 - **open** - bring up a Maestro modal or dashboard, optionally on a tab (`open --list`, `open cue --tab scheduled`, `open settings --tab shortcuts`). Judgment note below.
 - **open-file / open-browser / close-browser / refresh-files / refresh-auto-run** - desktop integration after filesystem changes so the user sees updates immediately.
 - **open-terminal / send-terminal / list terminals** - open a native terminal tab (optionally starting a command in it), type into one that already exists, and see what is open. Judgment note below.
@@ -34,6 +36,7 @@ Run `<group> --help` for the exact subcommands and flags.
 - **create-agent / update-agent / create-worktree / tab / group / set-theme / theme / encore / ssh-remote** - agent lifecycle, tabs, groups, appearance, remotes. `tab` also owns the per-tab settings the composer chips toggle (see below).
 - **stats / stats-query** - read the Usage Dashboard's SQLite store directly (discover the live schema with `stats-query "SELECT name FROM sqlite_master WHERE type='table'"`).
 - **director-notes / gist / prompts / status / doctor** - cross-agent history synopses, transcript export, prompt self-reference, diagnostics.
+- **feedback / support-package / profiling** - report a Maestro bug or idea the way Send Feedback does. `feedback auth` checks `gh`; `feedback search "<summary>"` finds duplicates; `feedback submit -c bug -s ... -e ... -a ... [--attach <png>] [--support-package]` files the issue and stops on likely duplicates unless `--force`; `feedback subscribe <n> --comment "..."` adds to an existing one instead. `support-package -o <dir>` writes the sanitized diagnostics zip; `profiling start|status|stop -o <zip>` captures a performance trace. Filing publishes to GitHub under the user's account, so confirm the draft with the user before `submit` or `subscribe`.
 
 ### Behavior that `--help` won't tell you
 

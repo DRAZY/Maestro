@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { CodexOutputParser } from '../../../main/parsers/codex-output-parser';
+import {
+	classifyRetryableError,
+	tokenExhaustionResetAt,
+} from '../../../shared/retryClassification';
 
 describe('CodexOutputParser', () => {
 	const parser = new CodexOutputParser();
@@ -576,6 +580,89 @@ describe('CodexOutputParser', () => {
 			expect(error).not.toBeNull();
 			expect(error?.type).toBe('auth_expired');
 			expect(error?.agentId).toBe('codex');
+		});
+
+		// A hard 4xx is decided by the envelope, not by the sentence. Without this
+		// the fallback emitted `recoverable: true` and the retry scheduler read
+		// "try again" out of the message and probed forever.
+		it('marks a hard client error non-recoverable', () => {
+			const line = JSON.stringify({
+				type: 'error',
+				status: 400,
+				error: {
+					type: 'invalid_request_error',
+					message:
+						"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+				},
+			});
+			const error = parser.detectErrorFromLine(line);
+			expect(error).not.toBeNull();
+			expect(error?.recoverable).toBe(false);
+			expect(error?.message).toContain('gpt-6-astra');
+		});
+
+		it('leaves a 429 recoverable', () => {
+			const line = JSON.stringify({
+				type: 'error',
+				status: 429,
+				error: { type: 'rate_limit_error', message: 'usage limit reached' },
+			});
+			const error = parser.detectErrorFromLine(line);
+			expect(error).not.toBeNull();
+			expect(error?.recoverable).toBe(true);
+		});
+
+		// #1694: `codex exec --json` forwards each retry it is about to make as a
+		// bare `error` event. Raising it put a live, retrying turn into the error
+		// state and burned the once-only latch the real terminal error needs.
+		describe('retry notices', () => {
+			const disconnect =
+				'stream disconnected before completion: websocket closed by server before response.completed';
+			const notices = [
+				`Reconnecting... 2/5 (${disconnect})`,
+				`Reconnecting... 2/2 (${disconnect})`,
+				'Reconnecting... waiting for network',
+			];
+
+			it.each(notices)('is not an error: %s', (message) => {
+				const line = JSON.stringify({ type: 'error', message });
+				expect(parser.detectErrorFromLine(line)).toBeNull();
+			});
+
+			it('surfaces as progress text kept out of the final answer', () => {
+				const event = parser.parseJsonLine(JSON.stringify({ type: 'error', message: notices[0] }));
+				expect(event?.type).toBe('text');
+				expect(event?.text).toBe(notices[0]);
+				expect(event?.isPartial).toBe(true);
+				expect(event?.isReasoning).toBe(true);
+			});
+
+			it('still raises a non-retry error event', () => {
+				const line = JSON.stringify({ type: 'error', message: disconnect });
+				expect(parser.detectErrorFromLine(line)).not.toBeNull();
+			});
+
+			it('classifies the terminal disconnect as a transient network error that auto-retries', () => {
+				for (const line of [
+					JSON.stringify({ type: 'error', message: disconnect }),
+					JSON.stringify({ type: 'turn.failed', error: { message: disconnect } }),
+				]) {
+					const error = parser.detectErrorFromLine(line);
+					expect(error?.type).toBe('network_error');
+					expect(error?.recoverable).toBe(true);
+					expect(classifyRetryableError(error!)).toBe('availability');
+				}
+			});
+
+			it('does not retry a permanent failure behind the same prefix', () => {
+				const line = JSON.stringify({
+					type: 'error',
+					message: 'stream disconnected before completion: The model gpt-x does not exist',
+				});
+				const error = parser.detectErrorFromLine(line);
+				expect(error?.type).not.toBe('network_error');
+				expect(error ? classifyRetryableError(error) : null).toBeNull();
+			});
 		});
 
 		it('should detect rate limit errors from JSON', () => {
@@ -1740,5 +1827,67 @@ describe('CodexOutputParser', () => {
 
 			expect(event?.type).toBe('error');
 		});
+	});
+});
+
+/**
+ * A Codex quota outage has to reach the retry scheduler as a quota outage.
+ *
+ * Two things used to break that, and both are covered here: the pattern bank
+ * matched `\b429\b` / `rate.*limit` before the usage-limit pattern, and the
+ * parser then replaced Codex's own text with the bank's curated wording. The
+ * result was "Rate limited. Please wait and try again." for a multi-hour plan
+ * outage, which `classifyRetryableError` reads as a transient throttle and
+ * retries every 30 seconds.
+ */
+describe('Codex quota outages reach the retry scheduler intact', () => {
+	it('classifies a 429 that also names a usage limit as exhaustion, not availability', () => {
+		const p = new CodexOutputParser();
+		const error = p.detectErrorFromExit(1, "429 - you've hit your usage limit for this plan", '');
+
+		expect(error).not.toBeNull();
+		expect(classifyRetryableError(error!)).toBe('token-exhaustion');
+	});
+
+	it('keeps Codex own text so a reset hint survives the parser', () => {
+		const p = new CodexOutputParser();
+		const line = 'usage limit reached. try again in 4h.';
+		const error = p.detectErrorFromExit(1, line, '');
+
+		// Display still gets the curated wording.
+		expect(error!.message).toBe('Usage limit reached. Please wait or check your plan quota.');
+		// The decision gets the real line.
+		expect(error!.raw?.errorLine).toContain('4h');
+
+		const now = Date.UTC(2026, 8, 16, 12, 0, 0);
+		expect(tokenExhaustionResetAt(error!, now)).toBeGreaterThan(now + 3 * 60 * 60 * 1000);
+	});
+
+	it('leaves a genuine throttle classified as availability', () => {
+		const p = new CodexOutputParser();
+		const error = p.detectErrorFromExit(1, '429 too many requests', '');
+
+		expect(classifyRetryableError(error!)).toBe('availability');
+	});
+
+	it('types an out-of-credits wall as a limit, not unknown', () => {
+		// The exact event a walled team workspace emits once its plan window and
+		// its credit fallback are both spent. Typed `unknown`, it was invisible to
+		// every path that asks "is this a limit?" by type.
+		const p = new CodexOutputParser();
+		const error = p.detectErrorFromParsed({
+			type: 'event_msg',
+			payload: {
+				type: 'error',
+				message: 'Your workspace is out of credits. Add credits to continue.',
+			},
+		});
+
+		expect(error!.type).toBe('rate_limited');
+		expect(error!.recoverable).toBe(true);
+		expect(error!.raw?.errorLine).toBe(
+			'Your workspace is out of credits. Add credits to continue.'
+		);
+		expect(classifyRetryableError(error!)).toBe('token-exhaustion');
 	});
 });

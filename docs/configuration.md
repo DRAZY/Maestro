@@ -16,7 +16,7 @@ Settings are organized into tabs:
 | **Display**                     | [Typography](#typography) (a font and size per surface, presets, custom fonts, zoom), terminal width, log level and buffer, max output lines per response, document graph settings, context window warnings, [Accessibility](#accessibility) (Color Blind Mode, Bionify reading emphasis)            |
 | **Shortcuts**                   | Customize keyboard shortcuts (see [Keyboard Shortcuts](./keyboard-shortcuts))                                                                                                                                                                                                                        |
 | **Themes**                      | Dark, light, and vibe mode themes, custom theme builder with import/export                                                                                                                                                                                                                           |
-| **Notifications**               | OS notifications, custom command notifications, toast notification duration and width                                                                                                                                                                                                                |
+| **Notifications**               | OS notifications, custom command notifications, toast notification duration, position, and width                                                                                                                                                                                                     |
 | **AI Commands**                 | View and edit slash commands, [Spec-Kit](./speckit-commands), [OpenSpec](./openspec-commands), and [BMAD](./bmad-commands) prompts                                                                                                                                                                   |
 | **Maestro Prompts**             | Browse and edit the 23 core system prompts (wizard, Auto Run, group chat, context, etc.). Changes take effect immediately; reset to bundled defaults at any time                                                                                                                                     |
 | **SSH Hosts**                   | Configure remote hosts for [SSH agent execution](./ssh-remote-execution)                                                                                                                                                                                                                             |
@@ -177,6 +177,8 @@ Configure environment variables once in Settings and they automatically apply to
 3. Variables apply immediately to new agent sessions and terminals
 4. Click the eye button on a row to switch that variable off without deleting it
 
+A new row starts with no name, and the name field opens straight onto the suggestions. It offers each provider's own variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, and so on) plus every name you have already set elsewhere in Maestro, so a variable you configured once on one agent is one keystroke away on the next. Type to narrow the list, pick with the arrow keys and `Enter`, or ignore it and type any name you like.
+
 ![Environment Variables](./screenshots/env-vars.png)
 
 ### Example Configuration
@@ -246,6 +248,8 @@ maestro-cli update-agent <agent-id> --clear-env   # remove all per-agent variabl
 ```
 
 The eye button parks a variable here too: the row keeps its key and value and stays editable, but the variable is not passed to the agent. Parked variables are stored separately and are never merged into a spawned process.
+
+Here the name suggestions are narrowed to the agent's provider: a Claude agent leads with `CLAUDE_CONFIG_DIR` and the `ANTHROPIC_*` variables, a Codex agent with `CODEX_HOME`. Names you have set before are offered too, which matters most for the ones no catalog can know about, like a company proxy or an internal token.
 
 ### Seeing What an Agent Actually Runs With
 
@@ -403,14 +407,16 @@ In-app toast notifications appear in the corner when events occur. Configure how
 | **5s / 10s / 20s / 30s** | Toast disappears after the specified time |
 | **Never**                | Toast stays until manually dismissed      |
 
+Choose which corner toasts appear in: **Top Left**, **Top Right**, **Bottom Left**, or **Bottom Right** (the default). Toasts in a bottom corner stack upward. Toasts in a top corner stack downward, below the title bar. In both cases the newest toast is nearest the corner. In a bottom corner, the stack rises above the message input when it would otherwise cover it. To switch corners without opening Settings, search **Move Toast Notifications** in Quick Actions (<kbd>Cmd</kbd>+<kbd>K</kbd>), or run `maestro-cli settings set toastPosition top-left` (also `top-right`, `bottom-left`, `bottom-right`).
+
 You can also set how wide toasts render:
 
-| Width       | Behavior                                                                                  |
-| ----------- | ----------------------------------------------------------------------------------------- |
-| **Small**   | Default compact size                                                                      |
-| **Medium**  | Roughly 1.4x wider than Small                                                             |
-| **Large**   | Roughly 1.8x wider than Small, for longer content                                         |
-| **Dynamic** | Matches the Right Bar width, filling that column and re-sizing live as you drag the panel |
+| Width       | Behavior                                                                                        |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| **Small**   | Default compact size                                                                            |
+| **Medium**  | Roughly 1.4x wider than Small                                                                   |
+| **Large**   | Roughly 1.8x wider than Small, for longer content                                               |
+| **Dynamic** | Matches the side bar on the toast's side (Right Bar or Left Bar), re-sizing live as you drag it |
 
 #### Clicking a Toast
 

@@ -20,6 +20,7 @@ import { RemotePathStatus } from './RemotePathStatus';
 import { AgentPickerGrid } from './AgentPickerGrid';
 import { logger } from '../../utils/logger';
 import { gitService } from '../../services/git';
+import { withBlankEnvVarRow } from '../../../shared/envVarCatalog';
 
 export function NewInstanceModal({
 	isOpen,
@@ -940,19 +941,9 @@ export function NewInstanceModal({
 						}
 					}}
 					onEnvVarAdd={(agentId) => {
-						const currentVars = customAgentEnvVars[agentId] || {};
-						let newKey = 'NEW_VAR';
-						let counter = 1;
-						while (currentVars[newKey]) {
-							newKey = `NEW_VAR_${counter}`;
-							counter++;
-						}
 						setCustomAgentEnvVars((prev) => ({
 							...prev,
-							[agentId]: {
-								...prev[agentId],
-								[newKey]: '',
-							},
+							[agentId]: withBlankEnvVarRow(prev[agentId] ?? {}),
 						}));
 					}}
 					onConfigChange={(agentId, key, value) => {

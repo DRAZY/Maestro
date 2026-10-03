@@ -18,6 +18,8 @@ import {
 	retryNow,
 	cancelRetry,
 	clearRetryIfSettled,
+	noteRetryProgress,
+	failInFlightRetry,
 	getRetryEntry,
 	hasPendingRetry,
 	getOutage,
@@ -27,6 +29,7 @@ import {
 	useRetryStore,
 } from '../../../renderer/stores/retryStore';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
+import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 import { useAgentStore, type ProcessQueuedItemDeps } from '../../../renderer/stores/agentStore';
 import { availabilityDelayMs } from '../../../shared/retryClassification';
 import { createMockSession } from '../../helpers/mockSession';
@@ -89,7 +92,9 @@ beforeEach(() => {
 	vi.setSystemTime(NOW);
 	useRetryStore.setState({ retries: {}, outages: {} });
 	useSessionStore.setState({ sessions: [] } as any);
-	processQueuedItem = vi.fn().mockResolvedValue(undefined);
+	// `true` = "a dispatch went out". A mock resolving undefined states the
+	// opposite, and `fireRetry` reads that as a prompt that was never sent.
+	processQueuedItem = vi.fn().mockResolvedValue(true);
 	useAgentStore.setState({ processQueuedItem } as any);
 	registerBatchResumer(null);
 });
@@ -202,6 +207,75 @@ describe('firing the retry', () => {
 		// The scheduled timer must not also fire.
 		vi.advanceTimersByTime(availabilityDelayMs(0));
 		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// `startProviderWatch` has always refused to fire an in-flight entry ("a
+	// resend is already on its way"). `retryNow` did not, and the card's Try Now
+	// button survives an early fire because nothing moves `nextRetryAt` - so
+	// re-pointing the provider and then clicking Try Now put the same prompt on
+	// the wire twice.
+	it('retryNow refuses to fire a resend that is already in flight', () => {
+		setupSession('s9b', 't1');
+		seedSnapshot('s9b', 't1');
+		scheduleRetryForError('s9b', 't1', overload());
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+		expect(getRetryEntry('s9b', 't1')?.status).toBe('in-flight');
+
+		retryNow('s9b', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// The reported sequence adapted to this branch. `rc` fires the resend early
+	// when the user re-points the provider mid-outage; there is no provider watch
+	// here, so the only early fire is Try Now itself - and the card leaves that
+	// button live for the whole countdown, so a second press lands on a resend
+	// already running. Same double dispatch, one press later.
+	it('Try now pressed twice during a quota outage dispatches exactly once', () => {
+		setupSession('s9d', 't1', { toolType: 'claude-code' });
+		seedSnapshot('s9d', 't1');
+		scheduleRetryForError('s9d', 't1', quota());
+
+		const scheduled = getRetryEntry('s9d', 't1')!;
+		expect(scheduled.status).toBe('scheduled');
+		expect(scheduled.nextRetryAt).toBeGreaterThan(NOW);
+
+		retryNow('s9d', 't1');
+		const fired = getRetryEntry('s9d', 't1')!;
+		expect(fired.status).toBe('in-flight');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+
+		// The outage record is unchanged, which is why the card kept drawing a live
+		// countdown - and an enabled button - over a resend already on the wire.
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBe(scheduled.nextRetryAt);
+		expect(getOutage(fired.outageId)!.nextRetryAt).toBeGreaterThan(Date.now());
+
+		retryNow('s9d', 't1');
+		expect(processQueuedItem).toHaveBeenCalledTimes(1);
+	});
+
+	// `processQueuedItem` RESOLVES without dispatching when the item's tab is
+	// gone. The prompt exists only in the dispatch snapshot, so reading that as a
+	// send destroys it silently and leaves the entry in-flight forever.
+	it('ends the outage and names the prompt when the dispatch never ran', async () => {
+		setupSession('s9c', 't1');
+		seedSnapshot('s9c', 't1');
+		scheduleRetryForError('s9c', 't1', overload());
+		const outageId = getRetryEntry('s9c', 't1')!.outageId;
+		processQueuedItem.mockResolvedValueOnce(false);
+
+		retryNow('s9c', 't1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Not stranded in-flight: nothing would ever have settled it.
+		expect(getRetryEntry('s9c', 't1')).toBeUndefined();
+		expect(getOutage(outageId)?.status).toBe('stopped');
+
+		// And the user is told which message was not sent.
+		const toast = useNotificationStore.getState().toasts.at(-1);
+		expect(toast?.message).toContain('hi');
+		expect(toast?.sessionId).toBe('s9c');
 	});
 
 	it('retryNow is a no-op when there is no active retry', () => {
@@ -679,6 +753,88 @@ describe('outage records (transcript status card)', () => {
 		// Active retry entry is gone, but the outage record persists for the card.
 		expect(getRetryEntry('o3', 't1')).toBeUndefined();
 		expect(sessionHasActiveOutage('o3')).toBe(false);
+	});
+
+	// A resend that got through used to stay "Failing for… / Next attempt: now…"
+	// for the whole turn, because only process exit resolved the outage.
+	it('noteRetryProgress marks an in-flight outage recovered before exit', () => {
+		setupSession('o3b', 't1');
+		seedSnapshot('o3b', 't1');
+		scheduleRetryForError('o3b', 't1', quota());
+		const outageId = getRetryEntry('o3b', 't1')!.outageId;
+		retryNow('o3b', 't1'); // → in-flight
+
+		vi.setSystemTime(NOW + 2_000);
+		noteRetryProgress('o3b', 't1');
+
+		const outage = getOutage(outageId)!;
+		expect(outage.status).toBe('recovered');
+		expect(outage.resolvedAt).toBe(NOW + 2_000);
+		expect(getRetryEntry('o3b', 't1')).toBeUndefined();
+		expect(sessionHasActiveOutage('o3b')).toBe(false);
+
+		// The exit that follows finds nothing left to settle.
+		vi.setSystemTime(NOW + 60_000);
+		clearRetryIfSettled('o3b', 't1');
+		expect(getOutage(outageId)!.resolvedAt).toBe(NOW + 2_000);
+	});
+
+	it('noteRetryProgress ignores a retry still counting down', () => {
+		setupSession('o3c', 't1');
+		seedSnapshot('o3c', 't1');
+		scheduleRetryForError('o3c', 't1', quota());
+		const outageId = getRetryEntry('o3c', 't1')!.outageId;
+
+		noteRetryProgress('o3c', 't1');
+
+		expect(getOutage(outageId)!.status).toBe('active');
+		expect(getRetryEntry('o3c', 't1')?.status).toBe('scheduled');
+	});
+
+	it('a failure after the resend recovered starts a new outage', () => {
+		setupSession('o3d', 't1');
+		seedSnapshot('o3d', 't1');
+		scheduleRetryForError('o3d', 't1', overload());
+		const first = getRetryEntry('o3d', 't1')!.outageId;
+		retryNow('o3d', 't1');
+		noteRetryProgress('o3d', 't1');
+
+		scheduleRetryForError('o3d', 't1', overload());
+
+		const entry = getRetryEntry('o3d', 't1')!;
+		expect(entry.outageId).not.toBe(first);
+		expect(entry.attempt).toBe(0);
+		expect(getOutage(first)!.status).toBe('recovered');
+	});
+
+	// Profile switch → resend hits "No conversation found" → exit used to paint
+	// the card "Connection recovered." above the session-not-found error.
+	it('failInFlightRetry ends an in-flight outage as failed, and exit does not recover it', () => {
+		setupSession('o3e', 't1');
+		seedSnapshot('o3e', 't1');
+		scheduleRetryForError('o3e', 't1', quota());
+		const outageId = getRetryEntry('o3e', 't1')!.outageId;
+		retryNow('o3e', 't1'); // → in-flight
+
+		failInFlightRetry('o3e', 't1', 'Session not found.');
+		clearRetryIfSettled('o3e', 't1');
+
+		const outage = getOutage(outageId)!;
+		expect(outage.status).toBe('failed');
+		expect(outage.failureMessage).toBe('Session not found.');
+		expect(getRetryEntry('o3e', 't1')).toBeUndefined();
+	});
+
+	it('failInFlightRetry ignores a retry still counting down', () => {
+		setupSession('o3f', 't1');
+		seedSnapshot('o3f', 't1');
+		scheduleRetryForError('o3f', 't1', quota());
+		const outageId = getRetryEntry('o3f', 't1')!.outageId;
+
+		failInFlightRetry('o3f', 't1', 'Session not found.');
+
+		expect(getOutage(outageId)!.status).toBe('active');
+		expect(getRetryEntry('o3f', 't1')?.status).toBe('scheduled');
 	});
 
 	it('cancelRetry marks the outage stopped', () => {

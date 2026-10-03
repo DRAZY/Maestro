@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { QuickAction, QuickActionsModalProps } from './types';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
@@ -13,6 +13,7 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Z_LAYERS } from '../../constants/zLayers';
 import { gitService } from '../../services/git';
 import { revealAgentInSidebar } from '../../services/agentNavigation';
+import { buildSessionJumpSlotMap } from '../../utils/sessionJumpSlots';
 import { useGitAgentActions } from '../../hooks/git/useGitAgentActions';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { getOpenInLabel } from '../../utils/platformUtils';
@@ -71,6 +72,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const {
 		theme,
 		sessions,
+		visibleSessions,
 		setSessions,
 		activeSessionId,
 		groups,
@@ -227,6 +229,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	}, []);
 	const visibleToastCount = useNotificationStore((s) => s.toasts.length);
 	const clearToasts = useNotificationStore((s) => s.clearToasts);
+	const toastPosition = useSettingsStore((s) => s.toastPosition);
+	const setToastPosition = useSettingsStore((s) => s.setToastPosition);
 	// Which group chat rooms are running. Only the chat list and the active id
 	// arrive as props; the live moderator/participant states are store-only, so
 	// read them here rather than threading four more props through the chain.
@@ -264,6 +268,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// uiStore so the Left Bar wand can animate, and reconcile on palette open.
 	const profilingActive = useUIStore((s) => s.profilingActive);
 	const setProfilingActive = useUIStore((s) => s.setProfilingActive);
+	const profilingBufferPercent = useUIStore((s) => s.profilingBufferPercent);
+	const setProfilingBufferPercent = useUIStore((s) => s.setProfilingBufferPercent);
 	useEffect(() => {
 		let cancelled = false;
 		// Optional-chained: this runs on every palette open, so tolerate a bridge
@@ -272,22 +278,32 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		if (!statusPromise) return;
 		statusPromise
 			.then((res) => {
-				if (!cancelled && res?.success) setProfilingActive(res.active);
+				if (cancelled || !res?.success) return;
+				setProfilingActive(res.active);
+				// Buffer usage is pulled on palette open rather than streamed. A
+				// per-second push would be renderer work during the exact window the
+				// capture is trying to measure, and this number is only ever read when
+				// the user comes here to end the recording anyway.
+				setProfilingBufferPercent(res.active ? (res.bufferPercent ?? 0) : 0);
 			})
 			.catch(() => {});
 		return () => {
 			cancelled = true;
 		};
-	}, [setProfilingActive]);
+	}, [setProfilingActive, setProfilingBufferPercent]);
 	const handleStartProfiling = useCallback(async () => {
 		try {
 			const res = await window.maestro.debug.startProfiling();
 			if (res?.success && res.active) {
 				setProfilingActive(true);
+				setProfilingBufferPercent(0);
 				notifyCenterFlash({
 					message: 'Performance profiling started',
 					color: 'green',
-					detail: 'Reproduce the lag, then run "End Performance Profiling"',
+					// No duration advice here on purpose. The limit is trace-buffer
+					// pressure, which nobody can estimate by watching the app, so the
+					// recording now ends itself before data is lost.
+					detail: 'Reproduce the lag. Ends automatically if the trace buffer fills.',
 				});
 			} else {
 				notifyToast({
@@ -300,7 +316,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			notifyToast({ color: 'red', title: 'Profiling', message: 'Failed to start profiling' });
 			captureException(err);
 		}
-	}, [setProfilingActive]);
+	}, [setProfilingActive, setProfilingBufferPercent]);
 	// Stopping is slow (flush + zip compression can take tens of seconds), so we
 	// hand off to the ProfilingCaptureModal, which owns the whole stop-and-bundle
 	// flow, shows live progress, and clears the wand indicator when it finishes.
@@ -407,10 +423,17 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	// with the Usage Dashboard's Jump to Agent action - see agentNavigation.
 	const revealJumpTarget = revealAgentInSidebar;
 
+	// Agents in the Left Bar's first ten slots advertise their Opt+Cmd+# chord.
+	const jumpSlots = useMemo(
+		() => buildSessionJumpSlotMap(visibleSessions ?? []),
+		[visibleSessions]
+	);
+
 	const sessionActions = buildSessionJumpCommands({
 		sessions,
 		setActiveSessionId,
 		revealJumpTarget,
+		jumpSlots,
 	});
 
 	const groupChatActions = buildGroupChatJumpCommands({
@@ -434,6 +457,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			visibleToastCount,
 			clearToasts,
 			clearAllNotificationsShortcut: shortcuts.clearAllNotifications,
+			toastPosition,
+			setToastPosition,
 			setQuickActionOpen,
 		}),
 		...buildNavigationCommands({
@@ -668,6 +693,10 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			shortcuts: {
 				viewGitDiff: shortcuts.viewGitDiff,
 				viewGitLog: shortcuts.viewGitLog,
+				gitPull: shortcuts.gitPull,
+				gitPush: shortcuts.gitPush,
+				gitChangeBranch: shortcuts.gitChangeBranch,
+				gitCreatePR: shortcuts.gitCreatePR,
 				refreshGitFileState: shortcuts.refreshGitFileState,
 			},
 			gitService,
@@ -731,6 +760,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setDebugAgentProbeOpen,
 			onDebugReleaseQueuedItem,
 			profilingActive,
+			profilingBufferPercent,
 			onStartProfiling: handleStartProfiling,
 			onStopProfiling: handleStopProfiling,
 			getInstallationId: () => window.maestro.leaderboard.getInstallationId(),
@@ -756,6 +786,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			activeBatchSessionIds,
 			setActiveSessionId,
 			revealJumpTarget,
+			jumpSlots,
 		}),
 		...buildGroupChatSwitcherCommands({
 			groupChats,

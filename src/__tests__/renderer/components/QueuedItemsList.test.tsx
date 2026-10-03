@@ -4,6 +4,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { QueuedItemsList } from '../../../renderer/components/QueuedItemsList';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import { useModalStore } from '../../../renderer/stores/modalStore';
 import { mockTheme } from '../../helpers/mockTheme';
 import type { QueuedItem } from '../../../renderer/types';
 
@@ -26,7 +28,12 @@ function setup(overrides: Record<string, unknown> = {}) {
 		onTogglePauseQueuedItem: vi.fn(),
 		...overrides,
 	};
-	const utils = render(<QueuedItemsList {...(props as any)} />);
+	// The Force Send explainer is a layered Modal, so the list needs the provider.
+	const utils = render(
+		<LayerStackProvider>
+			<QueuedItemsList {...(props as any)} />
+		</LayerStackProvider>
+	);
 	return { ...props, ...utils };
 }
 
@@ -259,6 +266,43 @@ describe('QueuedItemsList turn setting pills', () => {
 });
 
 /**
+ * A queued message is the user's own chat message waiting its turn, so it reads
+ * the way it will read once sent: markdown rendered, with the same Cmd+E global
+ * toggle (chatRawTextMode) dropping back to the raw source.
+ */
+describe('QueuedItemsList markdown rendering', () => {
+	afterEach(() => {
+		useSettingsStore.setState({ chatRawTextMode: false });
+	});
+
+	it('renders a queued message as markdown', () => {
+		useSettingsStore.setState({ chatRawTextMode: false });
+		const { container } = setup({
+			executionQueue: [item({ text: '# Heading\n\n**bold**' })],
+		});
+		expect(container.querySelector('h1')).toHaveTextContent('Heading');
+		expect(container.querySelector('strong')).toHaveTextContent('bold');
+	});
+
+	it('shows the raw source when chat raw-text mode is on', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const { container } = setup({
+			executionQueue: [item({ text: '# Heading' })],
+		});
+		expect(container.querySelector('h1')).toBeNull();
+		expect(screen.getByText('# Heading')).toBeInTheDocument();
+	});
+
+	it('leaves a queued slash command as plain text', () => {
+		const { container } = setup({
+			executionQueue: [item({ type: 'command', command: '/review', commandArgs: '**not bold**' })],
+		});
+		expect(container.querySelector('strong')).toBeNull();
+		expect(screen.getByText('**not bold**')).toBeInTheDocument();
+	});
+});
+
+/**
  * The inline QUEUED card and the Execution Queue modal are two views of one
  * decision. They disagreed: the modal asked getForceSendEligibility, the inline
  * card re-derived the answer from a narrowed {targetTabBusy, otherBusyTabs} and
@@ -313,7 +357,7 @@ describe('QueuedItemsList force send', () => {
 		expect(screen.queryByRole('button', { name: /Force Send/i })).toBeNull();
 	});
 
-	it('shows Force Send disabled when another tab is busy and forced parallel is off', () => {
+	it('shows Force Send dimmed when another tab is busy and forced parallel is off', () => {
 		withForceSend(
 			eligibility({
 				otherBusyTabs: [{ id: 'tab-2', displayName: 'Other' }],
@@ -323,8 +367,35 @@ describe('QueuedItemsList force send', () => {
 			})
 		);
 		const button = screen.getByRole('button', { name: /Force Send/i });
-		expect(button).toBeDisabled();
+		expect(button).toHaveAttribute('aria-disabled', 'true');
 		expect(button.getAttribute('title')).toMatch(/Forced Parallel Execution/i);
+	});
+
+	it('clicking the dimmed Force Send explains the block and links to the setting', () => {
+		const onForceSendQueuedItem = vi.fn();
+		withForceSend(
+			eligibility({
+				otherBusyTabs: [{ id: 'tab-2', displayName: 'Other' }],
+				requiresParallel: true,
+				canForce: false,
+				blockedReason: 'needs-forced-parallel',
+			}),
+			{ onForceSendQueuedItem }
+		);
+		fireEvent.click(screen.getByRole('button', { name: /Force Send/i }));
+		expect(screen.getByText('Force Send Is Off')).toBeInTheDocument();
+		// No send confirmation, and nothing dispatched.
+		expect(screen.queryByText('Force Send Message?')).toBeNull();
+		expect(onForceSendQueuedItem).not.toHaveBeenCalled();
+
+		fireEvent.click(
+			screen.getByRole('button', { name: /Settings > General > Forced Parallel Execution/ })
+		);
+		const settings = useModalStore.getState().modals.get('settings');
+		expect(settings?.open).toBe(true);
+		expect(settings?.data).toEqual({ tab: 'general', settingId: 'general-forced-parallel' });
+		expect(screen.queryByText('Force Send Is Off')).toBeNull();
+		useModalStore.getState().closeModal('settings');
 	});
 
 	it('hides Force Send entirely when the item has no tab left to run on', () => {
@@ -336,5 +407,60 @@ describe('QueuedItemsList force send', () => {
 	it('hides Force Send when no eligibility is available', () => {
 		withForceSend(null);
 		expect(screen.queryByRole('button', { name: /Force Send/i })).toBeNull();
+	});
+});
+
+/**
+ * A queued card used to collapse anything over 200 characters, so a two-line
+ * message got a "Show all (1 lines)" toggle whose expanded state looked all but
+ * identical to its collapsed one: the toggle cost more screen than it saved, and
+ * the label counted newlines rather than the text actually hidden. The card now
+ * previews 600 characters and only offers the toggle when at least 400 more
+ * remain behind it.
+ */
+describe('QueuedItemsList long-message collapse', () => {
+	afterEach(() => {
+		useSettingsStore.setState({ chatRawTextMode: false });
+	});
+
+	const body = (len: number) => 'x'.repeat(len);
+
+	it('renders a message just over the preview in full, with no toggle', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const text = body(700);
+		setup({ executionQueue: [item({ text })] });
+		expect(screen.getByText(text)).toBeInTheDocument();
+		expect(screen.queryByText(/Show all/i)).toBeNull();
+		expect(screen.queryByText(/Show less/i)).toBeNull();
+	});
+
+	it('leaves a short message alone', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const text = body(260);
+		setup({ executionQueue: [item({ text })] });
+		expect(screen.getByText(text)).toBeInTheDocument();
+		expect(screen.queryByText(/Show all/i)).toBeNull();
+	});
+
+	it('collapses a genuinely long message and names the hidden characters', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const text = body(2000);
+		setup({ executionQueue: [item({ text })] });
+		expect(screen.queryByText(text)).toBeNull();
+		expect(screen.getByText(body(600) + '...')).toBeInTheDocument();
+		// 2000 - 600 hidden, rendered through formatNumber.
+		expect(
+			screen.getByRole('button', { name: /Show all \(1\.4K more characters\)/i })
+		).toBeTruthy();
+	});
+
+	it('expands to the full text and back', () => {
+		useSettingsStore.setState({ chatRawTextMode: true });
+		const text = body(2000);
+		setup({ executionQueue: [item({ text })] });
+		fireEvent.click(screen.getByRole('button', { name: /Show all/i }));
+		expect(screen.getByText(text)).toBeInTheDocument();
+		fireEvent.click(screen.getByRole('button', { name: /Show less/i }));
+		expect(screen.getByText(body(600) + '...')).toBeInTheDocument();
 	});
 });

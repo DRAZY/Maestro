@@ -231,6 +231,7 @@ works. `duration.ts` is canonical and is where new duration work belongs.
 | `formatDurationWords(ms, maxUnits?)` | `(number, number?) => string` | Prose with months: `"1 day, 12 hours"`, `"2 months, 1 week"`.                       |
 | `formatActiveTime(ms)`               | `(number) => string`          | Uppercase stat pills: `"<1M"`, `"5M"`, `"2H 30M"`, `"1D"`.                          |
 | `formatElapsedTime(ms)`              | `(number) => string`          | `formatDurationHuman` plus sub-second precision: `"500ms"`, `"5m 12s"`.             |
+| `formatTurnDuration(ms)`             | `(number) => string`          | Transcript turn time, day-capped and second-free: `"<1m"`, `"25m"`, `"5d 6h 25m"`.  |
 
 `DURATION_MS` gives each unit's size in ms - use it instead of redeclaring
 `const DAY = 86400000`. `DURATION_LADDER_FULL` / `_DAYS` / `_HOURS` are the prebuilt
@@ -283,7 +284,9 @@ Both expose the same shape:
 | `sleepAwareElapsedSince(start)` | (Renderer) For a display that only has a stored `startTime` and can't hold a span.            |
 
 Prefer a span. `sleepAwareElapsedSince()` reads a bounded log of recent wakes and exists
-for UI that reads a start timestamp out of state (the Auto Run pill, the thinking timer).
+for UI that reads a start timestamp out of state (the thinking timer). Auto Run displays
+read the tracker's mirrored fields with `autoRunActiveElapsedMs()` (`useTimeTracking.ts`),
+which also stops the clock while the run is paused on an error or HITL gate.
 
 Live trackers that pause and resume their own clock (`useTimeTracking`) subscribe with
 `onSystemSleep()` and walk their stored timestamps forward by the gap, clamped to the live

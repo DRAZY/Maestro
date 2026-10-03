@@ -47,6 +47,7 @@ This guide has been split into focused sub-documents for progressive disclosure:
 | App lifecycle, updater, or power mgmt              | [MAIN-LIFECYCLE.md](docs/agent-guides/MAIN-LIFECYCLE.md)         |
 | Stat card, chart, sparkline, or input control      | [WIDGET-LIBRARY.md](docs/agent-guides/WIDGET-LIBRARY.md)         |
 | Plugin, sandbox capability, or contribution        | [PLUGIN-DEVELOPMENT.md](docs/agent-guides/PLUGIN-DEVELOPMENT.md) |
+| Release step, tag, bump, or announcement           | [RELEASE-RUNBOOK.md](docs/agent-guides/RELEASE-RUNBOOK.md)       |
 
 ### Commonly-reimplemented functions (do NOT add new copies)
 
@@ -70,10 +71,11 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Saving generated image bytes to disk:** `saveImageDataUrlToDisk(dataUrl, defaultName?)` in `src/renderer/utils/imageExport.ts`
 - **Screenshotting a surface as it is painted:** `window.maestro.shell.capturePage(rect?)` in `src/main/preload/system.ts`
 - **Classifying a file by extension:** `getFileCategory()`, `isPreviewableFile()` in `src/shared/fileCategories.ts`
-- **Strip ANSI:** `stripAnsiCodes()` in `src/shared/stringUtils.ts`
+- **Strip ANSI / collapse progress overwrites:** `stripAnsiCodes()`, `processCarriageReturns()` in `src/shared/stringUtils.ts`
 - **Reading what a TUI painted from a raw capture:** `replayTerminalScreen()`, `capturedAlternateScreen()` in `src/maestro-p/screen-replay.ts`
 - **Shell escape:** `shellEscape()`, `shellEscapeArgs()` in `src/main/utils/shell-escape.ts`
 - **Platform detection:** `isWindows()`, `isMacOS()` in `src/shared/platformDetection.ts`
+- **Whether a working directory can be spawned into:** `unusableCwdReason()` in `src/main/process-manager/utils/spawnCwd.ts`. node-pty's Windows path throws ERROR_DIRECTORY from an async callback nothing can catch, so `ProcessManager.spawn()` refuses a missing cwd up front rather than falling back to home.
 - **Modifier-key display text:** `formatKey()`, `formatShortcutKeys()` in `src/renderer/utils/shortcutFormatter.ts`
 - **Advertising a shortcut next to the control that fires it:** `ShortcutHint`, `shortcutSuffix(keys)` in `src/renderer/components/ui/ShortcutHint.tsx`
 - **Whether a chord may be bound at all:** `findReservedShortcutCombo(keys)`, `RESERVED_SHORTCUT_COMBOS` in `src/shared/shortcutKeys.ts`
@@ -84,8 +86,11 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Agent display name:** `getAgentDisplayName()` in `src/shared/agentMetadata.ts`
 - **Whether an agent is working right now (main process):** `isAgentBusy(session, processManager)`, `isAiTabProcessActive(...)` in `src/main/utils/agent-busy.ts`
 - **Which provider account an agent runs as:** `resolveAgentProfile()`, `effectiveAgentCustomEnvVars()`, `PROVIDER_PROFILE_CONFIGS` in `src/shared/providerProfiles.ts`
+- **Keeping a plan account on the Usage Dashboard after its agents leave:** `rememberQuotaAccounts()`, `pruneMissingQuotaAccounts()` in `src/main/stores/quotaAccountsStore.ts`; `partitionSnapshotsByAge()`, `SNAPSHOT_RETENTION_MS` in `src/main/stores/usageSnapshotRetention.ts`
 - **SSH remote lookup:** `getSshRemoteById()` in `src/main/stores/getters.ts`
 - **Deferred main-process store persistence:** `deferStoreWrites()`, `flushPendingSessionWrites()` in `src/main/stores/deferred-writes.ts` / `src/main/stores/instances.ts`
+- **Recovering from a store file that is not JSON:** `createStoreDeserializer()`, `corruptStorePath()` in `src/main/stores/corrupt-store-recovery.ts`. conf rethrows a `SyntaxError` from the Store constructor, so one torn file bricks startup forever; the file is quarantined to a stamped `.corrupt-` sidecar and the store falls back to defaults. Never `clearInvalidConfig`.
+- **Writing a Claude session's origin record:** `setClaudeSessionOrigin()`, `mergeClaudeSessionOrigin()` in `src/main/storage/claude-session-origins.ts`
 - **Toast notifications:** `notifyToast({ color, title, message, dismissible? })`, `theme` in `src/renderer/stores/notificationStore.ts`
 - **What a toast click does:** `ToastClickAction`, `parseToastClickAction()` in `src/shared/toastClickAction.ts`; `dispatchToastClickAction()` in `src/renderer/services/toastClickActions.ts`
 - **Center flash (rapid acks):** `notifyCenterFlash({ message, color, detail?, duration? })`, `flashCopiedToClipboard()` in `src/renderer/stores/centerFlashStore.ts`
@@ -94,6 +99,7 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Toggling the unread filters:** `toggleAllUnreadFilters()`, `toggleTabUnreadFilter()` in `src/renderer/services/unreadFilters.ts`
 - **Scheduled Tasks (clock-driven Cue subs):** `src/shared/cue/scheduled-tasks.ts`
 - **Whether two subscriptions are the same visual trigger:** `triggerGroupKey(sub)` in `src/shared/cue/trigger-group-key.ts`
+- **How big a pipeline is on the canvas:** `pipelineCardBounds(nodes, opts?)`, `nodeFootprintWidth()` in `src/renderer/components/CuePipelineEditor/utils/nodeFootprint.ts`
 - **Which pipelines belong to an agent:** `pipelinesForSession()`, `pipelineInvolvesSession()` in `src/renderer/components/CuePipelineEditor/utils/pipelineMembership.ts`
 - **How much work happened in a group chat:** `computeGroupChatActivity(entries)`, `elapsedTimeMs` in `src/shared/groupChatActivity.ts`
 - **How big a tab's conversation is and how long it ran:** `computeTabConversationStats()`, `formatConversationDuration()` in `src/shared/tabConversationStats.ts`
@@ -104,8 +110,10 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Per-agent git actions:** `useGitAgentActions(session)`, `buildGitWorktreeCommands` in `src/renderer/hooks/git/useGitAgentActions.ts`
 - **Whether a PR is being opened right now:** `usePRCreationActive(worktreePath)`, `startPRCreation()` in `src/renderer/stores/prCreationStore.ts`
 - **Taking the user to an agent:** `jumpToAgent(sessionId, { tabId? })`, `revealAgentInSidebar(session)`, `openAgentSettings(session)` in `src/renderer/services/agentNavigation.ts`
+- **Which agents own an Opt+Cmd+# slot:** `buildSessionJumpSlotMap(visibleSessions)`, `sessionJumpShortcut(digit)` in `src/renderer/utils/sessionJumpSlots.ts`
 - **Focus an AI tab:** `aiTabFocusFields(tabId?)`, `activeFileTabId` in `src/renderer/utils/tabHelpers.ts`
 - **Focus a file tab:** `fileTabFocusFields(tabId)` in `src/renderer/utils/tabHelpers.ts`
+- **Closing a tab while the unread filter is on:** `closeTab()` third arg is an OVERRIDE; omit it and `src/renderer/utils/tabHelpers.ts` reads `uiStore.showUnreadOnly`
 - **Ending a turn with no process exit:** `settleTabThinkingState(session, tabId)` in `src/renderer/utils/tabHelpers.ts`
 - **Leaving inline wizard mode:** `flattenWizardIntoTab(tab, { summary? })` in `src/renderer/utils/tabHelpers.ts` (never clear `tab.wizardState` by hand)
 - **Naming a tab from the user's message:** `requestTabAutoName()`, `collectNamingPrompt()`, `requestWizardTabAutoName()` in `src/renderer/services/tabAutoNaming.ts`
@@ -122,14 +130,17 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Shell tab completion:** `useTabCompletion()`, `commandMode` in `src/renderer/hooks/input/useTabCompletion.ts`
 - **Right-click menu on an image:** `contextmenu`, `onContextMenu` in `src/renderer/components/ImageContextMenuHost.tsx`
 - **Font zoom on a reading pane:** `useFontScale(storageKey)`, `AArrowUp` in `src/renderer/hooks/ui/useFontScale.ts`
+- **Pan and zoom a diagram or image:** `usePanZoom()`, `fitToView` in `src/renderer/hooks/ui/usePanZoom.ts`; full-window viewer via `openZoomViewer(element)` in `src/renderer/components/ZoomViewer/zoomViewerStore.ts`
 - **Bare `+` / `-` / `0` zoom on a surface:** `useScaleShortcuts(control, { enabled })`, `useScalePreference` in `src/renderer/hooks/ui/useScaleShortcuts.ts`
 - **Whether a surface is the topmost layer:** `useIsTopLayer(priority)`, `MODAL_PRIORITIES` in `src/renderer/hooks/ui/useIsTopLayer.ts`
 - **Who asked for this turn (interactive vs automation):** `QUERY_SOURCE_ENV_VAR`, `QuerySource` in `src/shared/querySource.ts`
 - **An agent's effective environment:** `resolveAgentEnvironment()`, `isSecretEnvKey()` in `src/shared/agentEnvironment.ts`
-- **Whether a configured env value means "unset":** `isBlankEnvValue()`, `stripBlankEnvVars()` in `src/shared/agentEnvironment.ts`
+- **Whether a configured env value means "unset":** `isBlankEnvValue()`, `isBlankEnvKey()`, `stripBlankEnvVars()` in `src/shared/agentEnvironment.ts`
+- **Suggesting an env-var name:** `suggestEnvVarKeys()`, `PROVIDER_ENV_VAR_SUGGESTIONS`, `withBlankEnvVarRow()` in `src/shared/envVarCatalog.ts`; `EnvVarKeyInput` in `src/renderer/components/shared/EnvVarKeyInput.tsx`
 - **Whether a login flow can fix an auth failure:** `classifyCredentialKind()`, `credentialKindBlocksLogin()` in `src/shared/providerAuthIdentity.ts`
 - **Typing a login command into a shell:** `formatAgentLoginCommand(login, syntax?)`, `loginShellSyntaxFor(shellId, isWindows)` in `src/shared/agentMetadata.ts`
 - **Bucketing Director's Notes bullets:** `bucketNarrativeItems()`, `shouldRenderBuckets()` in `src/shared/directorNotesGrouping.ts`
+- **Which provider generates a synopsis:** `AUTO_SYNOPSIS_PROVIDER`, `synopsisProviderChoice()`, `pickFirstAvailableProvider()` in `src/shared/directorNotesProvider.ts`; `resolveSynopsisProvider()` in `src/main/utils/director-notes-provider.ts`
 - **Sortable table header:** `useTableSort()`, `role` in `src/renderer/components/ui/SortableTh.tsx`
 - **Graphing a set of documents rather than one:** `scopeDirectory`, `openGraphScope()` in `src/renderer/components/DocumentGraph/graphDataBuilder.ts`
 - **A labeled action button in a panel header:** `src/renderer/components/ui/HeaderActionButton.tsx`
@@ -149,18 +160,23 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Paginating a list already in memory:** `usePagination(items, pageSize, resetKey)`, `useHistoryPagination` in `src/renderer/hooks/ui/usePagination.ts`
 - **Following streaming output in a capped box:** `useStickToBottom(contentKey)`, `useScrollIntoView` in `src/renderer/hooks/ui/useStickToBottom.ts`
 - **Restoring an AI tab's scroll position:** `initialScrollTop` + `initialIsAtBottom` props on `src/renderer/components/TerminalOutput.tsx` (a tail-following tab restores to the BOTTOM, not its stale saved offset)
+- **Reaching an off-screen item while dragging:** `useDragAutoScroll(ref, { active, startInset?, endInset? })`, `edgeSize` in `src/renderer/hooks/ui/useDragAutoScroll.ts`
 - **Keeping a virtualized list on its selection:** `scrollToIndex`, `ref` in `src/renderer/hooks/ui/useScrollIntoView.ts`
 - **Sizing a virtualized row the user's font decides:** `virtualizer.measureElement` + `data-index` and NO inline `height`; `HistoryPanel`, `FileSearchModal`
 - **Adding a control to the Left Bar header:** three-zone row in `src/renderer/components/SessionList/SessionList.tsx`; see guide before touching
 - **Element width for JS-computed layout:** `useElementWidth(ref, enabled?)`, `ResizeObserver` in `src/renderer/hooks/ui/useElementWidth.ts`
+- **Keeping toasts off a surface the user works in:** `useToastAvoidZone()`, `toastBottomInset()` in `src/renderer/hooks/ui/useToastAvoidZone.ts`
 - **Usage Dashboard card tile:** `StatCard` in `src/renderer/components/UsageDashboard/EntityTile.tsx`
 - **A label that must not truncate:** `useOptionalLabelFits(rowRef)` in `src/renderer/hooks/ui/useOptionalLabelFits.ts`
 - **Usage Dashboard metric tile:** `MetricCard` in `src/renderer/components/UsageDashboard/MetricCard.tsx`
 - **Recording wizard usage:** `beginWizardRun()`, `recordWizardDocuments()` in `src/renderer/services/wizardStats.ts`
+- **Naming an agent from its folder (vs naming the project):** `projectNameFromPath()`, `defaultAgentNameForPath()` in `src/renderer/components/Wizard/shared/projectIdentity.ts`
 - **Font-family fallback chain:** `withMonoFallback()`, `resolveSurfaceFont()`, `MONO_FALLBACK_STACK`, `WORDMARK_FONT_STACK` in `src/shared/fontStack.ts`
 - **Fixed-pitch font for shell text:** `resolveFixedPitchFontFamily()`, `resolveTerminalFontFamily()`, `isFixedPitchStack()` in `src/renderer/utils/fixedPitchFont.ts` (composes with `withMonoFallback`, do not reintroduce `ensureMonospaceFallback`)
 - **Saving the user's own font setup:** `captureTypographySnapshot()`, `typographySnapshotPatch()`, `typographySnapshotMatches()` in `src/shared/typographySnapshot.ts`; keys from `TYPOGRAPHY_SURFACE_LIST` in `src/shared/typography.ts`
 - **Rendering raw terminal output (ANSI):** `useAnsiConverter(theme)`, `getCachedAnsiHtml(text, theme.id, converter)` in `src/renderer/hooks/ui/useAnsiConverter.ts`
+- **A path the user typed on the CLI:** `resolveCliPath(input)` in `src/cli/utils/parse.ts`
+- **Filing GitHub feedback (check gh, search, +1, submit):** `submitFeedbackConversation()`, `searchFeedbackIssues()` in `src/main/feedback/index.ts`
 - **Any CLI verb that can move the Maestro view:** `resolveBackgroundFlag()`, `readBackgroundField()` in `src/shared/focusPlacement.ts`
 - **Making a tab the visible one:** `aiTabFocusFields`, `fileTabFocusFields` in `src/renderer/utils/tabFocusFields.ts`
 - **Record view for one table row:** `RecordDetailModal` in `src/renderer/components/ui/RecordDetailModal.tsx`
@@ -174,6 +190,8 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **A view preference a user sets by clicking:** `usePersistedToggle(storageKey, defaultValue)`, `AutoRunNoticeBanner` in `src/renderer/hooks/ui/usePersistedToggle.ts`
 - **Sizing a Document Graph node:** `calculateNodeWidth(label, previewCharLimit)`, `calculateNodeHeight(previewText, previewCharLimit)` in `src/renderer/components/DocumentGraph/mindMapLayouts.ts`
 - **A pane width the user sets by dragging:** `useResizablePanel()`, `settingsKey` in `src/renderer/hooks/ui/useResizablePanel.ts`
+- **A dropdown the user resizes by its bottom edge (never off screen):** `useResizableDropdownHeight()`, `fitDropdownHeight` in `src/renderer/hooks/ui/useResizableDropdownHeight.ts`
+- **Sizing a surface to its longest label:** `widestLabelWidth(labels, opts)`, `estimateLabelWidth()` in `src/renderer/utils/labelWidth.ts`
 - **A modal default sized to the screen:** `viewportModalSize({ width, height })`, `defaultSize` in `src/renderer/utils/modalSizing.ts`
 - **Focus after render:** `useFocusAfterRender()`, `useFocusOnMount()` in `src/renderer/hooks/utils/useFocusAfterRender.ts`
 - **Event listeners:** `useEventListener()`, `addEventListener` in `src/renderer/hooks/utils/useEventListener.ts`
@@ -187,7 +205,12 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 - **Editing the newest queued message:** `requestEditLastQueuedMessage()`, `editLastQueuedMessage` in `src/renderer/services/editQueuedMessage.ts`
 - **Whether a Force Send control exists at all:** `shouldOfferForceSend(eligibility)`, `getForceSendEligibility()` in `src/renderer/utils/executionQueue.ts`
 - **Model tier / effort level (`'low' | 'medium' | 'high'`):** `resolveTierModel()`, `resolveEffortLevel()` in `src/shared/modelTiers.ts`
+- **Ordering the Auto Run run list from the picker:** `applySelectionOrder()`, `selectFolderFiles()` in `src/renderer/utils/documentSelectionOrder.ts`
+- **Whether an Auto Run is parked waiting on the user:** `useAutoRunErrorPaused(sessionId)` in `src/renderer/hooks/batch/useAutoRunPause.ts` (never read `errorPaused` off the `batchRunState` prop; the chain drops it)
+- **What the Thinking pill lists:** `collectThinkingItems(sessions)` in `src/renderer/utils/tabHelpers.ts`; `useBackgroundAutoRuns(activeSessionId)` in `src/renderer/hooks/batch/useBackgroundAutoRuns.ts`
+- **Folding a disk change into an Auto Run draft:** `reconcileDiskContent()`, `isAutoRunDocumentLocked()` in `src/renderer/utils/autoRunDraft.ts`
 - **Auto Run markers (HITL / halt / model hint):** `scanMaestroMarkers()`, `findPendingHitlGate()` in `src/shared/autorunMarkers.ts`
+- **Auto Run steering notes (mid-run course correction):** `formatSteeringNotesBlock()`, `MAX_PENDING_STEERING_NOTES` in `src/shared/autorunSteering.ts`; `submitSteeringNote()`, `takeSteeringNotesForDispatch()` in `src/renderer/services/autoRunSteering.ts`
 - **Fence-aware markdown scanning:** `forEachMarkdownLine()`, `UNCHECKED_TASK_REGEX` in `src/shared/markdownTaskScan.ts`
 - **Encore Feature flags and their defaults:** `DEFAULT_ENCORE_FEATURES`, `resolveEncoreFeatures()` in `src/shared/encoreFeatures.ts`
 - **Thinking mode (`'off' | 'on' | 'sticky'`):** `THINKING_MODES`, `nextThinkingMode()` in `src/shared/types.ts`
@@ -195,6 +218,18 @@ Grep-verified 2026-09-04 (`npm run docs:verify` re-checks every path). This is t
 If your use case does NOT match an existing utility, prefer extending the canonical file over creating a new one. If you genuinely need something new, add the full entry to [CANONICAL-UTILITIES.md](docs/agent-guides/CANONICAL-UTILITIES.md) and a one-line index entry above so the next person can find it.
 
 The tracker at [DEDUP-TRACKER.md](docs/agent-guides/DEDUP-TRACKER.md) lists all known duplication findings.
+
+---
+
+## Constitution: If the User Can Do It, `maestro-cli` Can Do It
+
+**Non-negotiable.** Every action a person can take in Maestro's UI (a button, a checkbox, a palette command, a context-menu item, a shortcut, a modal flow) MUST have a `maestro-cli` path that does the same thing, reaches the same code, and reports the result back to the caller. Agents drive Maestro through the CLI. An action they cannot reach there is an action they cannot take for the user.
+
+- **Ship both together.** A new UI action without its CLI verb is incomplete, the same way a feature without its tests is incomplete. Do not defer it to "later".
+- **One implementation.** The UI and the CLI call the same main-process function. Pull the logic out of the IPC handler into a service module the WS bridge also calls (see `src/main/feedback/` and `generateDebugPackage`). Never write a second copy for the CLI.
+- **No dialogs on the CLI path.** Where the UI raises a save or open dialog, the CLI takes the path as a flag (`--output`, `--attach`) and resolves it with `resolveCliPath()`.
+- **Every write has a read.** A verb whose result an agent cannot verify is a verb it has to guess about.
+- **Record the parity.** Add the row to the Covered table in [CLI-UI-PARITY.md](docs/agent-guides/CLI-UI-PARITY.md). A gap you cannot close in the same change goes in its Open gaps list, with the reason.
 
 ---
 
@@ -410,7 +445,7 @@ src/
 | Spawn agent with SSH support  | `src/main/utils/ssh-spawn-wrapper.ts` (required for SSH remote execution)                                                                                                                                                                                        |
 | Modify file preview tabs      | `TabBar.tsx`, `FilePreview.tsx`, `MainPanel.tsx` (see ARCHITECTURE.md → File Preview Tab System)                                                                                                                                                                 |
 | Add parquet viewer feature    | `src/renderer/components/ParquetViewer/` (UI), `src/main/parquet/` (query engine), `src/shared/parquet/` (filter language + wire types)                                                                                                                          |
-| Add Director's Notes feature  | `src/renderer/components/DirectorNotes/`, `src/shared/directorNotesNarrative.ts`, `src/shared/directorNotesGrouping.ts`, `src/main/ipc/handlers/director-notes.ts`                                                                                               |
+| Add Director's Notes feature  | `src/renderer/components/DirectorNotes/`, `src/shared/directorNotesNarrative.ts`, `src/shared/directorNotesGrouping.ts`, `src/shared/directorNotesProvider.ts`, `src/main/utils/director-notes-provider.ts`, `src/main/ipc/handlers/director-notes.ts`           |
 | Add Encore Feature            | `src/renderer/types/index.ts` (flag), `useSettings.ts` (state), `SettingsModal.tsx` (toggle UI), gate in `App.tsx` + keyboard handler                                                                                                                            |
 | Modify history components     | `src/renderer/components/History/`                                                                                                                                                                                                                               |
 | Modify history activity graph | `src/renderer/components/History/ActivityGraph.tsx`, `src/main/utils/history-bucket-cache.ts` (disk-cached aggregates), `src/main/utils/history-bucket-builder.ts`                                                                                               |

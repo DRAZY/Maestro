@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import type { Session, SessionState, ThinkingMode } from '../../types';
+import type { MediaOpenMode } from '../../../shared/mediaTypes';
 import { cueService } from '../../services/cue';
 import { captureException } from '../../utils/sentry';
 import { aiTabFocusFields, createTab, closeTab } from '../../utils/tabHelpers';
@@ -17,6 +18,7 @@ import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { loadAllSettings } from '../../stores/settingsStore';
+import { useRemoteGroupChat } from './useRemoteGroupChat';
 
 /**
  * Dependencies for the useRemoteIntegration hook.
@@ -656,7 +658,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 			(
 				sessionId: string,
 				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
+				options: { background: boolean; switchToAgent: boolean; mediaMode: MediaOpenMode }
 			) => {
 				window.dispatchEvent(
 					new CustomEvent('maestro:openFileTab', {
@@ -665,6 +667,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 							filePath,
 							background: options.background,
 							switchToAgent: options.switchToAgent,
+							mediaMode: options.mediaMode,
 						},
 					})
 				);
@@ -1628,6 +1631,9 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		);
 		return unsubscribe;
 	}, [sessionsRef]);
+
+	// Group chat requests from the CLI / web client
+	useRemoteGroupChat();
 
 	return {};
 }

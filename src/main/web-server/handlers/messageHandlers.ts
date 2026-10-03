@@ -47,6 +47,19 @@ import {
 	getProfilingStatus,
 	finalizeCapture,
 } from '../../profiling';
+import { generateDebugPackage, type DebugPackageDependencies } from '../../debug-package';
+import {
+	checkFeedbackGhAuth,
+	searchFeedbackIssues,
+	submitFeedbackConversation,
+	subscribeFeedbackIssue,
+} from '../../feedback';
+import { listFeedbackAccounts, rememberFeedbackAccount } from '../../feedback/accounts';
+import {
+	MAX_FEEDBACK_ATTACHMENTS,
+	type FeedbackConversationSubmitPayload,
+} from '../../../shared/feedback';
+import type { DebugPackageOptions } from '../../../shared/debugPackage';
 import { getStatsDB } from '../../stats/singleton';
 import { runReadonlyStatsQuery } from '../../stats/readonly-query';
 import type { StatsTimeRange } from '../../../shared/stats-types';
@@ -58,6 +71,7 @@ import {
 } from '../../../shared/uiSurfaces';
 import { readBackgroundField, readSwitchToAgentField } from '../../../shared/focusPlacement';
 import { parseToastClickAction } from '../../../shared/toastClickAction';
+import type { MediaOpenMode } from '../../../shared/mediaTypes';
 import type {
 	AutoRunDocument,
 	AutoRunState,
@@ -69,6 +83,8 @@ import type {
 	GitBranchesResult,
 	ListWorktreesResult,
 	GroupChatState,
+	StartGroupChatOptions,
+	StartGroupChatResult,
 	CueSubscriptionInfo,
 	CueActivityEntry,
 	UsageDashboardData,
@@ -92,6 +108,7 @@ import type {
 	TerminalTabInfo,
 	ReadTerminalTabPayload,
 	ReadTerminalTabResult,
+	OpenFileTabOptions,
 } from '../types';
 
 /** Canonical Toast / Center Flash color set (shared design language). */
@@ -158,6 +175,8 @@ export interface WebClientMessage {
 	background?: boolean;
 	/** open_file_tab only: the older, weaker `--no-switch` ask. */
 	switchToAgent?: boolean;
+	/** open_file_tab only: `'queue'` adds audio/video to the player paused. */
+	mediaMode?: MediaOpenMode;
 	[key: string]: unknown;
 }
 
@@ -224,7 +243,7 @@ export interface MessageHandlerCallbacks {
 	openFileTab: (
 		sessionId: string,
 		filePath: string,
-		options: { background: boolean; switchToAgent: boolean }
+		options: OpenFileTabOptions
 	) => Promise<boolean>;
 	/** Open a modal/dashboard by `UiSurface.id`, optionally on a validated tab id. */
 	openModal: (params: { surface: string; tab?: string }) => Promise<boolean>;
@@ -369,7 +388,11 @@ export interface MessageHandlerCallbacks {
 	getGitBranchesForSession: (sessionId: string) => Promise<GitBranchesResult>;
 	listWorktreesForSession: (sessionId: string) => Promise<ListWorktreesResult>;
 	getGroupChats: () => Promise<GroupChatState[]>;
-	startGroupChat: (topic: string, participantIds: string[]) => Promise<{ chatId: string } | null>;
+	startGroupChat: (
+		topic: string,
+		participantIds: string[],
+		options?: StartGroupChatOptions
+	) => Promise<StartGroupChatResult | null>;
 	getGroupChatState: (chatId: string) => Promise<GroupChatState | null>;
 	stopGroupChat: (chatId: string) => Promise<boolean>;
 	sendGroupChatMessage: (chatId: string, message: string) => Promise<boolean>;
@@ -415,6 +438,8 @@ export interface MessageHandlerCallbacks {
 	killTerminalForWeb: (sessionId: string) => boolean;
 	notifyToast: (params: NotifyToastParams) => Promise<boolean>;
 	notifyCenterFlash: (params: NotifyCenterFlashParams) => Promise<boolean>;
+	/** Collectors for a support package; `null` until the factory wires them. */
+	getDebugPackageDeps: () => DebugPackageDependencies | null;
 	getMarketplaceManifest: (options?: {
 		refresh?: boolean;
 	}) => Promise<MarketplaceManifestResult | null>;
@@ -853,6 +878,30 @@ export class WebSocketMessageHandler {
 
 			case 'profiling_status':
 				this.handleProfilingStatus(client, message);
+				break;
+
+			case 'support_package_create':
+				void this.handleSupportPackageCreate(client, message);
+				break;
+
+			case 'feedback_check_auth':
+				void this.handleFeedbackCheckAuth(client, message);
+				break;
+
+			case 'feedback_search':
+				void this.handleFeedbackSearch(client, message);
+				break;
+
+			case 'feedback_submit':
+				void this.handleFeedbackSubmit(client, message);
+				break;
+
+			case 'feedback_subscribe':
+				void this.handleFeedbackSubscribe(client, message);
+				break;
+
+			case 'feedback_accounts':
+				void this.handleFeedbackAccounts(client, message);
 				break;
 
 			case 'marketplace_get_manifest':
@@ -1846,17 +1895,19 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
+			this.sendError(client, 'Missing sessionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (typeof folderPath !== 'string' || folderPath.trim() === '') {
-			this.sendError(client, 'Missing or invalid folderPath');
+			this.sendError(client, 'Missing or invalid folderPath', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.setSessionAutoRunFolder) {
-			this.sendError(client, 'Auto Run folder updates not configured');
+			this.sendError(client, 'Auto Run folder updates not configured', {
+				requestId: message.requestId,
+			});
 			return;
 		}
 
@@ -1882,7 +1933,9 @@ export class WebSocketMessageHandler {
 						requestId: message.requestId,
 					},
 				});
-				this.sendError(client, `Failed to set Auto Run folder: ${err.message}`);
+				this.sendError(client, `Failed to set Auto Run folder: ${err.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -1900,8 +1953,11 @@ export class WebSocketMessageHandler {
 		//                          anywhere. Strictly stronger, so it wins.
 		const background = readBackgroundField(message);
 		const switchToAgent = readSwitchToAgentField(message);
+		// Opt-in like `background`: only a literal 'queue' counts, so an absent
+		// field keeps today's open-and-play behaviour for every existing caller.
+		const mediaMode: MediaOpenMode = message.mediaMode === 'queue' ? 'queue' : 'play';
 		logger.info(
-			`[Web] Received open_file_tab message: session=${sessionId}, filePath=${filePath}, background=${background}, switchToAgent=${switchToAgent}`,
+			`[Web] Received open_file_tab message: session=${sessionId}, filePath=${filePath}, background=${background}, switchToAgent=${switchToAgent}, mediaMode=${mediaMode}`,
 			LOG_CONTEXT
 		);
 
@@ -1941,7 +1997,7 @@ export class WebSocketMessageHandler {
 		}
 
 		this.callbacks
-			.openFileTab(sessionId, resolved, { background, switchToAgent })
+			.openFileTab(sessionId, resolved, { background, switchToAgent, mediaMode })
 			.then((success) => {
 				this.send(client, {
 					type: 'open_file_tab_result',
@@ -1950,6 +2006,7 @@ export class WebSocketMessageHandler {
 					filePath,
 					background,
 					switchToAgent,
+					mediaMode,
 					requestId: message.requestId,
 				});
 			})
@@ -2668,12 +2725,12 @@ export class WebSocketMessageHandler {
 		logger.info(`[Web] Received get_auto_run_state message: session=${sessionId}`, LOG_CONTEXT);
 
 		if (!sessionId) {
-			this.sendError(client, 'Missing sessionId');
+			this.sendError(client, 'Missing sessionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.getSessionDetail) {
-			this.sendError(client, 'Session detail not configured');
+			this.sendError(client, 'Session detail not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4010,44 +4067,63 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get group chats: ${error.message}`);
+				this.sendError(client, `Failed to get group chats: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
 	/**
-	 * Handle start_group_chat message - start a new group chat
+	 * Handle start_group_chat message - start a new group chat.
+	 *
+	 * Validation errors carry the requestId so a CLI caller gets the reason
+	 * instead of waiting out its command timeout.
 	 */
 	private handleStartGroupChat(client: WebClient, message: WebClientMessage): void {
 		const topic = message.topic as string;
 		const participantIds = message.participantIds as string[];
+		const reply = { requestId: message.requestId };
 
 		if (!topic || typeof topic !== 'string') {
-			this.sendError(client, 'Missing or invalid topic');
+			this.sendError(client, 'Missing or invalid topic', reply);
 			return;
 		}
 
-		if (!participantIds || !Array.isArray(participantIds) || participantIds.length < 2) {
-			this.sendError(client, 'At least 2 participants are required');
+		if (
+			!Array.isArray(participantIds) ||
+			participantIds.length === 0 ||
+			participantIds.some((id) => typeof id !== 'string' || !id)
+		) {
+			this.sendError(client, 'At least 1 participant is required', reply);
 			return;
+		}
+
+		const options: StartGroupChatOptions = {};
+		if (typeof message.moderatorAgentId === 'string' && message.moderatorAgentId) {
+			options.moderatorAgentId = message.moderatorAgentId;
+		}
+		if (typeof message.message === 'string' && message.message.trim()) {
+			options.message = message.message;
 		}
 
 		if (!this.callbacks.startGroupChat) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', reply);
 			return;
 		}
 
 		this.callbacks
-			.startGroupChat(topic, participantIds)
+			.startGroupChat(topic, participantIds, options)
 			.then((result) => {
 				this.send(client, {
 					type: 'start_group_chat_result',
-					success: !!result,
+					success: !!result?.chatId && !result.error,
 					chatId: result?.chatId,
+					error: result ? result.error : 'The desktop app did not answer',
 					requestId: message.requestId,
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to start group chat: ${error.message}`);
+				this.sendError(client, `Failed to start group chat: ${error.message}`, reply);
 			});
 	}
 
@@ -4058,12 +4134,12 @@ export class WebSocketMessageHandler {
 		const chatId = message.chatId as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.getGroupChatState) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4078,7 +4154,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get group chat state: ${error.message}`);
+				this.sendError(client, `Failed to get group chat state: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4090,17 +4168,17 @@ export class WebSocketMessageHandler {
 		const chatMessage = message.message as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!chatMessage || typeof chatMessage !== 'string') {
-			this.sendError(client, 'Missing or invalid message');
+			this.sendError(client, 'Missing or invalid message', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.sendGroupChatMessage) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4115,7 +4193,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to send group chat message: ${error.message}`);
+				this.sendError(client, `Failed to send group chat message: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4126,12 +4206,12 @@ export class WebSocketMessageHandler {
 		const chatId = message.chatId as string;
 
 		if (!chatId) {
-			this.sendError(client, 'Missing chatId');
+			this.sendError(client, 'Missing chatId', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.stopGroupChat) {
-			this.sendError(client, 'Group chat not configured');
+			this.sendError(client, 'Group chat not configured', { requestId: message.requestId });
 			return;
 		}
 
@@ -4146,7 +4226,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to stop group chat: ${error.message}`);
+				this.sendError(client, `Failed to stop group chat: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4354,17 +4436,17 @@ export class WebSocketMessageHandler {
 		const enabled = message.enabled as boolean;
 
 		if (!subscriptionId) {
-			this.sendError(client, 'Missing subscriptionId');
+			this.sendError(client, 'Missing subscriptionId', { requestId: message.requestId });
 			return;
 		}
 
 		if (typeof enabled !== 'boolean') {
-			this.sendError(client, 'Missing or invalid enabled flag');
+			this.sendError(client, 'Missing or invalid enabled flag', { requestId: message.requestId });
 			return;
 		}
 
 		if (!this.callbacks.toggleCueSubscription) {
-			this.sendError(client, 'Cue toggle not available');
+			this.sendError(client, 'Cue toggle not available', { requestId: message.requestId });
 			return;
 		}
 
@@ -4381,7 +4463,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to toggle Cue subscription: ${error.message}`);
+				this.sendError(client, `Failed to toggle Cue subscription: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -4393,7 +4477,7 @@ export class WebSocketMessageHandler {
 		const limit = (message.limit as number) ?? 50;
 
 		if (!this.callbacks.getCueActivity) {
-			this.sendError(client, 'Cue activity not available');
+			this.sendError(client, 'Cue activity not available', { requestId: message.requestId });
 			return;
 		}
 
@@ -4408,7 +4492,9 @@ export class WebSocketMessageHandler {
 				});
 			})
 			.catch((error) => {
-				this.sendError(client, `Failed to get Cue activity: ${error.message}`);
+				this.sendError(client, `Failed to get Cue activity: ${error.message}`, {
+					requestId: message.requestId,
+				});
 			});
 	}
 
@@ -5010,13 +5096,19 @@ export class WebSocketMessageHandler {
 	 */
 	private async handleProfilingStart(client: WebClient, message: WebClientMessage): Promise<void> {
 		try {
-			const status = await startProfiling();
+			// 'cli' origin: the buffer watchdog must NOT end this recording through
+			// the desktop UI. That flow raises a save dialog and writes wherever the
+			// user picks, which would hijack an unattended capture loop and put the
+			// bundle somewhere the caller never looks. A CLI capture sees
+			// `autoStopRequested` in `profiling status` and stops itself.
+			const status = await startProfiling(undefined, 'cli');
 			this.send(client, {
 				type: 'profiling_start_result',
 				success: true,
 				active: status.active,
 				startedAt: status.startedAt,
 				categories: status.categories,
+				bufferSizeKb: status.bufferSizeKb,
 				requestId: message.requestId,
 			});
 		} catch (error) {
@@ -5042,6 +5134,14 @@ export class WebSocketMessageHandler {
 			startedAt: status.startedAt,
 			elapsedMs: status.elapsedMs,
 			categories: status.categories,
+			// Buffer pressure, and whether the watchdog has already decided this
+			// recording should end. A scripted capture loop polls this to decide when
+			// to stop; without it the loop can only guess a duration, which is how
+			// truncated bundles got analyzed as if they were whole.
+			bufferPercent: status.bufferPercent,
+			peakBufferPercent: status.peakBufferPercent,
+			bufferSizeKb: status.bufferSizeKb,
+			autoStopRequested: status.autoStopRequested,
 			requestId: message.requestId,
 		});
 	}
@@ -5085,17 +5185,25 @@ export class WebSocketMessageHandler {
 		const tracePath = path.join(app.getPath('temp'), `maestro-trace-${timestamp}.json`);
 
 		try {
-			const { durationMs, categories } = await stopProfiling(tracePath);
+			const outcome = await stopProfiling(tracePath);
+			const { durationMs } = outcome;
 			// Ensure the destination directory exists so callers can point at a fresh
 			// output dir per loop iteration without pre-creating it.
 			await fs.mkdir(path.dirname(outputPath), { recursive: true });
-			const finalized = await finalizeCapture(tracePath, outputPath, durationMs, categories);
+			const finalized = await finalizeCapture(tracePath, outputPath, outcome);
 			logger.info(`[Profiling] CLI capture saved: ${finalized.path} (${durationMs}ms trace)`);
+			// An unattended capture -> analyze loop has nobody watching a modal, so
+			// completeness travels in the result. A caller that keeps analyzing
+			// truncated bundles without knowing it is the failure mode this whole
+			// change exists to end.
 			sendResult(true, {
 				path: finalized.path,
 				bundleSizeBytes: finalized.bundleSizeBytes,
 				traceSizeBytes: finalized.traceSizeBytes,
 				durationMs,
+				peakBufferPercent: outcome.peakBufferPercent,
+				autoStopped: outcome.autoStopped,
+				bufferExhausted: outcome.bufferExhausted,
 			});
 		} catch (error) {
 			const errMsg = error instanceof Error ? error.message : String(error);
@@ -5103,6 +5211,169 @@ export class WebSocketMessageHandler {
 		} finally {
 			await fs.rm(tracePath, { force: true }).catch(() => {});
 		}
+	}
+
+	/**
+	 * Handle support_package_create - write a support (debug) package zip into
+	 * `outputDir`. The desktop's Create Debug Package raises a save dialog; the
+	 * CLI names the directory instead so it works unattended.
+	 *
+	 * Auto Run live state lives only in the renderer's batch store, so a package
+	 * built here reports that section as unavailable rather than claiming no
+	 * runs were active.
+	 */
+	private async handleSupportPackageCreate(
+		client: WebClient,
+		message: WebClientMessage
+	): Promise<void> {
+		const sendResult = (success: boolean, extra?: Record<string, unknown>) => {
+			this.send(client, {
+				type: 'support_package_create_result',
+				success,
+				...extra,
+				requestId: message.requestId,
+			});
+		};
+
+		const outputDir = typeof message.outputDir === 'string' ? message.outputDir : '';
+		if (!outputDir || !path.isAbsolute(outputDir)) {
+			sendResult(false, {
+				error: `outputDir must be an absolute path, got: ${outputDir || '(none)'}`,
+			});
+			return;
+		}
+		const deps = this.callbacks.getDebugPackageDeps?.() ?? null;
+		if (!deps) {
+			sendResult(false, { error: 'Support packages are not configured in this build' });
+			return;
+		}
+
+		// Only the section toggles cross the wire. Anything else on the message is
+		// ignored rather than spread into the generator's options.
+		const raw = (message.options ?? {}) as Record<string, unknown>;
+		const options: DebugPackageOptions = {};
+		for (const key of [
+			'includeLogs',
+			'includeErrors',
+			'includeSessions',
+			'includeGroupChats',
+			'includeBatchState',
+		] as const) {
+			if (typeof raw[key] === 'boolean') options[key] = raw[key];
+		}
+
+		try {
+			const result = await generateDebugPackage(outputDir, deps, options);
+			if (!result.success) {
+				sendResult(false, { error: result.error || 'Failed to generate support package' });
+				return;
+			}
+			sendResult(true, {
+				path: result.path,
+				filesIncluded: result.filesIncluded,
+				totalSizeBytes: result.totalSizeBytes,
+			});
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			sendResult(false, { error: `Failed to generate support package: ${errMsg}` });
+		}
+	}
+
+	/**
+	 * Run one feedback-service call and answer with `<type>_result`. The service
+	 * functions already return `{ success, error }` shapes for expected failures;
+	 * a throw here is a `gh` or filesystem fault and is reported the same way.
+	 */
+	private async answerFeedback(
+		client: WebClient,
+		message: WebClientMessage,
+		run: () => Promise<Record<string, unknown>>
+	): Promise<void> {
+		const type = `${message.type}_result`;
+		try {
+			const result = await run();
+			this.send(client, {
+				success: true,
+				...result,
+				type,
+				requestId: message.requestId,
+			});
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			this.send(client, { type, success: false, error: errMsg, requestId: message.requestId });
+		}
+	}
+
+	/** Handle feedback_check_auth - is `gh` installed and logged in. */
+	private handleFeedbackCheckAuth(client: WebClient, message: WebClientMessage): Promise<void> {
+		return this.answerFeedback(client, message, async () => ({ ...(await checkFeedbackGhAuth()) }));
+	}
+
+	/** Handle feedback_search - possible duplicate issues for a query. */
+	private handleFeedbackSearch(client: WebClient, message: WebClientMessage): Promise<void> {
+		const query = typeof message.query === 'string' ? message.query : '';
+		return this.answerFeedback(client, message, async () => ({
+			...(await searchFeedbackIssues({ query })),
+		}));
+	}
+
+	/**
+	 * Handle feedback_submit - file a GitHub issue exactly as the Feedback
+	 * modal's Submit does, including the optional support package.
+	 */
+	private handleFeedbackSubmit(client: WebClient, message: WebClientMessage): Promise<void> {
+		const payload = (message.payload ?? {}) as FeedbackConversationSubmitPayload;
+		return this.answerFeedback(client, message, async () => {
+			if (
+				Array.isArray(payload.attachments) &&
+				payload.attachments.length > MAX_FEEDBACK_ATTACHMENTS
+			) {
+				return {
+					success: false,
+					error: `At most ${MAX_FEEDBACK_ATTACHMENTS} screenshots can be attached.`,
+				};
+			}
+			const deps = payload.includeDebugPackage
+				? (this.callbacks.getDebugPackageDeps?.() ?? undefined)
+				: undefined;
+			if (payload.includeDebugPackage && !deps) {
+				return { success: false, error: 'Support packages are not configured in this build' };
+			}
+			return { ...(await submitFeedbackConversation(payload, deps)) };
+		});
+	}
+
+	/** Handle feedback_subscribe - +1 an existing issue, optionally commenting. */
+	private handleFeedbackSubscribe(client: WebClient, message: WebClientMessage): Promise<void> {
+		const issueNumber = typeof message.issueNumber === 'number' ? message.issueNumber : NaN;
+		const comment = typeof message.comment === 'string' ? message.comment : undefined;
+		return this.answerFeedback(client, message, async () => ({
+			...(await subscribeFeedbackIssue({ issueNumber, comment })),
+		}));
+	}
+
+	/**
+	 * Handle feedback_accounts - the accounts the Feedback chat can run as, in the
+	 * order it tries them. `use` (a profile key, or null to forget) records the
+	 * account the next conversation tries first, as a pick in the chat does.
+	 */
+	private handleFeedbackAccounts(client: WebClient, message: WebClientMessage): Promise<void> {
+		return this.answerFeedback(client, message, async () => {
+			const getAgentDetector = () =>
+				this.callbacks.getDebugPackageDeps?.()?.getAgentDetector() ?? null;
+			if (message.use === null) {
+				rememberFeedbackAccount(null);
+			} else if (typeof message.use === 'string') {
+				const { accounts } = await listFeedbackAccounts(getAgentDetector);
+				if (!accounts.some((account) => account.key === message.use)) {
+					throw new Error(
+						`No feedback account with key "${message.use}". Run "maestro-cli feedback accounts" to list them.`
+					);
+				}
+				rememberFeedbackAccount(message.use);
+			}
+			return { ...(await listFeedbackAccounts(getAgentDetector)) };
+		});
 	}
 
 	/**

@@ -133,7 +133,8 @@ export interface SnoozedTabListItem {
  * @param tabId - AI tab to snooze
  * @param wakeAt - When the tab should come back (ms epoch)
  * @param note - Optional note-to-self shown in the wake notification
- * @param showUnreadOnly - Current unread-filter state (affects which tab is selected next)
+ * @param showUnreadOnly - Unread-filter override; omit to read the live filter state
+ *                         (it decides which tab is selected next)
  * @returns Updated session and the stored entry, or null if the tab doesn't exist
  */
 export function snoozeTab(
@@ -141,7 +142,7 @@ export function snoozeTab(
 	tabId: string,
 	wakeAt: number,
 	note?: string,
-	showUnreadOnly = false
+	showUnreadOnly?: boolean
 ): SnoozeTabResult | null {
 	if (!session) return null;
 

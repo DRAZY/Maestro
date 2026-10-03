@@ -11,7 +11,6 @@
  */
 
 import type { Theme } from '../../../types';
-import { humanizeDuration, type DurationUnit } from '../../../../shared/duration';
 
 export {
 	makeAccountKeyHelpers,
@@ -50,20 +49,6 @@ export function resolveQuotaFillColor(percent: number, theme: Theme): string {
 }
 
 /**
- * Ladder for the "last refreshed" footer. Stops at minutes on purpose: the
- * seconds rung would turn the line into a live clock that never settles, and
- * the age of a quota sample is not interesting at that resolution.
- */
-const LAST_REFRESHED_UNITS: readonly DurationUnit[] = [
-	'year',
-	'month',
-	'week',
-	'day',
-	'hour',
-	'minute',
-];
-
-/**
  * Newest `sampledAt` across a provider's snapshot map, in epoch ms.
  *
  * The panel refreshes every configured account in one pass, so the newest
@@ -85,30 +70,10 @@ export function resolveLatestSampledAt(
 }
 
 /**
- * Render the age of the newest sample as prose: `"just now"`, `"12 minutes
- * ago"`, `"5 hours and 25 minutes ago"`.
- *
- * Anything under a minute - including a stamp from the future, which a clock
- * adjustment can produce - reads as "just now", so hitting Refresh always
- * lands on that string instead of on a negative or flickering count.
- */
-export function formatLastRefreshed(sampledAtMs: number, nowMs: number): string {
-	const elapsed = nowMs - sampledAtMs;
-	if (!Number.isFinite(elapsed) || elapsed < 60_000) return 'just now';
-	const spoken = humanizeDuration(elapsed, {
-		units: LAST_REFRESHED_UNITS,
-		maxUnits: 2,
-		style: 'long',
-		separator: ' and ',
-	});
-	return `${spoken} ago`;
-}
-
-/**
  * How far one row's sample may trail the panel's newest sample before the row
  * is flagged. A refresh pass samples every account in parallel, each within the
  * sampler's 30s budget, so a gap this wide means the last pass skipped or failed
- * that account and its bars predate the "Last refreshed" footer.
+ * that account and its bars predate the sample age the dashboard footer prints.
  */
 export const STALE_ROW_LAG_MS = 5 * 60_000;
 
@@ -125,4 +90,26 @@ export function isSampleBehindLatest(
 	const sampledAtMs = Date.parse(sampledAt);
 	if (!Number.isFinite(sampledAtMs)) return false;
 	return latestSampledAtMs - sampledAtMs > STALE_ROW_LAG_MS;
+}
+
+/**
+ * Age past which a sample is no longer trusted anywhere in the app. Mirrors the
+ * main-side snapshot TTL (`SNAPSHOT_TTL_MS`): past it the store stops handing
+ * the snapshot to the mode selector and keeps it for display only, so the panel
+ * must say so.
+ */
+export const EXPIRED_SAMPLE_AGE_MS = 24 * 60 * 60_000;
+
+/**
+ * True when `sampledAt` is older than `EXPIRED_SAMPLE_AGE_MS`. This is the case
+ * `isSampleBehindLatest` cannot catch: when EVERY row is a day old, no row
+ * trails the newest, yet none of the bars mean anything current. Typically an
+ * account nobody runs agents against anymore - its row is kept precisely so the
+ * user can watch for the reset, which only works if the age is on screen.
+ */
+export function isSampleExpired(sampledAt: string | undefined, nowMs = Date.now()): boolean {
+	if (!sampledAt) return false;
+	const sampledAtMs = Date.parse(sampledAt);
+	if (!Number.isFinite(sampledAtMs)) return false;
+	return nowMs - sampledAtMs > EXPIRED_SAMPLE_AGE_MS;
 }

@@ -17,6 +17,7 @@ import { hasCapabilityCached } from '../agent/useAgentCapabilities';
 import { stripShellCommandEscape, type ComposerCommandMode } from '../../utils/shellCommandInput';
 import { dispatchShellCommand } from '../../services/shellCommand';
 import { requestAiCommand } from '../../services/aiCommand';
+import { submitSteeringNote } from '../../services/autoRunSteering';
 import {
 	collectNamingPrompt,
 	requestTabAutoName,
@@ -26,6 +27,7 @@ import { getAiCommandEntry } from '../../stores/aiCommandStore';
 import { gitService } from '../../services/git';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { hasPendingRetry } from '../../stores/retryStore';
+import { takePendingMergedContext } from '../../stores/sessionStore';
 import { logger } from '../../utils/logger';
 
 let cachedImageOnlyPrompt: string = '';
@@ -684,6 +686,39 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					queueLength: activeSession.executionQueue.length,
 				});
 
+				// Auto Run steering: a plain write-mode message typed while a run is
+				// in flight is a course correction, not a conversation turn. Park it
+				// as a steering note so the NEXT task's prompt opens with it, instead
+				// of queueing a whole separate turn in a context that task will never
+				// see (Auto Run spawns a fresh agent per task).
+				//
+				// Every deliberate escape still behaves as before:
+				//  - read-only mode sends a parallel question turn,
+				//  - Force Send (forceParallel) bypasses the run entirely,
+				//  - a retry hold means the provider is refusing work, which a note
+				//    cannot fix, so the message queues and waits it out,
+				//  - staged images have nowhere to go in a text task prompt, so a
+				//    message carrying them queues rather than losing them.
+				const steeringAccepted =
+					shouldQueue &&
+					isAutoRunActive &&
+					!isReadOnlyMode &&
+					!forceParallel &&
+					!retryHoldsTab &&
+					effectiveImages.length === 0 &&
+					submitSteeringNote({
+						sessionId: activeSession.id,
+						tabId: activeTab?.id || activeSession.activeTabId,
+						text: effectiveInputValue,
+					});
+
+				if (steeringAccepted) {
+					setInputValue('');
+					syncAiInputToSession('');
+					if (inputRef.current) inputRef.current.style.height = 'auto';
+					return;
+				}
+
 				if (shouldQueue) {
 					const queuedItem: QueuedItem = {
 						id: generateId(),
@@ -1085,31 +1120,13 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						}
 
 						// Check for pending merged context that needs to be injected
-						// This happens when a user merged context from another tab/session
-						const pendingMergedContext = freshActiveTab?.pendingMergedContext;
-						if (pendingMergedContext) {
-							// Prepend the merged context to the user's message
-							effectivePrompt = `${pendingMergedContext}\n\n---\n\n${effectivePrompt}`;
-
-							// Clear the pending merged context from the tab
-							setSessions((prev) =>
-								prev.map((s) => {
-									if (s.id !== activeSessionId) return s;
-									return {
-										...s,
-										aiTabs: s.aiTabs.map((tab) =>
-											tab.id === freshActiveTab.id
-												? { ...tab, pendingMergedContext: undefined }
-												: tab
-										),
-									};
-								})
+						// (merge, Send to Agent, session-not-found recovery)
+						if (freshActiveTab) {
+							effectivePrompt = takePendingMergedContext(
+								activeSessionId,
+								freshActiveTab.id,
+								effectivePrompt
 							);
-
-							logger.info('[InputProcessing] Injected merged context into message:', undefined, {
-								contextLength: pendingMergedContext.length,
-								promptLength: effectivePrompt.length,
-							});
 						}
 
 						// Prepare Maestro system prompt. Always send it; the main-process handler

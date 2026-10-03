@@ -11,6 +11,7 @@ import {
 import type { Theme } from '../../types';
 import type { ProcessNode, ProcessMonitorProps } from './types';
 import { formatRuntime } from './runtime';
+import { cueSourceBadgeLabel } from './processTree';
 
 export interface ProcessListViewProps {
 	theme: Theme;
@@ -389,7 +390,7 @@ export function ProcessListView(props: ProcessListViewProps) {
 											border: '1px solid #06b6d450',
 										}}
 									>
-										{node.cueEventType?.replace('.', ' ').toUpperCase() ?? 'CUE'}
+										{cueSourceBadgeLabel(node.cueEventType)}
 									</span>
 								)}
 								{node.sessionId &&

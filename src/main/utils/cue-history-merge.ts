@@ -307,9 +307,10 @@ const CUE_DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * A Cue run's identity as far as the two writers of the same run agreed on it.
- * The JSONL entry and the DB row carry byte-identical summaries - both derived
- * from `buildCuePersistedOutput()` - but different ids and different
- * timestamps, so id dedupe cannot see the overlap.
+ * For a run recorded after the output columns shipped, the JSONL entry and the
+ * DB row carry byte-identical summaries - both derived from
+ * `buildCuePersistedOutput()` - but different ids and different timestamps, so
+ * id dedupe cannot see the overlap.
  */
 function cueDuplicateKey(entry: HistoryEntry): string {
 	return [
@@ -318,6 +319,28 @@ function cueDuplicateKey(entry: HistoryEntry): string {
 		entry.cueEventType ?? '',
 		entry.summary,
 	].join(' ');
+}
+
+/**
+ * The same identity MINUS the summary.
+ *
+ * Runs that finished before `output_excerpt` / `full_output` existed have NULL
+ * in both columns, so `cueEventToHistoryEntry` falls back to
+ * `buildCueRunSummary()` and labels the row `"Trigger" - Agent`. The JSONL
+ * entry for that same run was written while stdout was still in hand, so it
+ * carries the output excerpt instead. Two different strings for one run, which
+ * the summary-keyed pass above cannot match - measured at 565 rows rendering
+ * twice across the fleet on the day this shipped.
+ *
+ * Safe as a fallback because it is only reachable inside the window where BOTH
+ * writers were live, and in that window every DB row passing the serve filter
+ * has a JSONL twin by construction: the JSONL writer recorded every run that
+ * produced output AND every run that did not complete cleanly, which is the
+ * same predicate the DB read applies. Past that window the JSONL file holds no
+ * CUE entries at all, so there is nothing for this to match against.
+ */
+function cueDuplicateKeyWithoutSummary(entry: HistoryEntry): string {
+	return [entry.sessionId, entry.cueTriggerName ?? '', entry.cueEventType ?? ''].join(' ');
 }
 
 /**
@@ -339,36 +362,69 @@ export function dropCueRowsAlreadyInJsonl(
 ): HistoryEntry[] {
 	if (cueRows.length === 0) return cueRows;
 
-	const jsonlTimestamps = new Map<string, number[]>();
+	// Two indexes over the same JSONL entries: one keyed with the summary, one
+	// without. An entry consumed from either index is removed from BOTH, so a
+	// single JSONL entry can still only ever hide one database row.
+	const byFullKey = new Map<string, JsonlCueRef[]>();
+	const byTriggerKey = new Map<string, JsonlCueRef[]>();
 	for (const entry of jsonlEntries) {
 		if (entry.type !== 'CUE') continue;
-		const key = cueDuplicateKey(entry);
-		const bucket = jsonlTimestamps.get(key);
-		if (bucket) bucket.push(entry.timestamp);
-		else jsonlTimestamps.set(key, [entry.timestamp]);
+		const ref: JsonlCueRef = { timestamp: entry.timestamp, consumed: false };
+		pushRef(byFullKey, cueDuplicateKey(entry), ref);
+		pushRef(byTriggerKey, cueDuplicateKeyWithoutSummary(entry), ref);
 	}
-	if (jsonlTimestamps.size === 0) return cueRows;
+	if (byFullKey.size === 0) return cueRows;
 
 	return cueRows.filter((row) => {
-		const bucket = jsonlTimestamps.get(cueDuplicateKey(row));
-		if (!bucket || bucket.length === 0) return true;
-
 		// The DB row is stamped at dispatch; the JSONL entry was stamped when
 		// the run finished, so compare against the row's completion time.
 		const finishedAt = row.timestamp + (row.elapsedTimeMs ?? 0);
-		let matchIndex = -1;
-		let smallestDelta = CUE_DUPLICATE_WINDOW_MS;
-		for (let i = 0; i < bucket.length; i++) {
-			const delta = Math.abs(bucket[i] - finishedAt);
-			if (delta <= smallestDelta) {
-				smallestDelta = delta;
-				matchIndex = i;
-			}
+
+		// Exact identity first. Anything it matches is a run both writers
+		// described identically, so this is the high-confidence pass.
+		if (consumeNearest(byFullKey.get(cueDuplicateKey(row)), finishedAt)) return false;
+
+		// Then the summary-free fallback, for runs predating the output columns.
+		if (consumeNearest(byTriggerKey.get(cueDuplicateKeyWithoutSummary(row)), finishedAt)) {
+			return false;
 		}
-		if (matchIndex === -1) return true;
-		bucket.splice(matchIndex, 1);
-		return false;
+
+		return true;
 	});
+}
+
+/** A JSONL Cue entry as seen by the duplicate scan, shared across both indexes. */
+interface JsonlCueRef {
+	timestamp: number;
+	consumed: boolean;
+}
+
+function pushRef(index: Map<string, JsonlCueRef[]>, key: string, ref: JsonlCueRef): void {
+	const bucket = index.get(key);
+	if (bucket) bucket.push(ref);
+	else index.set(key, [ref]);
+}
+
+/**
+ * Consume the unconsumed entry nearest `finishedAt` within the tolerance.
+ * Returns true when one was found, meaning the caller's row is a duplicate.
+ */
+function consumeNearest(bucket: JsonlCueRef[] | undefined, finishedAt: number): boolean {
+	if (!bucket || bucket.length === 0) return false;
+
+	let match: JsonlCueRef | null = null;
+	let smallestDelta = CUE_DUPLICATE_WINDOW_MS;
+	for (const ref of bucket) {
+		if (ref.consumed) continue;
+		const delta = Math.abs(ref.timestamp - finishedAt);
+		if (delta <= smallestDelta) {
+			smallestDelta = delta;
+			match = ref;
+		}
+	}
+	if (!match) return false;
+	match.consumed = true;
+	return true;
 }
 
 /**

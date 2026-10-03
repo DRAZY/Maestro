@@ -16,6 +16,12 @@ import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { isAbsolutePath } from '../../../shared/formatters';
 import type { Theme } from '../../types';
+import { EnvVarKeyInput } from '../shared/EnvVarKeyInput';
+import {
+	BLANK_ENV_VAR_KEY,
+	EMPTY_KNOWN_ENV_VAR_KEYS,
+	type KnownEnvVarKeys,
+} from '../../../shared/envVarCatalog';
 
 /**
  * Variable names whose values MUST be absolute filesystem paths. A relative
@@ -88,6 +94,8 @@ export interface EnvVarsEditorProps {
 	 */
 	disabledEnvVars?: Record<string, string>;
 	setDisabledEnvVars?: (vars: Record<string, string>) => void;
+	/** Variable NAMES already set on agents or here, offered back in the name field. */
+	knownEnvVarKeys?: KnownEnvVarKeys;
 }
 
 export function EnvVarsEditor({
@@ -98,6 +106,7 @@ export function EnvVarsEditor({
 	description = 'Environment variables passed to all terminal sessions and AI agent processes.',
 	disabledEnvVars,
 	setDisabledEnvVars,
+	knownEnvVarKeys = EMPTY_KNOWN_ENV_VAR_KEYS,
 }: EnvVarsEditorProps) {
 	// The toggle needs both halves to round-trip a parked variable; with only
 	// one, switching a row off would drop its value on the floor.
@@ -110,6 +119,8 @@ export function EnvVarsEditor({
 		Object.keys(envVars).length + Object.keys(disabledEnvVars ?? {}).length
 	);
 	const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
+	// Id of the row added by "Add Variable", so only THAT row takes the caret.
+	const [focusEntryId, setFocusEntryId] = useState<number | null>(null);
 
 	// Validate environment variable format
 	const validateEntry = (entry: EnvVarEntry): string | null => {
@@ -208,16 +219,17 @@ export function EnvVarsEditor({
 		});
 	};
 
+	const entryKeys = entries.map((entry) => entry.key);
+
+	// A new row starts UNNAMED so the name field can offer the provider variables
+	// instead of a `VAR` placeholder the user has to select and delete first.
+	// Blank-named rows never reach the parent: commitChanges() drops them.
 	const addEntry = () => {
-		// Generate a unique default key name
-		let newKey = 'VAR';
-		let counter = 1;
-		const existingKeys = new Set(entries.map((e) => e.key));
-		while (existingKeys.has(newKey)) {
-			newKey = `VAR_${counter}`;
-			counter++;
-		}
-		setEntries((prev) => [...prev, { id: nextId, key: newKey, value: '', enabled: true }]);
+		setEntries((prev) => [
+			...prev,
+			{ id: nextId, key: BLANK_ENV_VAR_KEY, value: '', enabled: true },
+		]);
+		setFocusEntryId(nextId);
 		setNextId((prev) => prev + 1);
 	};
 
@@ -252,12 +264,15 @@ export function EnvVarsEditor({
 										{off ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
 									</GhostIconButton>
 								)}
-								<input
-									type="text"
+								<EnvVarKeyInput
+									theme={theme}
 									value={entry.key}
-									onChange={(e) => updateEntry(entry.id, 'key', e.target.value)}
-									placeholder="VARIABLE_NAME"
-									className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
+									onChange={(key) => updateEntry(entry.id, 'key', key)}
+									knownEnvVarKeys={knownEnvVarKeys}
+									usedKeys={entryKeys}
+									autoFocus={focusEntryId === entry.id}
+									onAutoFocused={() => setFocusEntryId(null)}
+									className="p-2 rounded border bg-transparent outline-none text-xs font-mono"
 									style={{
 										borderColor: error ? '#ef4444' : theme.colors.border,
 										color: theme.colors.textMain,

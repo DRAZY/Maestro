@@ -103,7 +103,10 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 		encoreFeatures: { directorNotes: false },
 		setEncoreFeatures: mockSetEncoreFeatures,
 		directorNotesSettings: {
+			// These suites exercise the MANUAL provider path (picker + Customize),
+			// which auto-selection deliberately ghosts out. Auto has its own suite.
 			provider: 'claude-code',
+			autoSelectProvider: false,
 			defaultLookbackDays: 7,
 		},
 		setDirectorNotesSettings: mockSetDirectorNotesSettings,
@@ -325,10 +328,52 @@ describe('EncoreTab', () => {
 
 			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
 				provider: 'codex',
+				autoSelectProvider: false,
 				defaultLookbackDays: 7,
 				customPath: undefined,
 				customArgs: undefined,
 				customEnvVars: undefined,
+			});
+		});
+
+		it('should ghost the picker and Customize while auto-selection is on', async () => {
+			mockUseSettingsOverrides = {
+				encoreFeatures: { directorNotes: true },
+				directorNotesSettings: { provider: 'claude-code', defaultLookbackDays: 7 },
+			};
+
+			render(<EncoreTab theme={mockTheme} isOpen={true} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(screen.getByLabelText('Select synopsis provider agent')).toBeDisabled();
+			expect(screen.getByText('Customize').closest('button')).toBeDisabled();
+			// The helper text names what auto would actually run right now.
+			expect(screen.getByText(/Right now that is Claude Code/)).toBeInTheDocument();
+		});
+
+		it('should turn auto-selection off from the toggle', async () => {
+			mockUseSettingsOverrides = {
+				encoreFeatures: { directorNotes: true },
+				directorNotesSettings: { provider: 'claude-code', defaultLookbackDays: 7 },
+			};
+
+			render(<EncoreTab theme={mockTheme} isOpen={true} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			fireEvent.click(
+				screen.getByLabelText("Use the first available provider for Director's Notes")
+			);
+
+			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
+				provider: 'claude-code',
+				autoSelectProvider: false,
+				defaultLookbackDays: 7,
 			});
 		});
 
@@ -705,8 +750,9 @@ describe('EncoreTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
+			// A new row is unnamed, so the record gains one blank-keyed entry.
 			expect(screen.getByTestId('agent-config-env-vars')).toHaveTextContent(
-				JSON.stringify({ NEW_VAR: '' })
+				JSON.stringify({ '': '' })
 			);
 		});
 
@@ -730,7 +776,7 @@ describe('EncoreTab', () => {
 			});
 
 			// The mock callback triggers onEnvVarKeyChange('OLD_KEY', 'NEW_KEY', 'value')
-			// but our env vars have 'NEW_VAR', so the callback will do:
+			// but our env vars hold only the unnamed row, so the callback will do:
 			// delete newVars['OLD_KEY'], set newVars['NEW_KEY'] = 'value'
 			fireEvent.click(screen.getByTestId('trigger-env-var-key-change'));
 
@@ -820,7 +866,7 @@ describe('EncoreTab', () => {
 
 			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith(
 				expect.objectContaining({
-					customEnvVars: { NEW_VAR: '' },
+					customEnvVars: { '': '' },
 				})
 			);
 		});
@@ -879,6 +925,7 @@ describe('EncoreTab', () => {
 
 			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
 				provider: 'claude-code',
+				autoSelectProvider: false,
 				defaultLookbackDays: 30,
 			});
 		});
@@ -1005,6 +1052,7 @@ describe('EncoreTab', () => {
 				encoreFeatures: { directorNotes: true },
 				directorNotesSettings: {
 					provider: 'claude-code',
+					autoSelectProvider: false,
 					defaultLookbackDays: 7,
 					customPath: '/custom/claude',
 				},
@@ -1258,6 +1306,7 @@ describe('EncoreTab', () => {
 				encoreFeatures: { directorNotes: true },
 				directorNotesSettings: {
 					provider: 'claude-code',
+					autoSelectProvider: false,
 					defaultLookbackDays: 7,
 					customArgs: '--verbose',
 				},
@@ -1329,6 +1378,7 @@ describe('EncoreTab', () => {
 				encoreFeatures: { directorNotes: true },
 				directorNotesSettings: {
 					provider: 'claude-code',
+					autoSelectProvider: false,
 					defaultLookbackDays: 7,
 					customPath: '/custom/path',
 					customArgs: '--verbose',
@@ -1346,6 +1396,7 @@ describe('EncoreTab', () => {
 
 			expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
 				provider: 'codex',
+				autoSelectProvider: false,
 				defaultLookbackDays: 7,
 				customPath: undefined,
 				customArgs: undefined,

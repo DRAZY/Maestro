@@ -8,6 +8,7 @@ import { settleProvisionalAgentError } from '../utils/provisionalAgentError';
 import { aggregateModelUsage, type ModelStats } from '../../parsers/usage-aggregator';
 import { matchSshErrorPattern } from '../../parsers/error-patterns';
 import { FALLBACK_CONTEXT_WINDOW } from '../../../shared/agentConstants';
+import { formatAgentLoginCommand, getAgentLoginCommand } from '../../../shared/agentMetadata';
 import type { ManagedProcess, UsageStats, UsageTotals, AgentError } from '../types';
 import type { DataBufferManager } from './DataBufferManager';
 
@@ -383,7 +384,11 @@ export class StdoutHandler {
 				}
 
 				if (agentError.type === 'auth_expired' && managedProcess.sshRemoteHost) {
-					agentError.message = `Authentication failed on remote host "${managedProcess.sshRemoteHost}". SSH into the remote and run "claude login" to re-authenticate.`;
+					const login = getAgentLoginCommand(toolType, undefined, { remote: true });
+					const loginHint = login
+						? ` SSH into the remote and run "${formatAgentLoginCommand(login)}" to re-authenticate.`
+						: '';
+					agentError.message = `Authentication failed on remote host "${managedProcess.sshRemoteHost}".${loginHint}`;
 				}
 
 				// A notice the CLI may retry past does not end the turn. Hold it, and let

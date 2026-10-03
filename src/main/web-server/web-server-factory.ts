@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 import { captureException } from '../utils/sentry';
 import { isWebContentsAvailable } from '../utils/safe-send';
 import type { ProcessManager } from '../process-manager';
+import type { DebugPackageDependencies } from '../debug-package';
 import type { StoredSession, SettingsStoreInterface as SettingsStore } from '../stores/types';
 import { asThinkingMode } from '../../shared/types';
 import type { Group, SshRemoteConfig } from '../../shared/types';
@@ -26,6 +27,7 @@ import type {
 	CueActivityEntry,
 	TerminalTabInfo,
 	ReadTerminalTabResult,
+	OpenFileTabOptions,
 } from './types';
 import type { CueGraphSession, CueRunResult } from '../../shared/cue/contracts';
 import { composeCueSubscriptionId } from '../../shared/cue/subscription-id';
@@ -125,6 +127,10 @@ export interface WebServerFactoryDependencies {
 	 *  Used by `setGetCueActivityCallback` (web UI's activity dashboard).
 	 *  Same dead-bridge fix as `getCueGraphData`. */
 	getCueActivityLog?: () => CueRunResult[];
+	/** Collectors for a support package (`maestro-cli support-package`,
+	 *  `feedback submit --support-package`). Absent = the CLI reports the
+	 *  feature as unconfigured instead of shipping a hollow zip. */
+	getDebugPackageDeps?: () => DebugPackageDependencies;
 }
 
 /**
@@ -891,11 +897,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		});
 
 		server.setOpenFileTabCallback(
-			async (
-				sessionId: string,
-				filePath: string,
-				options: { background: boolean; switchToAgent: boolean }
-			) => {
+			async (sessionId: string, filePath: string, options: OpenFileTabOptions) => {
 				const mainWindow = getMainWindow();
 				if (!mainWindow) {
 					logger.warn('mainWindow is null for openFileTab', 'WebServer');
@@ -909,6 +911,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 				mainWindow.webContents.send('remote:openFileTab', sessionId, filePath, {
 					background: options.background,
 					switchToAgent: options.switchToAgent,
+					mediaMode: options.mediaMode,
 				});
 				return true;
 			}
@@ -984,6 +987,10 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			mainWindow.webContents.send('remote:notifyCenterFlash', params);
 			return true;
 		});
+
+		if (deps.getDebugPackageDeps) {
+			server.setGetDebugPackageDepsCallback(deps.getDebugPackageDeps);
+		}
 
 		server.setOpenBrowserTabCallback(
 			async (sessionId: string, url: string, options?: { background?: boolean }) => {
@@ -2547,7 +2554,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		});
 
 		// Start a group chat - uses IPC request-response pattern
-		server.setStartGroupChatCallback(async (topic: string, participantIds: string[]) => {
+		server.setStartGroupChatCallback(async (topic, participantIds, options) => {
 			const mainWindow = getMainWindow();
 			if (!mainWindow) {
 				logger.warn('mainWindow is null for startGroupChat', 'WebServer');
@@ -2576,16 +2583,20 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					'remote:startGroupChat',
 					topic,
 					participantIds,
-					responseChannel
+					responseChannel,
+					options
 				);
 
+				// Longer than the other group chat calls: the renderer creates the chat,
+				// spawns its moderator, auto-adds every @mentioned participant, and hands
+				// the opening message over before it answers.
 				const timeoutId = setTimeout(() => {
 					if (resolved) return;
 					resolved = true;
 					ipcMain.removeListener(responseChannel, handleResponse);
 					logger.warn(`startGroupChat callback timed out`, 'WebServer');
 					resolve(null);
-				}, 15000);
+				}, 60000);
 			});
 		});
 
@@ -3155,14 +3166,14 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 				const agentDetector = new AgentDetector();
 				const agentConfigsStore = getAgentConfigsStore();
 
-				const agent = await agentDetector.getAgent(provider as any);
-				if (!agent || !agent.available) {
-					return {
-						success: false,
-						synopsis: '',
-						error: `Agent "${provider}" is not available.`,
-					};
+				// Same resolution the desktop handler uses, so `'auto'` picks the first
+				// installed supported provider here too (the CLI sends it by default).
+				const { resolveSynopsisProvider } = await import('../utils/director-notes-provider');
+				const resolvedProvider = await resolveSynopsisProvider(provider as any, agentDetector);
+				if ('error' in resolvedProvider) {
+					return { success: false, synopsis: '', error: resolvedProvider.error };
 				}
+				const agentType = resolvedProvider.provider;
 
 				const historyManager = getHistoryManager();
 
@@ -3212,7 +3223,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 
 				try {
 					const allConfigs = agentConfigsStore.get('configs', {});
-					const dnAgentConfigValues = allConfigs[provider] || {};
+					const dnAgentConfigValues = allConfigs[agentType] || {};
 
 					// Intentionally local, same as the desktop Director's Notes handler:
 					// the prompt manifests history files on THIS machine, so grooming
@@ -3220,7 +3231,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 					const result = await groomContext(
 						{
 							projectRoot: process.cwd(),
-							agentType: provider as any,
+							agentType,
 							prompt,
 							readOnlyMode: true,
 							agentConfigValues: dnAgentConfigValues,

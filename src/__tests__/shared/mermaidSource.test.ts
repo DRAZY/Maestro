@@ -10,7 +10,9 @@
  * repairs: escape `@` to `#64;` inside label text, quote a label whose text
  * would lex as syntax, and leave a label that already parses byte-for-byte
  * alone - the rewrite must only ever appear on a diagram that was going to
- * fail.
+ * fail. The header's direction token is the same shape of bug one level up:
+ * `flowchart LD` is a lexical error on line 1, so the repair reads the letters
+ * literally and leaves anything that already parses untouched.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -329,6 +331,97 @@ describe('normalizeMermaidSource', () => {
 			]) {
 				expect(normalizeMermaidSource(source)).toBe(source);
 			}
+		});
+	});
+
+	describe('repairs a direction the header lexer does not recognize', () => {
+		it('honours the first letter when the pair names two axes', () => {
+			// `flowchart LD` is a lexical error on line 1 and takes the whole
+			// diagram with it; `L` says the graph starts at the left.
+			for (const [written, repaired] of [
+				['LD', 'LR'],
+				['TL', 'TB'],
+				['RD', 'RL'],
+				['BL', 'BT'],
+			]) {
+				expect(normalizeMermaidSource(`flowchart ${written}\n  A --> B`)).toBe(
+					`flowchart ${repaired}\n  A --> B`
+				);
+			}
+		});
+
+		it('reads up/down as the same axis mermaid spells top/bottom', () => {
+			expect(normalizeMermaidSource('flowchart UD\n  A --> B')).toBe('flowchart TB\n  A --> B');
+			expect(normalizeMermaidSource('flowchart DU\n  A --> B')).toBe('flowchart BT\n  A --> B');
+		});
+
+		it('upper-cases a direction written in lower case', () => {
+			for (const written of ['lr', 'Tb', 'td', 'bT', 'rl']) {
+				expect(normalizeMermaidSource(`flowchart ${written}\n  A --> B`)).toBe(
+					`flowchart ${written.toUpperCase()}\n  A --> B`
+				);
+			}
+		});
+
+		it('leaves the rest of the header line alone', () => {
+			expect(normalizeMermaidSource('graph ld;A-->B')).toBe('graph LR;A-->B');
+			expect(normalizeMermaidSource('flowchart-elk LD\n  A --> B')).toBe(
+				'flowchart-elk LR\n  A --> B'
+			);
+		});
+
+		it('repairs a per-subgraph direction statement, whose set excludes BR', () => {
+			expect(normalizeMermaidSource('flowchart TB\n  subgraph S\n    direction ld\n  end')).toBe(
+				'flowchart TB\n  subgraph S\n    direction LR\n  end'
+			);
+			expect(normalizeMermaidSource('flowchart TB\n  subgraph S\n    direction BR\n  end')).toBe(
+				'flowchart TB\n  subgraph S\n    direction BT\n  end'
+			);
+		});
+
+		it('repairs a direction behind frontmatter and init directives', () => {
+			expect(
+				normalizeMermaidSource(
+					'---\ntitle: Flow\n---\n%%{init: {"theme":"dark"}}%%\nflowchart ud\n  A --> B'
+				)
+			).toContain('flowchart TB');
+		});
+
+		it('leaves a direction the parser already accepts byte-for-byte alone', () => {
+			// `BR` and the arrow forms are in the header lexer; a header with no
+			// direction at all parses too.
+			for (const source of [
+				'flowchart TD\n  A --> B',
+				'flowchart LR;\n  A-->B',
+				'graph BR\n  A --> B',
+				'flowchart v\n  A --> B',
+				'flowchart\n  A --> B',
+				'flowchart TB\n  subgraph S\n    direction RL\n  end',
+			]) {
+				expect(normalizeMermaidSource(source)).toBe(source);
+			}
+		});
+
+		it('leaves a token that is not two direction letters alone', () => {
+			// Already a parse error, but guessing here would turn a failed render
+			// into a wrong one.
+			for (const source of [
+				'graph D --> B',
+				'flowchart XY\n  A --> B',
+				'graph TOPDOWN\n  A --> B',
+			]) {
+				expect(normalizeMermaidSource(source)).toBe(source);
+			}
+		});
+
+		it('leaves a non-flowchart diagram alone', () => {
+			const source = 'stateDiagram-v2\n  direction lr\n  [*] --> S';
+			expect(normalizeMermaidSource(source)).toBe(source);
+		});
+
+		it('is idempotent', () => {
+			const once = normalizeMermaidSource('flowchart ld\n  A[a (b)] --> B');
+			expect(normalizeMermaidSource(once)).toBe(once);
 		});
 	});
 

@@ -9,7 +9,7 @@ import {
 	type QuerySource,
 } from '../../../shared/querySource';
 import { buildSpawnPath } from '../../utils/spawnPath';
-import { isBlankEnvValue } from '../../../shared/agentEnvironment';
+import { isBlankEnvKey, isBlankEnvValue } from '../../../shared/agentEnvironment';
 
 /**
  * Build the base PATH for macOS/Linux with detected Node version manager paths.
@@ -268,7 +268,8 @@ export function collectMaestroEnvVars(
 		...(customEnvVars || {}),
 	};
 	for (const [key, value] of Object.entries(merged)) {
-		if (isBlankEnvValue(value)) continue;
+		// An unnamed row is a half-finished editor entry, not a variable.
+		if (isBlankEnvKey(key) || isBlankEnvValue(value)) continue;
 		result[key] = expand(value);
 	}
 	if (isResuming) {
@@ -320,6 +321,9 @@ export function buildChildProcessEnv(
 		...(customEnvVars || {}),
 	};
 	for (const [key, value] of Object.entries(userEnvVars)) {
+		// An unnamed row is a half-finished editor entry, not a variable, so it
+		// neither sets nor cancels anything.
+		if (isBlankEnvKey(key)) continue;
 		// A blank value means "do not set this variable" - so it has to remove any
 		// inherited value too, not just skip the assignment. Exporting `FOO=`
 		// instead is what made a blank CLAUDE_CONFIG_DIR crash the agent inside

@@ -49,6 +49,11 @@ export interface GenerationConfig {
 	conversationHistory: WizardMessage[];
 	/** Optional subfolder within Auto Run Docs (e.g., "Initiation") */
 	subfolder?: string;
+	/**
+	 * Model to write the playbook with, overriding the agent's configured model
+	 * for this run. Undefined leaves the agent's configuration in charge.
+	 */
+	model?: string;
 	/** SSH remote configuration (for remote execution) */
 	sshRemoteConfig?: {
 		enabled: boolean;
@@ -1163,6 +1168,8 @@ class PhaseGenerator {
 					command: commandToUse,
 					args: argsForSpawn,
 					prompt,
+					// Planning model for this run (see applyAgentConfigOverrides).
+					sessionCustomModel: config.model,
 					sendPromptViaStdin: sendViaStdin,
 					sendPromptViaStdinRaw: sendViaStdinRaw,
 					// Pass SSH configuration for remote execution

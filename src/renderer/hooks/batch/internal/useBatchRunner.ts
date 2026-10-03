@@ -16,6 +16,7 @@ import { useBatchStore } from '../../../stores/batchStore';
 import { useSessionStore, selectSessionById } from '../../../stores/sessionStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { countUnfinishedTasks, findPendingHitlGate, uncheckAllTasks } from '../batchUtils';
+import { acknowledgeHitlGate } from '../../../../shared/autorunMarkers';
 import { DEFAULT_BATCH_STATE, type BatchAction } from '../batchReducer';
 import { createLoopSummaryEntry } from './batchLoopSummary';
 import { buildFinalSummary } from './batchFinalSummary';
@@ -27,6 +28,10 @@ import {
 import { createProgressPoll } from './batchProgressPoll';
 import { claimFlushState, type AutoRunFlushStateRefs } from './batchFlushState';
 import { beginSleepAwareSpan } from '../../../services/systemSleep';
+import {
+	clearSteeringNotes,
+	takeSteeringNotesForDispatch,
+} from '../../../services/autoRunSteering';
 import type { ErrorResolutionEntry } from './useBatchControlActions';
 import type { BatchCompleteInfo, PRResultInfo } from '../useBatchProcessor';
 import type { UseTimeTrackingReturn } from '../useTimeTracking';
@@ -283,6 +288,11 @@ export function useBatchRunner({
 				timeTracking.stopTracking(sessionId);
 				return;
 			}
+
+			// A steering note belongs to the run it was typed during. Anything left
+			// over from a previous run (killed mid-task, or paused and abandoned)
+			// must not open the first task of this one.
+			clearSteeringNotes(sessionId);
 
 			// Initialize batch run state using START_BATCH action directly
 			// (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
@@ -647,14 +657,31 @@ export function useBatchRunner({
 							// dropped) is logged but doesn't crash the run.
 							if (activeHitlGateLine !== null) {
 								try {
-									const {
-										taskCount: resumedRemaining,
-										checkedCount: resumedChecked,
-										content: resumedContent,
-									} = await readDocAndCountTasks(folderPath, effectiveFilename, sshRemoteId);
-									remainingTasks = resumedRemaining;
-									docCheckedCount = resumedChecked;
-									docContent = resumedContent;
+									let resumed = await readDocAndCountTasks(
+										folderPath,
+										effectiveFilename,
+										sshRemoteId
+									);
+									// Resume on a gate means the person did the step. If they did
+									// not tick a box themselves, write one, or the gate check below
+									// finds the same gate and pauses again.
+									const acknowledged = acknowledgeHitlGate(resumed.content);
+									if (acknowledged !== null) {
+										await window.maestro.autorun.writeDoc(
+											folderPath,
+											effectiveFilename + '.md',
+											acknowledged,
+											sshRemoteId
+										);
+										resumed = await readDocAndCountTasks(
+											folderPath,
+											effectiveFilename,
+											sshRemoteId
+										);
+									}
+									remainingTasks = resumed.taskCount;
+									docCheckedCount = resumed.checkedCount;
+									docContent = resumed.content;
 								} catch (rereadErr) {
 									logger.warn(
 										`[BatchProcessor] HITL resume re-read failed for ${effectiveFilename}; continuing with in-memory content:`,
@@ -766,6 +793,11 @@ export function useBatchRunner({
 									customPrompt: prompt,
 									taskSelectionMode,
 									sshRemoteId,
+									// Consumed here rather than inside processTask so the take
+									// happens exactly once per dispatch: a note the operator
+									// sends after this line belongs to the NEXT task, not to a
+									// prompt that has already been built.
+									steeringNotes: takeSteeringNotesForDispatch(sessionId),
 								},
 								effectiveFilename, // Use working copy path for reset-on-completion docs
 								docCheckedCount,
@@ -1438,6 +1470,10 @@ export function useBatchRunner({
 			// These operations are safe regardless of mount state - React handles reducer dispatches gracefully,
 			// and broadcasts are external calls that don't affect React state.
 			flushDebouncedUpdate(sessionId);
+
+			// The run is over, so there is no next task to deliver a note to. Drop
+			// anything still pending rather than letting it ambush a future run.
+			clearSteeringNotes(sessionId);
 
 			// Reset state for this session using COMPLETE_BATCH action
 			// (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)

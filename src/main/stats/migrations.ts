@@ -85,9 +85,16 @@ function getMigrations(): Migration[] {
 			up: (db) => migrateV7(db),
 		},
 		{
+			// v8-v10 declare `isApplied` because rc assigns different migrations to
+			// these numbers (rc's v8 is multi_window_usage_daily). An install that
+			// last ran an rc build can already sit at user_version 8+ without ever
+			// running main's bodies, so runMigrations re-applies any whose schema is
+			// missing (MAESTRO-113/114).
 			version: 8,
 			description: 'Add per-turn token and cost columns to query_events for cost attribution',
 			up: (db) => migrateV8(db),
+			isApplied: (db) =>
+				ADD_QUERY_EVENT_TOKEN_COLUMNS.every((column) => hasColumn(db, 'query_events', column)),
 		},
 		{
 			// MERGE NOTE (main -> rc): rc numbers its token-columns migration 9, so
@@ -97,6 +104,7 @@ function getMigrations(): Migration[] {
 			version: 9,
 			description: 'Add resilience_events table for Agent Resilience outage tracking',
 			up: (db) => migrateV9(db),
+			isApplied: (db) => hasTable(db, 'resilience_events'),
 		},
 		{
 			// MERGE NOTE (main -> rc): this rides on top of the v9 renumbering
@@ -105,6 +113,16 @@ function getMigrations(): Migration[] {
 			version: 10,
 			description: 'Add wizard_runs table for Auto Run wizard usage tracking',
 			up: (db) => migrateV10(db),
+			isApplied: (db) => hasTable(db, 'wizard_runs'),
+		},
+		{
+			// MERGE NOTE (main -> rc): rides on the v9/v10 renumbering above - this
+			// becomes 13 on rc, where wizard_runs is v11 and v12 is taken. The body
+			// is guarded by hasColumn, so renumbering and re-applying are both safe.
+			version: 11,
+			description: 'Add active_ms column to wizard_runs so wizard time excludes idle tabs',
+			up: (db) => migrateV11(db),
+			isApplied: (db) => hasColumn(db, 'wizard_runs', 'active_ms'),
 		},
 	];
 }
@@ -118,9 +136,10 @@ function getMigrations(): Migration[] {
  *
  * 1. Creates the _migrations table if it doesn't exist
  * 2. Gets the current schema version from user_version pragma
- * 3. Runs each pending migration in a transaction
- * 4. Records each migration in the _migrations table
- * 5. Updates the user_version pragma
+ * 3. Re-applies already-covered migrations whose schema is missing
+ * 4. Runs each pending migration in a transaction
+ * 5. Records each migration in the _migrations table
+ * 6. Updates the user_version pragma
  */
 export function runMigrations(db: Database.Database): void {
 	// Create migrations table (the only table created outside the migration system)
@@ -131,6 +150,8 @@ export function runMigrations(db: Database.Database): void {
 	const currentVersion = versionResult[0]?.user_version ?? 0;
 
 	const migrations = getMigrations();
+	repairSkippedMigrations(db, migrations, currentVersion);
+
 	const pendingMigrations = migrations.filter((m) => m.version > currentVersion);
 
 	if (pendingMigrations.length === 0) {
@@ -148,6 +169,34 @@ export function runMigrations(db: Database.Database): void {
 
 	for (const migration of pendingMigrations) {
 		applyMigration(db, migration);
+	}
+}
+
+/**
+ * Re-apply migrations the version check says ran but whose schema is missing.
+ *
+ * user_version is a bare number, and it only means the same thing on every
+ * branch up to v7. Past that, rc and main number their migrations differently,
+ * so a database last opened by an rc build can report a version that covers a
+ * main migration it never ran. Every write that touches the missing schema then
+ * fails, e.g. `table query_events has no column named input_tokens` on each
+ * query event (MAESTRO-113/114). Only migrations that declare `isApplied` are
+ * checked, and their bodies are idempotent. user_version is left alone.
+ */
+function repairSkippedMigrations(
+	db: Database.Database,
+	migrations: Migration[],
+	currentVersion: number
+): void {
+	for (const migration of migrations) {
+		if (migration.version > currentVersion || !migration.isApplied) continue;
+		if (migration.isApplied(db)) continue;
+
+		logger.warn(
+			`Re-applying migration v${migration.version} (schema missing at version ${currentVersion}): ${migration.description}`,
+			LOG_CONTEXT
+		);
+		db.transaction(() => migration.up(db))();
 	}
 }
 
@@ -381,9 +430,29 @@ function migrateV10(db: Database.Database): void {
 }
 
 /**
+ * Migration v11: wizard_runs.active_ms - time actually spent in the wizard.
+ * Rows from before it stay NULL ("not measured") rather than being backfilled
+ * from `ended_at - started_at`, which is the open-to-close wall clock this
+ * column exists to replace. The dashboard leaves NULL rows out of time totals.
+ */
+function migrateV11(db: Database.Database): void {
+	if (!hasColumn(db, 'wizard_runs', 'active_ms')) {
+		db.prepare('ALTER TABLE wizard_runs ADD COLUMN active_ms INTEGER').run();
+	}
+	logger.debug('Added active_ms column to wizard_runs', LOG_CONTEXT);
+}
+
+/**
  * Check whether a column exists on a table using SQLite's PRAGMA table_info.
  */
 function hasColumn(db: Database.Database, table: string, column: string): boolean {
 	const rows = db.pragma(`table_info(${table})`) as Array<{ name: string }> | undefined;
 	return Array.isArray(rows) && rows.some((row) => row.name === column);
+}
+
+/**
+ * Check whether a table exists.
+ */
+function hasTable(db: Database.Database, table: string): boolean {
+	return !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(table);
 }

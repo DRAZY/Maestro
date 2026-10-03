@@ -16,6 +16,7 @@ import {
 	Brain,
 	PlayCircle,
 	HelpCircle,
+	LogOut,
 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 import type {
@@ -42,12 +43,14 @@ import { useUIStore } from '../stores/uiStore';
 import { getModalActions } from '../stores/modalStore';
 import {
 	usePlaybookManagement,
+	autoPlaybookName,
 	DEFAULT_BATCH_PROMPT,
 	validateAgentPromptHasTaskReference,
 } from '../hooks';
 import { generateId } from '../utils/ids';
 import { formatMetaKey } from '../utils/shortcutFormatter';
 import { logger } from '../utils/logger';
+import { notifyCenterFlash } from '../stores/centerFlashStore';
 import { resolveEffectiveContextWindow } from '../utils/contextWindowResolver';
 import { getModelContextWindowOverride } from '../../shared/agentConstants';
 import { formatTokens } from '../../shared/formatters';
@@ -247,43 +250,6 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 	// Track initial prompt for dirty checking
 	const initialPromptRef = useRef(initialPrompt || DEFAULT_BATCH_PROMPT);
 
-	// Compute if there are unsaved configuration changes
-	// This checks if documents, loop settings, or prompt have changed from initial values
-	const hasUnsavedConfigChanges = useCallback(() => {
-		// Check if documents have changed (compare filenames)
-		const currentDocFilenames = documents.map((d) => d.filename).sort();
-		const initialDocFilenames = [...initialDocumentsRef.current].sort();
-		const documentsChanged =
-			currentDocFilenames.length !== initialDocFilenames.length ||
-			currentDocFilenames.some((f, i) => f !== initialDocFilenames[i]);
-
-		// Check if loop settings have changed
-		const loopChanged =
-			loopEnabled !== initialLoopEnabledRef.current || maxLoops !== initialMaxLoopsRef.current;
-
-		// Check if prompt has changed
-		const promptChanged = prompt !== initialPromptRef.current;
-
-		// Check if task-selection mode has changed
-		const taskSelectionModeChanged = taskSelectionMode !== initialTaskSelectionModeRef.current;
-
-		return documentsChanged || loopChanged || promptChanged || taskSelectionModeChanged;
-	}, [documents, loopEnabled, maxLoops, prompt, taskSelectionMode]);
-
-	// Handler for closing with unsaved changes check
-	const handleCloseWithConfirmation = useCallback(() => {
-		if (hasUnsavedConfigChanges()) {
-			showConfirmation(
-				'You have unsaved changes to your Auto Run configuration. Close without saving?',
-				() => {
-					onClose();
-				}
-			);
-		} else {
-			onClose();
-		}
-	}, [hasUnsavedConfigChanges, showConfirmation, onClose]);
-
 	// Playbook management callback to apply loaded playbook configuration
 	const handleApplyPlaybook = useCallback(
 		(data: {
@@ -338,6 +304,55 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		},
 		onApplyPlaybook: handleApplyPlaybook,
 	});
+
+	// Compute if there are unsaved configuration changes
+	// This checks if documents, loop settings, or prompt have changed from initial values
+	// When a playbook is loaded, it is the saved baseline: comparing against the
+	// open-time snapshot flagged a just-saved playbook as unsaved.
+	const hasUnsavedConfigChanges = useCallback(() => {
+		if (loadedPlaybook) return isPlaybookModified;
+
+		// Check if documents have changed (compare filenames)
+		const currentDocFilenames = documents.map((d) => d.filename).sort();
+		const initialDocFilenames = [...initialDocumentsRef.current].sort();
+		const documentsChanged =
+			currentDocFilenames.length !== initialDocFilenames.length ||
+			currentDocFilenames.some((f, i) => f !== initialDocFilenames[i]);
+
+		// Check if loop settings have changed
+		const loopChanged =
+			loopEnabled !== initialLoopEnabledRef.current || maxLoops !== initialMaxLoopsRef.current;
+
+		// Check if prompt has changed
+		const promptChanged = prompt !== initialPromptRef.current;
+
+		// Check if task-selection mode has changed
+		const taskSelectionModeChanged = taskSelectionMode !== initialTaskSelectionModeRef.current;
+
+		return documentsChanged || loopChanged || promptChanged || taskSelectionModeChanged;
+	}, [
+		loadedPlaybook,
+		isPlaybookModified,
+		documents,
+		loopEnabled,
+		maxLoops,
+		prompt,
+		taskSelectionMode,
+	]);
+
+	// Handler for closing with unsaved changes check
+	const handleCloseWithConfirmation = useCallback(() => {
+		if (hasUnsavedConfigChanges()) {
+			showConfirmation(
+				'You have unsaved changes to your Auto Run configuration. Close without saving?',
+				() => {
+					onClose();
+				}
+			);
+		} else {
+			onClose();
+		}
+	}, [hasUnsavedConfigChanges, showConfirmation, onClose]);
 
 	// Resolve the active agent's context window the first time the modal opens on
 	// a blank config (no loaded playbook). The resolved window drives the
@@ -579,6 +594,29 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		setSavedPrompt(prompt);
 		// Update initial ref so hasUnsavedConfigChanges doesn't flag a saved prompt as dirty
 		initialPromptRef.current = prompt;
+	};
+
+	// One-click save: update the loaded playbook in place, or create a new one
+	// named YYYY-MM-DD-CODENAME from the first document, then close.
+	const handleSaveAndExit = async () => {
+		if (documents.length === 0 || savingPlaybook) return;
+		onSave(prompt);
+		let saved = loadedPlaybook;
+		if (!loadedPlaybook) {
+			const name = autoPlaybookName(
+				documents[0].filename,
+				playbooks.map((p) => p.name)
+			);
+			saved = await handleSaveAsPlaybook(name);
+		} else if (isPlaybookModified) {
+			saved = await handleSaveUpdate();
+		}
+		if (!saved) {
+			notifyCenterFlash({ message: 'Failed to save playbook', color: 'red' });
+			return;
+		}
+		notifyCenterFlash({ message: `Saved playbook "${saved.name}"`, color: 'green' });
+		onClose();
 	};
 
 	const handleGo = async () => {
@@ -1119,8 +1157,24 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 					className="p-4 border-t flex items-center justify-between shrink-0"
 					style={{ borderColor: theme.colors.border }}
 				>
-					{/* Left side: Auto-follow toggle + Hint */}
+					{/* Left side: Save & Exit, auto-follow toggle, hint */}
 					<div className="flex items-center gap-4">
+						<button
+							onClick={handleSaveAndExit}
+							disabled={documents.length === 0 || savingPlaybook}
+							className="flex items-center gap-2 px-3 py-2 rounded border hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+							style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+							title={
+								documents.length === 0
+									? 'No documents selected'
+									: loadedPlaybook
+										? `Save "${loadedPlaybook.name}" and close`
+										: 'Save as a dated playbook and close'
+							}
+						>
+							<LogOut className="w-4 h-4" style={{ color: theme.colors.accent }} />
+							{savingPlaybook ? 'Saving...' : 'Save & Exit'}
+						</button>
 						<label className="flex items-center gap-1.5 cursor-pointer">
 							<input
 								type="checkbox"

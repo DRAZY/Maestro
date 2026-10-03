@@ -135,7 +135,7 @@ function useAgentLevelEnvVars(toolTypes: string[]): {
  * remote profile's key is the remote id, so it is complete without the name,
  * and a label that fills in a moment later costs nothing.
  */
-function useSshRemoteNames(needed: boolean): Record<string, string> {
+export function useSshRemoteNames(needed: boolean): Record<string, string> {
 	const [names, setNames] = useState<Record<string, string>>({});
 	useEffect(() => {
 		if (!needed || typeof window.maestro?.sshRemote?.getConfigs !== 'function') return;

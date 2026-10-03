@@ -151,6 +151,7 @@ import { useLayerStack } from './contexts/LayerStackContext';
 import { notifyToast } from './stores/notificationStore';
 import { useModalActions, useModalStore } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
+import { GitShortcutActionsBridge } from './components/GitShortcutActionsBridge';
 import { InputProvider, useInputContext } from './contexts/InputContext';
 import { useGroupChatStore } from './stores/groupChatStore';
 import { useBatchStore } from './stores/batchStore';
@@ -171,6 +172,7 @@ import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineW
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
 import { ImageContextMenuHost } from './components/ImageContextMenuHost';
+import { ZoomViewerHost } from './components/ZoomViewer';
 import { MediaPlaybackHost } from './components/MediaPlayback';
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 
@@ -210,6 +212,7 @@ import {
 	hasActiveWizard,
 	findUnreadSessionInDirection,
 	type UnreadNavDirection,
+	collectThinkingItems,
 } from './utils/tabHelpers';
 import { getForceSendEligibility, type ForceSendEligibility } from './utils/executionQueue';
 // validateNewSession moved to useSymphonyContribution, useSessionCrud hooks
@@ -1368,32 +1371,7 @@ function MaestroConsoleInner() {
 
 	// PERF: Memoize thinkingItems at App level to avoid passing full sessions array to children.
 	// This prevents InputArea from re-rendering on unrelated session updates (e.g., terminal output).
-	// Flat list of (session, tab) pairs - one entry per busy tab across all sessions.
-	// This allows the ThinkingStatusPill to show all active work, even when multiple tabs
-	// within the same agent are busy in parallel.
-	const thinkingItems: ThinkingItem[] = useMemo(() => {
-		const items: ThinkingItem[] = [];
-		for (const session of sessions) {
-			if (session.state === 'busy' && session.busySource === 'ai') {
-				const busyTabs = session.aiTabs?.filter((t) => t.state === 'busy');
-				if (busyTabs && busyTabs.length > 0) {
-					for (const tab of busyTabs) {
-						items.push({ session, tab });
-					}
-				} else if (!session.orphanedThinkingTabs?.length) {
-					// Legacy: session is busy but no individual tab-level tracking
-					items.push({ session, tab: null });
-				}
-			}
-			// Closed-but-still-thinking tabs: keep showing them on the pill until
-			// the agent process actually exits. The exit/error listeners remove
-			// entries from orphanedThinkingTabs when the underlying process is gone.
-			for (const orphan of session.orphanedThinkingTabs ?? []) {
-				items.push({ session, tab: orphan });
-			}
-		}
-		return items;
-	}, [sessions]);
+	const thinkingItems: ThinkingItem[] = useMemo(() => collectThinkingItems(sessions), [sessions]);
 
 	// addLogToTab/addLogToActiveTab now used directly via store in useWizardHandlers
 
@@ -3047,6 +3025,7 @@ function MaestroConsoleInner() {
 					onConfirmDeleteWorktree={handleConfirmDeleteWorktree}
 					onConfirmAndDeleteWorktreeOnDisk={handleConfirmAndDeleteWorktreeOnDisk}
 					// AppUtilityModals props
+					visibleSessions={visibleSessions}
 					quickActionInitialMode={quickActionInitialMode}
 					setQuickActionOpen={setQuickActionOpen}
 					setActiveSessionId={setActiveSessionId}
@@ -3547,6 +3526,11 @@ function MaestroConsoleInner() {
 				    ImageContextMenuHost. */}
 				<ImageContextMenuHost theme={theme} />
 
+				{/* --- ZOOM VIEWER (single, app-wide) ---
+				    Full-screen pan/zoom for any diagram or image. Opened by expand
+				    buttons and the image right-click menu via openZoomViewer(). */}
+				<ZoomViewerHost theme={theme} />
+
 				{/* --- MEDIA PLAYBACK (single, app-wide, never unmounted) ---
 				    Owns the one <audio>/<video> element so playback survives switching
 				    tabs and agents. Media never gets a tab: it renders only as the
@@ -3569,6 +3553,9 @@ function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
 	return (
 		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{/* Renders nothing - holds the git-status subscription the keyboard
+			    shortcuts for pull/push/branch/PR need, so App doesn't have to. */}
+			<GitShortcutActionsBridge />
 			{children}
 		</GitStatusProvider>
 	);

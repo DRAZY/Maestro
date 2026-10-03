@@ -4,8 +4,10 @@ import { render as rtlRender, screen, fireEvent, waitFor, within } from '@testin
 import userEvent from '@testing-library/user-event';
 import {
 	AutoRunDocumentSelector,
+	DOCUMENT_DROPDOWN_HEIGHT_KEY,
 	DocTreeNode,
 } from '../../../renderer/components/AutoRun/AutoRunDocumentSelector';
+import { installLocalStorageMock } from '../../helpers/mockLocalStorage';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 
 import { mockTheme } from '../../helpers/mockTheme';
@@ -1104,6 +1106,46 @@ describe('AutoRunDocumentSelector', () => {
 		});
 	});
 
+	describe('Resizable Height', () => {
+		const originalInnerHeight = window.innerHeight;
+
+		beforeEach(() => {
+			installLocalStorageMock();
+		});
+
+		afterEach(() => {
+			Object.defineProperty(window, 'innerHeight', {
+				configurable: true,
+				value: originalInnerHeight,
+			});
+		});
+
+		const openDropdown = () => {
+			render(<AutoRunDocumentSelector {...defaultProps} />);
+			fireEvent.click(screen.getByRole('button', { name: /select a document/i }));
+			return screen.getByTestId('autorun-document-dropdown');
+		};
+
+		it('offers only a bottom-edge resize handle', () => {
+			openDropdown();
+			expect(screen.getByTestId('autorun-document-dropdown-resize-s')).toBeInTheDocument();
+			expect(screen.queryByTestId('autorun-document-dropdown-resize-e')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('autorun-document-dropdown-resize-se')).not.toBeInTheDocument();
+		});
+
+		it('opens at the remembered height', () => {
+			window.localStorage.setItem(DOCUMENT_DROPDOWN_HEIGHT_KEY, '400');
+			expect(openDropdown()).toHaveStyle({ maxHeight: '400px' });
+		});
+
+		it('clamps a remembered height to the window so the bottom stays on screen', () => {
+			Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 });
+			window.localStorage.setItem(DOCUMENT_DROPDOWN_HEIGHT_KEY, '1200');
+			// jsdom lays the dropdown out at top 0; the hook keeps an 8px margin.
+			expect(openDropdown()).toHaveStyle({ maxHeight: '492px' });
+		});
+	});
+
 	describe('Accessibility', () => {
 		it('modal has correct aria attributes', () => {
 			render(<AutoRunDocumentSelector {...defaultProps} />);
@@ -1121,6 +1163,113 @@ describe('AutoRunDocumentSelector', () => {
 			expect(screen.getByTitle('Create new document')).toBeInTheDocument();
 			expect(screen.getByTitle('Refresh document list')).toBeInTheDocument();
 			expect(screen.getByTitle('Change folder')).toBeInTheDocument();
+		});
+	});
+
+	describe('Folder Task Progress Badges', () => {
+		const tree: DocTreeNode[] = [
+			{
+				name: 'phase-1',
+				type: 'folder',
+				path: 'phase-1',
+				children: [
+					{ name: 'A', type: 'file', path: 'phase-1/A' },
+					{ name: 'B', type: 'file', path: 'phase-1/B' },
+					{
+						name: 'inner',
+						type: 'folder',
+						path: 'phase-1/inner',
+						children: [{ name: 'C', type: 'file', path: 'phase-1/inner/C' }],
+					},
+				],
+			},
+			{
+				name: 'untracked',
+				type: 'folder',
+				path: 'untracked',
+				children: [{ name: 'D', type: 'file', path: 'untracked/D' }],
+			},
+		];
+		const docs = ['phase-1/A', 'phase-1/B', 'phase-1/inner/C', 'untracked/D'];
+		const taskCounts = new Map([
+			['phase-1/A', { completed: 2, total: 4 }],
+			['phase-1/B', { completed: 1, total: 2 }],
+			['phase-1/inner/C', { completed: 0, total: 2 }],
+		]);
+
+		const openDropdown = () =>
+			fireEvent.click(screen.getByRole('button', { name: /select a document/i }));
+
+		const folderRow = (name: string) =>
+			screen.getByText(name).closest('button') as HTMLButtonElement;
+
+		it('shows a rolled-up percentage on a collapsed folder', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={docs}
+					documentTree={tree}
+					documentTaskCounts={taskCounts}
+				/>
+			);
+			openDropdown();
+
+			// 3 of 8 tasks across the whole subtree.
+			expect(folderRow('phase-1')).toHaveTextContent('38% (8)');
+		});
+
+		it('shows a nested folder its own rollup when expanded', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={docs}
+					documentTree={tree}
+					documentTaskCounts={taskCounts}
+				/>
+			);
+			openDropdown();
+			fireEvent.click(screen.getByText('phase-1'));
+
+			expect(folderRow('inner')).toHaveTextContent('0% (2)');
+		});
+
+		it('omits the badge for a folder whose documents have no tasks', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={docs}
+					documentTree={tree}
+					documentTaskCounts={taskCounts}
+				/>
+			);
+			openDropdown();
+
+			expect(folderRow('untracked')).not.toHaveTextContent('%');
+		});
+
+		it('keeps the folder badge describing the whole folder while filtering', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={docs}
+					documentTree={tree}
+					documentTaskCounts={taskCounts}
+				/>
+			);
+			openDropdown();
+
+			fireEvent.change(screen.getByPlaceholderText('Filter documents...'), {
+				target: { value: 'A' },
+			});
+
+			expect(folderRow('phase-1')).toHaveTextContent('38% (8)');
+		});
+
+		it('renders no folder badge when no task counts are provided', () => {
+			render(<AutoRunDocumentSelector {...defaultProps} documents={docs} documentTree={tree} />);
+			openDropdown();
+
+			expect(folderRow('phase-1')).not.toHaveTextContent('%');
 		});
 	});
 });

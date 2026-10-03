@@ -8,63 +8,28 @@
 
 import { ipcRenderer } from 'electron';
 
-/**
- * Feedback auth check response
- */
-export interface FeedbackAuthResponse {
-	authenticated: boolean;
-	message?: string;
-}
+import type {
+	FeedbackAttachmentPayload,
+	FeedbackAuthResponse,
+	FeedbackConversationSubmitPayload,
+	FeedbackIssueSearchResponse,
+	FeedbackSubmissionPayload,
+	FeedbackSubmitResponse,
+} from '../../shared/feedback';
+import type { FeedbackAccountsResponse } from '../../shared/feedbackAccounts';
 
-/**
- * Feedback submission response
- */
-export interface FeedbackSubmitResponse {
-	success: boolean;
-	error?: string;
-	issueUrl?: string;
-}
-
-export interface FeedbackAttachmentPayload {
-	name: string;
-	dataUrl: string;
-}
-
-export type FeedbackCategory =
-	| 'bug_report'
-	| 'feature_request'
-	| 'improvement'
-	| 'general_feedback';
-
-export interface FeedbackSubmissionPayload {
-	sessionId: string;
-	category: FeedbackCategory;
-	summary: string;
-	expectedBehavior: string;
-	details: string;
-	reproductionSteps?: string;
-	additionalContext?: string;
-	agentProvider?: string;
-	sshRemoteEnabled?: boolean;
-	attachments?: FeedbackAttachmentPayload[];
-}
+export type {
+	FeedbackAttachmentPayload,
+	FeedbackAuthResponse,
+	FeedbackCategory,
+	FeedbackConversationSubmitPayload,
+	FeedbackSubmissionPayload,
+	FeedbackSubmitResponse,
+} from '../../shared/feedback';
 
 /**
  * Feedback API
  */
-export interface FeedbackConversationSubmitPayload {
-	category: FeedbackCategory;
-	summary: string;
-	expectedBehavior: string;
-	actualBehavior: string;
-	reproductionSteps?: string;
-	additionalContext?: string;
-	agentProvider?: string;
-	sshRemoteEnabled?: boolean;
-	attachments?: FeedbackAttachmentPayload[];
-	includeDebugPackage?: boolean;
-}
-
 export interface FeedbackApi {
 	/**
 	 * Check whether gh CLI is available and authenticated
@@ -91,22 +56,19 @@ export interface FeedbackApi {
 	/**
 	 * Search existing GitHub issues for potential duplicates
 	 */
-	searchIssues: (query: string) => Promise<{
-		issues: Array<{
-			number: number;
-			title: string;
-			url: string;
-			state: string;
-			labels: string[];
-			createdAt: string;
-			author: string;
-			commentCount: number;
-		}>;
-	}>;
+	searchIssues: (query: string) => Promise<FeedbackIssueSearchResponse>;
 	/**
 	 * Subscribe to an existing issue (+1 reaction) and optionally comment
 	 */
 	subscribeIssue: (issueNumber: number, comment?: string) => Promise<FeedbackSubmitResponse>;
+	/**
+	 * Accounts the feedback chat can run as, checked and in pick order
+	 */
+	listAccounts: () => Promise<FeedbackAccountsResponse>;
+	/**
+	 * Remember the account the next conversation tries first
+	 */
+	rememberAccount: (key: string | null) => Promise<void>;
 }
 
 /**
@@ -140,5 +102,11 @@ export function createFeedbackApi(): FeedbackApi {
 
 		subscribeIssue: (issueNumber: number, comment?: string): Promise<FeedbackSubmitResponse> =>
 			ipcRenderer.invoke('feedback:subscribe-issue', { issueNumber, comment }),
+
+		listAccounts: (): Promise<FeedbackAccountsResponse> =>
+			ipcRenderer.invoke('feedback:list-accounts'),
+
+		rememberAccount: (key: string | null): Promise<void> =>
+			ipcRenderer.invoke('feedback:remember-account', { key }),
 	};
 }

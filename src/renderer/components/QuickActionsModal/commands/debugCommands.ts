@@ -17,6 +17,8 @@ interface BuildDebugCommandsArgs {
 	onDebugReleaseQueuedItem?: () => void;
 	/** Whether a performance-profiling recording is currently in flight. */
 	profilingActive: boolean;
+	/** Trace-buffer usage of the active recording, 0-1. */
+	profilingBufferPercent: number;
 	onStartProfiling: () => void;
 	onStopProfiling: () => void;
 	getInstallationId: () => Promise<string | null | undefined>;
@@ -57,6 +59,7 @@ export function buildDebugCommands({
 	setDebugAgentProbeOpen,
 	onDebugReleaseQueuedItem,
 	profilingActive,
+	profilingBufferPercent,
 	onStartProfiling,
 	onStopProfiling,
 	getInstallationId,
@@ -285,7 +288,13 @@ export function buildDebugCommands({
 		commands.push({
 			id: 'debugEndProfiling',
 			label: 'Debug: End Performance Profiling',
-			subtext: 'Stop, analyze, and save the trace bundle',
+			// Surface buffer pressure here rather than a duration. Chromium drops
+			// events once the buffer fills, so this is the number that says how much
+			// capture window is left; elapsed seconds say nothing, because a busy
+			// app fills the buffer in a fraction of the time a quiet one takes.
+			subtext: `Stop and save the trace bundle - trace buffer ${Math.round(
+				profilingBufferPercent * 100
+			)}% full`,
 			action: () => {
 				onStopProfiling();
 				setQuickActionOpen(false);
@@ -295,7 +304,7 @@ export function buildDebugCommands({
 		commands.push({
 			id: 'debugStartProfiling',
 			label: 'Debug: Start Performance Profiling',
-			subtext: 'Capture a Chromium trace to diagnose UI lag',
+			subtext: 'Capture a Chromium trace to diagnose UI lag (ends itself when the buffer fills)',
 			action: () => {
 				onStartProfiling();
 				setQuickActionOpen(false);

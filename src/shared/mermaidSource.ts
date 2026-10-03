@@ -88,6 +88,25 @@
  * length (`.->`, `.-`, `.-x`, `.-o`, `..->`, `==>`, `==`, `==x`, `==o`), and
  * `<br/>` keeps working inside the quotes.
  *
+ * ## An invalid direction in the header
+ *
+ * The header takes a direction from a closed set - `TB`, `TD`, `BT`, `RL`,
+ * `LR`, `BR` - in upper case, and everything else is a lexical error on line 1
+ * that kills the diagram before a single node is read:
+ *
+ *   flowchart LD
+ *   ---------^ Lexical error on line 1. Unrecognized text.
+ *
+ * `LD`, `UD`, `DT`, `TL`, and a lower-case `lr` are all written often enough to
+ * matter, and none of them is ambiguous about what was meant: the letters name
+ * edges of the canvas. So the repair reads them literally - `U` is `T`, `D` is
+ * `B`, and a pair that names two different axes (`LD`) keeps the first letter,
+ * which is the one that says where the graph starts. A token that is not two
+ * direction letters is left alone, so a node id that wandered into the header
+ * keeps its parse error instead of being rewritten into a wrong render. The
+ * same repair runs on the per-subgraph `direction` statement, whose set is the
+ * same one minus `BR`.
+ *
  * ## What is deliberately not repaired
  *
  * Two inputs are ambiguous rather than broken, and both are left byte-for-byte
@@ -112,12 +131,11 @@ const AT_ENTITY = '#64;';
 type Frame = 'label' | 'shape';
 
 /**
- * True when the source is a flowchart, the only diagram type whose grammar has
- * the edge-id rule. Every other diagram treats `@` as plain text, so rewriting
- * there would be a change with no bug behind it.
+ * Index of the line carrying the diagram keyword, or `-1` when the source has
+ * none. Blank lines, `%% comments`, `%%{init: ...}%%` directives and a YAML
+ * frontmatter block may all precede it.
  */
-function isFlowchartSource(source: string): boolean {
-	const lines = source.split('\n');
+function findDiagramLineIndex(lines: string[]): number {
 	let index = 0;
 
 	// Skip a YAML frontmatter block (`---` ... `---`), which carries the
@@ -130,12 +148,106 @@ function isFlowchartSource(source: string): boolean {
 
 	for (; index < lines.length; index++) {
 		const line = lines[index].trim();
-		// Blank lines, `%% comments`, and `%%{init: ...}%%` directives may all
-		// precede the diagram keyword.
 		if (!line || line.startsWith('%%')) continue;
-		return /^(flowchart|graph)\b/i.test(line);
+		return index;
 	}
-	return false;
+	return -1;
+}
+
+/** The keywords that select the flowchart grammar, `flowchart-elk` included. */
+const FLOWCHART_KEYWORD = /^(flowchart|graph)\b/i;
+
+/**
+ * True when the source is a flowchart, the only diagram type whose grammar has
+ * the edge-id rule. Every other diagram treats `@` as plain text, so rewriting
+ * there would be a change with no bug behind it.
+ */
+function isFlowchartSource(source: string): boolean {
+	const lines = source.split('\n');
+	const index = findDiagramLineIndex(lines);
+	return index !== -1 && FLOWCHART_KEYWORD.test(lines[index].trim());
+}
+
+/**
+ * The direction tokens the diagram header accepts, measured against mermaid 11.
+ * `BR` is in the lexer alongside the four axes and `TD`; the single-character
+ * forms (`v`, `^`, `<`, `>`) are left to the "not a direction attempt" branch
+ * below, because one letter is too little to tell a typo from a node id.
+ */
+const HEADER_DIRECTIONS = new Set(['TB', 'TD', 'BT', 'RL', 'LR', 'BR']);
+
+/** A `direction` statement inside a subgraph takes the same set minus `BR`. */
+const STATEMENT_DIRECTIONS = new Set(['TB', 'TD', 'BT', 'RL', 'LR']);
+
+/** The axis a leading letter names, for a pair whose two letters disagree. */
+const DIRECTION_BY_FIRST_LETTER: Record<string, string> = {
+	T: 'TB',
+	U: 'TB',
+	B: 'BT',
+	D: 'BT',
+	L: 'LR',
+	R: 'RL',
+};
+
+/** Two letters naming an edge of the canvas: top, bottom, left, right, up, down. */
+const DIRECTION_LETTER_PAIR = /^[TBLRUD]{2}$/;
+
+/**
+ * The direction a token was reaching for, or `null` to leave it alone. A token
+ * already in `valid` is returned unchanged (`null`) so a diagram that parses
+ * stays byte-for-byte identical; a token that is not two direction letters is
+ * left alone too, so a node id that wandered into the header keeps its failure
+ * rather than being silently rewritten into a diagram that renders the wrong
+ * thing.
+ */
+function repairDirectionToken(token: string, valid: Set<string>): string | null {
+	const upper = token.toUpperCase();
+	if (valid.has(upper)) return upper === token ? null : upper;
+	if (!DIRECTION_LETTER_PAIR.test(upper)) return null;
+
+	// `up`/`down` are the same two axes under different names, so `UD` is `TB`
+	// and `DU` is `BT`.
+	const axes = upper.replace(/U/g, 'T').replace(/D/g, 'B');
+	if (valid.has(axes)) return axes;
+
+	// The two letters name different axes (`LD`, `TL`, `RD`): only the first one
+	// can be honoured, and it is the one that says where the graph starts.
+	return DIRECTION_BY_FIRST_LETTER[upper[0]];
+}
+
+/** `flowchart LD`, `graph td;`, with the rest of the line left untouched. */
+const HEADER_DIRECTION = /^([ \t]*(?:flowchart-elk|flowchart|graph)[ \t]+)([^\s;%]+)/i;
+
+/** `direction lr` - the per-subgraph override, which has its own lexer rule. */
+const STATEMENT_DIRECTION = /^([ \t]*direction[ \t]+)([^\s;%]+)/i;
+
+/**
+ * Repair a direction the lexer does not recognize. Mermaid accepts exactly
+ * `TB`, `TD`, `BT`, `RL`, `LR` and `BR`, in upper case, and anything else is a
+ * lexical error on line 1 that takes the whole diagram with it - `flowchart LD`
+ * and `flowchart lr` both die there, which is a long way from what either one
+ * plainly meant.
+ */
+function repairDirections(source: string): string {
+	const lines = source.split('\n');
+	const header = findDiagramLineIndex(lines);
+	if (header === -1 || !FLOWCHART_KEYWORD.test(lines[header].trim())) return source;
+
+	let changed = false;
+	const rewrite = (line: string, pattern: RegExp, valid: Set<string>): string =>
+		line.replace(pattern, (whole: string, head: string, token: string) => {
+			const repaired = repairDirectionToken(token, valid);
+			if (repaired === null) return whole;
+			changed = true;
+			return head + repaired;
+		});
+
+	lines[header] = rewrite(lines[header], HEADER_DIRECTION, HEADER_DIRECTIONS);
+	for (let i = header + 1; i < lines.length; i++) {
+		if (!/^[ \t]*direction\b/i.test(lines[i])) continue;
+		lines[i] = rewrite(lines[i], STATEMENT_DIRECTION, STATEMENT_DIRECTIONS);
+	}
+	return changed ? lines.join('\n') : source;
 }
 
 /**
@@ -455,12 +567,15 @@ const REPAIRABLE = /[@()[\]{}]|-\.|==|^[ \t]*subgraph\b/im;
  * character that can break a label, or not a flowchart).
  */
 export function normalizeMermaidSource(source: string): string {
-	if (!REPAIRABLE.test(source)) return source;
-	if (!isFlowchartSource(source)) return source;
+	// Runs ahead of the REPAIRABLE gate: a bad direction carries none of the
+	// characters that gate looks for.
+	const directed = repairDirections(source);
+	if (!REPAIRABLE.test(directed)) return directed;
+	if (!isFlowchartSource(directed)) return directed;
 
 	// Quoting runs first: a quoted label is already immune to the `@` rule, and
 	// the scanner below passes quoted text through untouched.
-	const prepared = quoteSubgraphTitles(quoteInlineEdgeLabels(quoteBracketLabels(source)));
+	const prepared = quoteSubgraphTitles(quoteInlineEdgeLabels(quoteBracketLabels(directed)));
 	if (!prepared.includes('@')) return prepared;
 
 	let out = '';

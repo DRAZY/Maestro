@@ -525,7 +525,39 @@ const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 		},
 	],
 
+	// ORDER IS LOAD-BEARING: first match wins, and the chosen `message` is what
+	// the retry scheduler reads to pick a strategy. The two PLAN-QUOTA patterns
+	// therefore come first. Codex says things like "429 ... you've hit your usage
+	// limit", which matched `rate.*limit` (or `\b429\b`) and was rewritten to
+	// "Rate limited. Please wait and try again." - wording that reads as a
+	// transient throttle, so a multi-hour quota outage was retried on the 30s
+	// availability backoff instead of the slow exhaustion poll.
+	//
+	// Getting this wrong is asymmetric: calling a quota outage a throttle hammers
+	// the provider for hours, while calling a throttle a quota outage just waits
+	// longer than it needed to. When a line carries both signals, quota wins.
 	rate_limited: [
+		{
+			// Matches: "Your workspace is out of credits. Add credits to continue."
+			// Codex's wording once a plan window AND the workspace's credit fallback
+			// are both spent. Without this it fell through to type `unknown`, which
+			// every path that asks "is this a limit?" by type ignores - only the
+			// retry scheduler's own text match still recognised it.
+			pattern: /out of credits|insufficient credits|add (?:more )?credits to continue/i,
+			message: 'Your workspace is out of credits. Resume when your plan quota resets.',
+			recoverable: true,
+		},
+		{
+			// Matches: "You've hit your usage limit" or "usage limit reached/exceeded"
+			pattern: /usage.?limit|hit your.*limit/i,
+			message: 'Usage limit reached. Please wait or check your plan quota.',
+			recoverable: true,
+		},
+		{
+			pattern: /quota.*exceeded/i,
+			message: 'Your API quota has been exceeded. Resume when quota resets.',
+			recoverable: true,
+		},
 		{
 			pattern: /rate.*limit/i,
 			message: 'Rate limit exceeded. Please wait before trying again.',
@@ -537,20 +569,9 @@ const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 			recoverable: true,
 		},
 		{
-			pattern: /quota.*exceeded/i,
-			message: 'Your API quota has been exceeded. Resume when quota resets.',
-			recoverable: true,
-		},
-		{
 			// HTTP 429 - Rate limited. Word boundary prevents false positives from ports/versions
 			pattern: /\b429\b/,
 			message: 'Rate limited. Please wait and try again.',
-			recoverable: true,
-		},
-		{
-			// Matches: "You've hit your usage limit" or "usage limit reached/exceeded"
-			pattern: /usage.?limit|hit your.*limit/i,
-			message: 'Usage limit reached. Please wait or check your plan quota.',
 			recoverable: true,
 		},
 	],
@@ -586,6 +607,20 @@ const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 			pattern: /error running remote compact task/i,
 			message:
 				'Codex could not compact this conversation on its server. The turn was dropped but the session is intact - retry the prompt, and start a new tab if it keeps failing.',
+			recoverable: true,
+		},
+		{
+			// OpenAI closed the response stream mid-turn and Codex's own retries ran
+			// out (#1694): "stream disconnected before completion: websocket closed by
+			// server before response.completed". A transport drop between Codex and
+			// OpenAI, so it is transient. Keyed on the transport cause, not the
+			// prefix alone: Codex also wraps permanent failures in the same prefix
+			// ("stream disconnected before completion: The model ... does not
+			// exist"), and those must not be retried.
+			pattern:
+				/stream disconnected before completion:.*(?:websocket closed|before response\.completed|idle timeout)/i,
+			message:
+				'OpenAI closed the Codex response stream before the turn finished. This is a provider-side drop - retry the prompt.',
 			recoverable: true,
 		},
 		{
@@ -982,6 +1017,17 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 			pattern: /ssh:.*packet corrupt|ssh:.*protocol error/i,
 			message: 'SSH protocol error. The connection may be unstable.',
 			recoverable: true,
+		},
+		{
+			// Windows remote: OpenSSH handed our POSIX script to PowerShell or cmd.exe.
+			// Neither can run `/bin/bash`, so the turn dies with shell noise that
+			// reads like a missing binary. It is a host configuration problem, and
+			// no amount of retrying or reinstalling the agent will move it.
+			pattern:
+				/['"]?\/bin\/bash['"]?\s+is not recognized|the term ['"]\/bin\/bash['"] is not recognized|is not a valid statement separator in this version/i,
+			message:
+				"Remote SSH shell is a Windows shell (PowerShell or cmd.exe), which cannot run /bin/bash. Point the remote's OpenSSH DefaultShell at Git Bash or WSL bash.",
+			recoverable: false,
 		},
 		{
 			// Shell parse error - indicates profile/rc file syntax issues on the remote

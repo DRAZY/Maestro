@@ -199,12 +199,15 @@ export function AutoRunInline({
 	const canRedo = redoStackRef.current.length > 0;
 	void historyTick; // ensures re-render when ref-backed history changes
 
-	// Lock state - when a run is active the document being processed is read-only.
+	// Lock state - while a run is DRIVING the document it is read-only.
 	// We approximate desktop's `lockedDocuments` semantics by treating any active
 	// run as read-only for the *currently selected* document (the desktop checks
 	// the run's locked-documents list, but the web doesn't get that detail in
 	// AutoRunState today; locking on isRunning is the conservative safe default).
-	const isLocked = isRunning;
+	// A paused run is the exception: an agent error or a MAESTRO:HITL gate parks
+	// the engine until the user clicks Resume, and answering the gate usually
+	// means editing the document, so the lock lifts.
+	const isLocked = isRunning && !isErrorPaused;
 
 	const isDirty = localContent !== savedContent;
 	const taskCounts = useMemo(() => countTasks(localContent), [localContent]);

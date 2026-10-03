@@ -32,6 +32,33 @@ import {
 	type MessageHandlerCallbacks,
 } from '../../../../main/web-server/handlers/messageHandlers';
 
+// The feedback service shells out to `gh` and the debug package reads real
+// stores; the handler tests only care what reaches them and what comes back.
+vi.mock('../../../../main/feedback', () => ({
+	checkFeedbackGhAuth: vi.fn().mockResolvedValue({ authenticated: true }),
+	searchFeedbackIssues: vi.fn().mockResolvedValue({ issues: [] }),
+	submitFeedbackConversation: vi.fn().mockResolvedValue({
+		success: true,
+		issueUrl: 'https://github.com/RunMaestro/Maestro/issues/1',
+	}),
+	subscribeFeedbackIssue: vi.fn().mockResolvedValue({ success: true }),
+}));
+vi.mock('../../../../main/debug-package', () => ({
+	generateDebugPackage: vi.fn().mockResolvedValue({
+		success: true,
+		path: '/tmp/p.zip',
+		filesIncluded: ['a'],
+		totalSizeBytes: 9,
+	}),
+}));
+
+import {
+	searchFeedbackIssues,
+	submitFeedbackConversation,
+	subscribeFeedbackIssue,
+} from '../../../../main/feedback';
+import { generateDebugPackage } from '../../../../main/debug-package';
+
 // Mock the logger
 vi.mock('../../../../main/utils/logger', () => ({
 	logger: {
@@ -183,6 +210,7 @@ function createMockCallbacks(): MessageHandlerCallbacks {
 		deletePlaybook: vi.fn().mockResolvedValue(true),
 		notifyToast: vi.fn().mockResolvedValue(true),
 		notifyCenterFlash: vi.fn().mockResolvedValue(true),
+		getDebugPackageDeps: vi.fn().mockReturnValue({ settingsStore: {} }),
 		getMarketplaceManifest: vi.fn().mockResolvedValue({
 			manifest: { lastUpdated: '2026-01-01', playbooks: [] },
 			fromCache: false,
@@ -855,7 +883,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: false, switchToAgent: true }
+					{ background: false, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 
@@ -881,7 +909,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: false, switchToAgent: false }
+					{ background: false, switchToAgent: false, mediaMode: 'play' }
 				);
 			});
 		});
@@ -898,7 +926,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: true, switchToAgent: true }
+					{ background: true, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 		});
@@ -916,7 +944,42 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith(
 					'session-1',
 					'/home/user/project/src/index.ts',
-					{ background: true, switchToAgent: false }
+					{ background: true, switchToAgent: false, mediaMode: 'play' }
+				);
+			});
+		});
+
+		it("forwards mediaMode 'queue' so audio/video is queued without playing", async () => {
+			handler.handleMessage(client, {
+				type: 'open_file_tab',
+				sessionId: 'session-1',
+				filePath: '/home/user/project/ep1.mp3',
+				mediaMode: 'queue',
+			});
+
+			await vi.waitFor(() => {
+				expect(callbacks.openFileTab).toHaveBeenCalledWith(
+					'session-1',
+					'/home/user/project/ep1.mp3',
+					{ background: false, switchToAgent: true, mediaMode: 'queue' }
+				);
+			});
+		});
+
+		it("treats any mediaMode other than 'queue' as play", async () => {
+			handler.handleMessage(client, {
+				type: 'open_file_tab',
+				sessionId: 'session-1',
+				filePath: '/home/user/project/ep1.mp3',
+				// Untrusted wire input: the handler narrows anything unknown to play.
+				mediaMode: 'shuffle' as never,
+			});
+
+			await vi.waitFor(() => {
+				expect(callbacks.openFileTab).toHaveBeenCalledWith(
+					'session-1',
+					'/home/user/project/ep1.mp3',
+					{ background: false, switchToAgent: true, mediaMode: 'play' }
 				);
 			});
 		});
@@ -979,6 +1042,7 @@ describe('WebSocketMessageHandler', () => {
 				expect(callbacks.openFileTab).toHaveBeenCalledWith('session-1', '/home/etc/passwd', {
 					background: false,
 					switchToAgent: true,
+					mediaMode: 'play',
 				});
 			});
 
@@ -1589,6 +1653,101 @@ describe('WebSocketMessageHandler', () => {
 
 			await vi.waitFor(() => {
 				expect(callbacks.listTerminalTabs).toHaveBeenCalledWith(undefined);
+			});
+		});
+	});
+
+	describe('Group Chat (CLI/Web → Desktop)', () => {
+		const lastResponse = () => {
+			const calls = (client.socket.send as any).mock.calls;
+			return JSON.parse(calls[calls.length - 1][0]);
+		};
+
+		it('starts a chat with one participant and forwards the moderator and opening message', async () => {
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release rc',
+				participantIds: ['session-1'],
+				moderatorAgentId: 'claude-code',
+				message: '@rc cut the release',
+				requestId: 'req-1',
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					type: 'start_group_chat_result',
+					success: true,
+					chatId: 'chat-1',
+					requestId: 'req-1',
+				});
+			});
+			expect(callbacks.startGroupChat).toHaveBeenCalledWith('Release rc', ['session-1'], {
+				moderatorAgentId: 'claude-code',
+				message: '@rc cut the release',
+			});
+		});
+
+		it('reports the renderer error, with the chat id when the chat was created', async () => {
+			(callbacks.startGroupChat as any).mockResolvedValue({
+				chatId: 'chat-2',
+				error: 'Chat created, but the opening message failed: boom',
+			});
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: ['session-1'],
+				requestId: 'req-2',
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					type: 'start_group_chat_result',
+					success: false,
+					chatId: 'chat-2',
+					error: 'Chat created, but the opening message failed: boom',
+				});
+			});
+		});
+
+		it('says the app did not answer when the renderer times out', async () => {
+			(callbacks.startGroupChat as any).mockResolvedValue(null);
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: ['session-1'],
+			});
+
+			await vi.waitFor(() => {
+				expect(lastResponse()).toMatchObject({
+					success: false,
+					error: 'The desktop app did not answer',
+				});
+			});
+		});
+
+		it('refuses a start with no participants, tagging the error with the requestId', () => {
+			handler.handleMessage(client, {
+				type: 'start_group_chat',
+				topic: 'Release',
+				participantIds: [],
+				requestId: 'req-3',
+			});
+
+			expect(lastResponse()).toMatchObject({
+				type: 'error',
+				message: 'At least 1 participant is required',
+				requestId: 'req-3',
+			});
+			expect(callbacks.startGroupChat).not.toHaveBeenCalled();
+		});
+
+		it('tags a missing chatId error with the requestId so the CLI does not time out', () => {
+			handler.handleMessage(client, { type: 'get_group_chat_state', requestId: 'req-4' });
+
+			expect(lastResponse()).toMatchObject({
+				type: 'error',
+				message: 'Missing chatId',
+				requestId: 'req-4',
 			});
 		});
 	});
@@ -3432,6 +3591,85 @@ describe('WebSocketMessageHandler', () => {
 			const payload = JSON.parse((client.socket.send as any).mock.calls[0][0]);
 			expect(payload.type).toBe('error');
 			expect(payload.message).toContain('branchName');
+		});
+	});
+
+	describe('Feedback and support package (maestro-cli feedback / support-package)', () => {
+		const lastResponse = () => {
+			const calls = (client.socket.send as any).mock.calls;
+			return JSON.parse(calls[calls.length - 1][0]);
+		};
+
+		it('support_package_create writes into an absolute dir with only the section toggles', async () => {
+			handler.handleMessage(client, {
+				type: 'support_package_create',
+				requestId: 'sp-1',
+				outputDir: '/tmp/out',
+				options: { includeLogs: false, evil: 'x' },
+			});
+			await vi.waitFor(() => expect(generateDebugPackage).toHaveBeenCalled());
+			expect(vi.mocked(generateDebugPackage).mock.calls[0][0]).toBe('/tmp/out');
+			expect(vi.mocked(generateDebugPackage).mock.calls[0][2]).toEqual({ includeLogs: false });
+			await vi.waitFor(() => expect(lastResponse().type).toBe('support_package_create_result'));
+			expect(lastResponse()).toMatchObject({
+				success: true,
+				path: '/tmp/p.zip',
+				requestId: 'sp-1',
+			});
+		});
+
+		it('support_package_create refuses a relative outputDir', async () => {
+			handler.handleMessage(client, {
+				type: 'support_package_create',
+				requestId: 'sp-2',
+				outputDir: 'relative/dir',
+			});
+			await vi.waitFor(() => expect(lastResponse().type).toBe('support_package_create_result'));
+			expect(lastResponse().success).toBe(false);
+		});
+
+		it('feedback_search passes the query through', async () => {
+			handler.handleMessage(client, { type: 'feedback_search', requestId: 'fs', query: 'tabs' });
+			await vi.waitFor(() => expect(lastResponse().type).toBe('feedback_search_result'));
+			expect(searchFeedbackIssues).toHaveBeenCalledWith({ query: 'tabs' });
+			expect(lastResponse()).toMatchObject({ success: true, issues: [] });
+		});
+
+		it('feedback_submit hands the support-package collectors over only when asked', async () => {
+			handler.handleMessage(client, {
+				type: 'feedback_submit',
+				requestId: 'sub',
+				payload: { category: 'bug_report', includeDebugPackage: true },
+			});
+			await vi.waitFor(() => expect(lastResponse().type).toBe('feedback_submit_result'));
+			expect(vi.mocked(submitFeedbackConversation).mock.calls[0][1]).toEqual({ settingsStore: {} });
+			expect(lastResponse().issueUrl).toContain('/issues/1');
+		});
+
+		it('feedback_submit refuses more screenshots than the modal allows', async () => {
+			handler.handleMessage(client, {
+				type: 'feedback_submit',
+				requestId: 'sub2',
+				payload: {
+					attachments: new Array(6).fill({ name: 'a', dataUrl: 'data:image/png;base64,' }),
+				},
+			});
+			await vi.waitFor(() => expect(lastResponse().type).toBe('feedback_submit_result'));
+			expect(lastResponse().success).toBe(false);
+		});
+
+		it('feedback_subscribe forwards the issue number and comment', async () => {
+			handler.handleMessage(client, {
+				type: 'feedback_subscribe',
+				requestId: 'fsub',
+				issueNumber: 42,
+				comment: 'same here',
+			});
+			await vi.waitFor(() => expect(lastResponse().type).toBe('feedback_subscribe_result'));
+			expect(subscribeFeedbackIssue).toHaveBeenCalledWith({
+				issueNumber: 42,
+				comment: 'same here',
+			});
 		});
 	});
 });

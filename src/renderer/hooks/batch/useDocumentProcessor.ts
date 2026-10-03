@@ -21,6 +21,10 @@ import { logger } from '../../utils/logger';
 import { beginSleepAwareSpan, sleepAwareElapsedMs } from '../../services/systemSleep';
 import { findActiveModelHint, countTasksUnderActiveHint } from '../../../shared/autorunModelHints';
 import { resolveTurnSettings } from '../../../shared/autorunTurnSettings';
+import {
+	formatSteeringNotesBlock,
+	type AutoRunSteeringNote,
+} from '../../../shared/autorunSteering';
 
 /**
  * Configuration for document processing
@@ -71,6 +75,13 @@ export interface DocumentProcessorConfig {
 	 * SSH remote ID for remote file operations (when session is SSH-enabled)
 	 */
 	sshRemoteId?: string;
+
+	/**
+	 * Notes the operator sent while the run was in flight. Prepended to this
+	 * task's prompt so a course correction lands without stopping the run.
+	 * Already consumed by the caller - this hook only formats them.
+	 */
+	steeringNotes?: readonly AutoRunSteeringNote[];
 }
 
 /**
@@ -333,6 +344,7 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 				customPrompt,
 				taskSelectionMode,
 				sshRemoteId,
+				steeringNotes,
 			} = config;
 
 			const docFilePath = `${folderPath}/${filename}.md`;
@@ -412,7 +424,25 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 			);
 
 			// Substitute template variables in the prompt
-			const finalPrompt = substituteTemplateVariables(promptWithSelectionBlock, templateContext);
+			const substitutedPrompt = substituteTemplateVariables(
+				promptWithSelectionBlock,
+				templateContext
+			);
+
+			// Steering notes ride in FRONT of the prompt, and are prepended AFTER
+			// substitution on purpose: a `{{...}}` the operator typed into a note is
+			// their literal text, not a variable for Maestro to expand.
+			const steeringBlock = formatSteeringNotesBlock(steeringNotes ?? []);
+			const finalPrompt = steeringBlock
+				? `${steeringBlock}\n\n---\n\n${substitutedPrompt}`
+				: substitutedPrompt;
+			if (steeringBlock) {
+				logger.info(
+					`[DocumentProcessor] Delivering ${steeringNotes?.length ?? 0} steering note(s)`,
+					undefined,
+					{ document: filename }
+				);
+			}
 
 			// Capture start time for elapsed time tracking. Sleep-aware: a task that
 			// spans a lid close must not report the sleep as agent work time.

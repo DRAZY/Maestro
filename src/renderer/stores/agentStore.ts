@@ -35,7 +35,7 @@ import { createTab, getActiveTab } from '../utils/tabHelpers';
 import { codifyQueuedTurnSettings } from '../utils/providerTabSessions';
 import { getStdinFlags, prepareMaestroSystemPrompt } from '../utils/spawnHelpers';
 import { generateId } from '../utils/ids';
-import { useSessionStore, selectSessionById } from './sessionStore';
+import { useSessionStore, selectSessionById, takePendingMergedContext } from './sessionStore';
 // Agent Resilience: snapshot dispatched prompts for auto-retry. Import cycle
 // with retryStore is safe - both sides only touch each other inside runtime
 // callbacks, never at module-eval time.
@@ -128,12 +128,21 @@ export interface AgentStoreActions {
 	/**
 	 * Process a queued item (message or command) for a session.
 	 * Builds spawn config and dispatches to the agent process.
+	 *
+	 * Resolves `true` when something is now running that will settle this turn,
+	 * and `false` when the call returned having dispatched nothing - its target
+	 * tab was closed while the item waited, or the command has no definition.
+	 * A caller that took the item OUT of a queue to run it has to be able to tell
+	 * those apart: reading a `false` as success destroys the prompt, because
+	 * nothing sent it and nothing is left holding it. Anything that DID reach a
+	 * dispatch attempt and failed still throws; this is only for the paths that
+	 * resolve normally having done nothing.
 	 */
 	processQueuedItem: (
 		sessionId: string,
 		item: QueuedItem,
 		deps: ProcessQueuedItemDeps
-	) => Promise<void>;
+	) => Promise<boolean>;
 
 	// === Agent Lifecycle ===
 
@@ -339,7 +348,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 		const session = getSession(sessionId);
 		if (!session) {
 			logger.error('[processQueuedItem] Session not found:', undefined, sessionId);
-			return;
+			return false;
 		}
 
 		// Find the TARGET tab for this queued item (NOT the active tab!)
@@ -369,18 +378,18 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 					};
 				})
 			);
-			return;
+			return false;
 		}
 
 		const targetTab = tabByItemId || getActiveTab(session);
 
 		if (!targetTab) {
 			logger.error(
-				'[processQueuedItem] No target tab found — session has no aiTabs. Aborting spawn.',
+				'[processQueuedItem] No target tab found - session has no aiTabs. Aborting spawn.',
 				undefined,
 				{ sessionId, itemTabId: item.tabId }
 			);
-			return;
+			return false;
 		}
 
 		const targetSessionId = `${sessionId}-ai-${targetTab.id}`;
@@ -421,7 +430,11 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 
 			if (item.type === 'message' && (hasText || isImageOnlyMessage)) {
 				// Process a message - spawn agent with the message text
-				const effectivePrompt = isImageOnlyMessage ? DEFAULT_IMAGE_ONLY_PROMPT : item.text!;
+				const effectivePrompt = takePendingMergedContext(
+					sessionId,
+					targetTab.id,
+					isImageOnlyMessage ? DEFAULT_IMAGE_ONLY_PROMPT : item.text!
+				);
 
 				// NOTE: The user-visible log entry for this message is appended by the
 				// caller that dequeued the item (e.g. useAgentListeners onExit,
@@ -612,8 +625,12 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 							};
 						})
 					);
+					// Nothing spawned and nothing will: the command does not exist, so
+					// no exit is coming to settle this turn.
+					return false;
 				}
 			}
+			return true;
 		} catch (error: any) {
 			logger.error('[processQueuedItem] Failed to process queued item:', undefined, error);
 			const errorLogEntry: LogEntry = {

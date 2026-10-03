@@ -12,6 +12,7 @@
 
 import type { Session } from '../../types';
 import { AGENT_DISPLAY_NAMES } from '../../../shared/agentMetadata';
+import { widestLabelWidth } from '../../utils/labelWidth';
 
 /**
  * Returns true if the session is a worktree child (was spawned from a parent agent).
@@ -215,4 +216,91 @@ export function buildNameMap(
 	}
 
 	return result;
+}
+
+/**
+ * Width, in px, of the name column in the dashboard's horizontal bar charts
+ * (Agent Efficiency, Agent Comparison, By Agent Type). Sized to the longest
+ * label so "Claude Code (Worktree)" reads in full instead of clipping at a
+ * fixed 112px while the bar beside it has room to spare. Labels render at
+ * `text-sm`; `withSwatch` counts the color square and its gap. The ceiling
+ * keeps one long user-assigned agent name from eating the bars; past it the
+ * label ellipsizes and the row's `title` carries the full name.
+ */
+export function barChartLabelWidth(
+	labels: Iterable<string>,
+	{ withSwatch = false }: { withSwatch?: boolean } = {}
+): number {
+	return widestLabelWidth(labels, {
+		fontSizePx: 14,
+		// w-2.5 swatch (10px) + gap-2 (8px)
+		chromePx: withSwatch ? 18 : 0,
+		minPx: 112,
+		maxPx: 320,
+	});
+}
+
+/**
+ * Geometry shared by the dashboard's donut charts (Activity Source, Session
+ * Location) so they stay visually identical and the center label always has
+ * room for its longest value.
+ *
+ * `centerLabelWidth` is the widest a center label may be drawn: a chord of the
+ * hole rather than its full diameter, so a long string ("1,234h 56m") stops
+ * before it reaches the ring instead of painting over it.
+ */
+export const DONUT_CHART = {
+	size: 200,
+	outerRadius: 88,
+	innerRadius: 62,
+	/** Extra radius the hovered slice pops out by. */
+	hoverExpansion: 4,
+	centerLabelWidth: 106,
+} as const;
+
+/**
+ * SVG arc path generator for donut chart segments.
+ *
+ * Angles are degrees clockwise from 12 o'clock. A sweep of (near) 360 degrees
+ * is drawn as two half arcs, because a single arc whose start and end points
+ * coincide renders as nothing.
+ */
+export function describeDonutArc(
+	x: number,
+	y: number,
+	outerRadius: number,
+	innerRadius: number,
+	startAngle: number,
+	endAngle: number
+): string {
+	if (endAngle - startAngle >= 359.99) {
+		const midAngle = startAngle + 180;
+		return `
+      ${describeDonutArc(x, y, outerRadius, innerRadius, startAngle, midAngle)}
+      ${describeDonutArc(x, y, outerRadius, innerRadius, midAngle, endAngle)}
+    `;
+	}
+
+	const startRad = (startAngle - 90) * (Math.PI / 180);
+	const endRad = (endAngle - 90) * (Math.PI / 180);
+
+	const startOuterX = x + outerRadius * Math.cos(startRad);
+	const startOuterY = y + outerRadius * Math.sin(startRad);
+	const endOuterX = x + outerRadius * Math.cos(endRad);
+	const endOuterY = y + outerRadius * Math.sin(endRad);
+
+	const startInnerX = x + innerRadius * Math.cos(startRad);
+	const startInnerY = y + innerRadius * Math.sin(startRad);
+	const endInnerX = x + innerRadius * Math.cos(endRad);
+	const endInnerY = y + innerRadius * Math.sin(endRad);
+
+	const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+
+	return `
+    M ${startOuterX} ${startOuterY}
+    A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${endOuterX} ${endOuterY}
+    L ${endInnerX} ${endInnerY}
+    A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${startInnerX} ${startInnerY}
+    Z
+  `;
 }

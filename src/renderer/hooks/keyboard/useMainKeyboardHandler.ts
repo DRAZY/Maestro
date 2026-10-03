@@ -5,6 +5,8 @@ import { DESTINATION_SHORTCUT_IDS, useModalStore } from '../../stores/modalStore
 import { requestEditLastQueuedMessage } from '../../services/editQueuedMessage';
 import { requestOpenStagedImagesOrganizer } from '../../services/stagedImagesOrganizer';
 import { toggleAllUnreadFilters } from '../../services/unreadFilters';
+import { requestSidebarReveal } from '../../utils/sidebarReveal';
+import { getGitShortcutActions } from '../../services/gitShortcutActions';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useMediaPlaybackStore, selectMediaPlayerTargetId } from '../../stores/mediaPlaybackStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
@@ -810,6 +812,42 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.setGitLogOpen(true);
 					trackShortcut('viewGitLog');
 				}
+			} else if (ctx.isShortcut(e, 'gitPull') && !ctx.activeGroupChatId) {
+				// The remaining branch-pill actions. All four fire the SAME action set
+				// the pill menu and Cmd+K fire (published by GitShortcutActionsBridge),
+				// so a chord can't drift from the menu row it mirrors. preventDefault
+				// only once the agent is a git repo: on a non-git agent there is
+				// nothing to run, and eating the key would be worse than passing it on.
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.pull();
+					trackShortcut('gitPull');
+				}
+			} else if (ctx.isShortcut(e, 'gitPush') && !ctx.activeGroupChatId) {
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.push();
+					trackShortcut('gitPush');
+				}
+			} else if (ctx.isShortcut(e, 'gitChangeBranch') && !ctx.activeGroupChatId) {
+				const git = getGitShortcutActions();
+				if (git?.isGitRepo) {
+					e.preventDefault();
+					git.switchBranch();
+					trackShortcut('gitChangeBranch');
+				}
+			} else if (ctx.isShortcut(e, 'gitCreatePR') && !ctx.activeGroupChatId) {
+				// canCreatePR, not isGitRepo: a repo with no resolved branch has no
+				// source to open a PR from, which is the same reason the pill menu
+				// omits the row.
+				const git = getGitShortcutActions();
+				if (git?.canCreatePR) {
+					e.preventDefault();
+					git.createPR();
+					trackShortcut('gitCreatePR');
+				}
 			} else if (ctx.isShortcut(e, 'agentSessions')) {
 				e.preventDefault();
 				// Use capability check instead of hardcoded toolType
@@ -908,14 +946,28 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// Note: FilePreview handles its own Cmd+E with stopPropagation when focused,
 				// so if the event reaches here, the user isn't interacting with a file tab.
 				// Check both state-based detection AND DOM-based detection for robustness
-				const isInAutoRunPanel = ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
-				// Also check if the focused element is within an autorun panel (handles edge cases where activeFocus state may be stale)
+				// Who actually holds focus decides this, not the panel-selection state.
+				//
+				// Two defects lived in these three lines. `?.closest(...) !== null`
+				// evaluated to `undefined !== null`, i.e. TRUE, whenever nothing was
+				// focused - so a moment with no `document.activeElement` silently
+				// claimed the caret was in Auto Run and swallowed the toggle. And
+				// `activeFocus`/`activeRightTab` are a proxy: they describe which
+				// panel was last selected, not where the caret is, so they can still
+				// read 'right'/'autorun' while the user is reading the chat.
+				//
+				// DOM containment answers the real question, so it wins whenever
+				// there is a genuine focus target. The state pair is consulted only
+				// when nothing meaningful is focused and it is the sole signal left.
 				const activeElement = document.activeElement;
-				const isInAutoRunDOM = activeElement?.closest('[data-tour="autorun-panel"]') !== null;
+				const hasRealFocus = activeElement instanceof Element && activeElement !== document.body;
+				const isInAutoRunPanel = hasRealFocus
+					? activeElement.closest('[data-tour="autorun-panel"]') !== null
+					: ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
 				// Check if Auto Run is running and editing is locked (running without worktree)
 				const isAutoRunLocked =
 					ctx.activeBatchRunState?.isRunning && !ctx.activeBatchRunState?.worktreeActive;
-				if (!isInAutoRunPanel && !isInAutoRunDOM && !isAutoRunLocked) {
+				if (!isInAutoRunPanel && !isAutoRunLocked) {
 					e.preventDefault();
 					// Toggle chat raw text mode (not file preview edit mode)
 					ctx.setChatRawTextMode(!ctx.chatRawTextMode);
@@ -982,6 +1034,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				if (targetIndex >= 0 && targetIndex < ctx.visibleSessions.length) {
 					const targetSession = ctx.visibleSessions[targetIndex];
 					ctx.setActiveSessionId(targetSession.id);
+					// Jumping to the agent that is already active is not a switch, so ask
+					// for the reveal explicitly; the Left Bar may be scrolled away from it.
+					requestSidebarReveal();
 					trackShortcut('jumpToSession');
 					// Also expand sidebar if collapsed
 					if (!ctx.leftSidebarOpen) {

@@ -62,8 +62,11 @@ import { TemplateAutocompleteDropdown } from '../TemplateAutocompleteDropdown';
 import type { AutoRunProps, AutoRunHandle } from './types';
 import { FontScaleControl } from '../ui/FontScaleControl';
 import { useFontScale } from '../../hooks/ui/useFontScale';
+import { useSurfaceTypography } from '../../hooks/ui/useSurfaceTypography';
 import { findHumanOnlyTasks } from '../../hooks/batch/batchUtils';
 import { toggleTaskCheckboxAtLine } from '../../utils/markdownTasks';
+import { isAutoRunRunDocument } from '../../utils/autoRunDraft';
+import { useAutoRunErrorPaused } from '../../hooks/batch/useAutoRunPause';
 import { useAutoRunContentSync } from '../../hooks/batch/useAutoRunContentSync';
 import { useAutoRunSearch } from '../../hooks/batch/useAutoRunSearch';
 import { useAutoRunKeyboard } from '../../hooks/batch/useAutoRunKeyboard';
@@ -75,9 +78,6 @@ import { logger } from '../../utils/logger';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
-
-/** Unzoomed font size of the rendered preview, in px. */
-const PREVIEW_BASE_FONT_SIZE = 13;
 
 // Inner implementation component
 const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInner(
@@ -93,7 +93,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		projectRoot,
 		onOpenProjectFile,
 		content,
-		onContentChange,
 		contentVersion = 0, // Used to force-sync on external file changes
 		externalLocalContent,
 		onExternalLocalContentChange,
@@ -130,15 +129,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	},
 	ref
 ) {
-	// Only lock the editor when Auto Run is running WITHOUT a worktree (directly on main repo)
-	// AND only for documents that are part of the current Auto Run
-	// Documents not in the Auto Run can still be edited
-	const isLocked =
-		(batchRunState?.isRunning &&
-			!batchRunState?.worktreeActive &&
-			selectedFile !== null &&
-			batchRunState?.lockedDocuments?.includes(selectedFile)) ||
-		false;
 	const isAgentBusy = sessionState === 'busy' || sessionState === 'connecting';
 	const isAutoRunActive = batchRunState?.isRunning || false;
 	const isRunningRef = useRef(isAutoRunActive);
@@ -147,12 +137,17 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	}, [isAutoRunActive]);
 	const isStopping = batchRunState?.isStopping || false;
 	// Error state (Phase 5.10)
-	// Subscribe directly to the Zustand store to bypass the multi-hop prop chain
+	// Subscribes to the Zustand store to bypass the multi-hop prop chain
 	// (store → useBatchProcessor → useBatchHandlers → App → RightPanel → AutoRun)
 	// which drops errorPaused updates via updateBatchStateAndBroadcast/UPDATE_PROGRESS.
-	const isErrorPaused = useBatchStore(
-		useCallback((s) => s.batchRunStates[sessionId]?.errorPaused ?? false, [sessionId])
-	);
+	const isErrorPaused = useAutoRunErrorPaused(sessionId);
+	const isRunDocument = isAutoRunRunDocument(batchRunState, selectedFile);
+	// Editing is blocked only while the run is actually DRIVING that document.
+	// A paused run hands it back: an agent error and a MAESTRO:HITL review gate
+	// both park the engine on `errorPaused` until the user clicks Resume, and in
+	// both cases editing is the point - the user is there to tick a box or fix
+	// the step that stalled. Locking them out makes the gate unanswerable here.
+	const isLocked = isRunDocument && !isErrorPaused;
 	const batchError = useBatchStore(
 		useCallback((s) => s.batchRunStates[sessionId]?.error, [sessionId])
 	);
@@ -175,9 +170,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		[onModeChange]
 	);
 
-	// Use onContentChange if provided, otherwise no-op
-	const handleContentChange = onContentChange || (() => {});
-
 	// Content sync: manages local/saved state, external sync for expanded modal, save/revert
 	const {
 		localContent,
@@ -198,6 +190,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		onExternalLocalContentChange,
 		externalSavedContent,
 		onExternalSavedContentChange,
+		diskWins: isLocked,
 	});
 
 	// Unchecked tasks that read as human-only steps. Auto Run would dispatch
@@ -318,19 +311,23 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		pushUndoState();
 
 		// Replace all completed checkboxes with unchecked ones
-		const resetContent = localContent.replace(/^([\s]*[-*]\s*)\[x\]/gim, '$1[ ]');
+		const uncheckAll = (text: string) => text.replace(/^([\s]*[-*]\s*)\[x\]/gim, '$1[ ]');
+		const resetContent = uncheckAll(localContent);
 		setLocalContent(resetContent);
 		lastUndoSnapshotRef.current = resetContent;
 
-		// Auto-save the reset content
+		// Auto-save the reset, applied to the SAVED text rather than the draft:
+		// persisting the draft would bake the user's unsaved edits into the file
+		// and leave Revert nothing to discard.
+		const resetSaved = uncheckAll(savedContent);
 		try {
 			await window.maestro.autorun.writeDoc(
 				folderPath,
 				selectedFile + '.md',
-				resetContent,
+				resetSaved,
 				sshRemoteId
 			);
-			setSavedContent(resetContent);
+			setSavedContent(resetSaved);
 
 			// Show flash notification with the count of reset tasks
 			if (onShowFlash && resetCount > 0) {
@@ -343,6 +340,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		folderPath,
 		selectedFile,
 		localContent,
+		savedContent,
 		setLocalContent,
 		setSavedContent,
 		pushUndoState,
@@ -355,9 +353,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// leaves the toggle callback reference-stable, so the memoized markdown
 	// components (and the parse behind them) survive every content change.
 	const localContentRef = useRef(localContent);
+	const savedContentRef = useRef(savedContent);
 	useEffect(() => {
 		localContentRef.current = localContent;
-	}, [localContent]);
+		savedContentRef.current = savedContent;
+	}, [localContent, savedContent]);
 
 	// Tick a task off straight from the rendered preview. Preview is a first-class
 	// way to work a playbook, so checking a box must not require a trip through
@@ -371,9 +371,15 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 			// source. Leave the document alone rather than rewriting the wrong line.
 			if (!result) return false;
 
+			const hasUnsavedEdits = localContentRef.current !== savedContentRef.current;
 			pushUndoState();
 			setLocalContent(result.content);
 			lastUndoSnapshotRef.current = result.content;
+
+			// With unsaved edits the toggle joins the draft instead of saving it:
+			// writing now would persist those edits too, and Revert could no
+			// longer discard them. Save commits both together.
+			if (hasUnsavedEdits) return true;
 
 			try {
 				await window.maestro.autorun.writeDoc(
@@ -427,7 +433,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		selectedFile,
 		localContent,
 		setLocalContent,
-		handleContentChange,
 		isLocked,
 		editorRef,
 		pushUndoState,
@@ -491,9 +496,12 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		]
 	);
 
-	// Auto-switch to preview mode when auto-run starts, restore when it ends
+	// Auto-switch to preview mode when auto-run starts, restore when it ends.
+	// Keyed on `isRunDocument`, not `isLocked`: a pause unlocks editing but does
+	// not end the run, and flipping the pane back and forth on every HITL gate
+	// would yank the user out of the view they were watching.
 	useEffect(() => {
-		if (isLocked) {
+		if (isRunDocument) {
 			// Auto-run started: save current mode and switch to preview
 			modeBeforeAutoRunRef.current = mode;
 			if (mode !== 'preview') {
@@ -504,7 +512,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 			setMode(modeBeforeAutoRunRef.current);
 			modeBeforeAutoRunRef.current = null;
 		}
-	}, [isLocked]);
+	}, [isRunDocument]);
 
 	// Auto-focus the active element after mode change
 	useEffect(() => {
@@ -608,6 +616,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// restores the size that mode was left at.
 	const previewFontScale = useFontScale('autoRun.previewFontScale');
 	const editFontScale = useFontScale('autoRun.editFontScale');
+	// The panel reads and edits a Markdown document, so it is the File Preview /
+	// File Editor surfaces - not a font size of its own. The zoom controls above
+	// multiply on top, the same two-knob split FilePreview uses.
+	const previewTypography = useSurfaceTypography('filePreview');
+	const editorTypography = useSurfaceTypography('fileEditor');
 	const activeFontScale = mode === 'edit' ? editFontScale : previewFontScale;
 
 	// Disable Bionify while search is active so search highlights remain visible
@@ -725,6 +738,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 					errorMessage={batchError.message}
 					errorDocumentName={errorDocumentName}
 					isRecoverable={batchError.recoverable || false}
+					isHumanGate={batchError.type === 'hitl_gate'}
 					onResumeAfterError={onResumeAfterError}
 					onAbortBatchOnError={onAbortBatchOnError}
 				/>
@@ -833,6 +847,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								readOnly={isLocked}
 								showLineNumbers={showLineNumbers}
 								fontScale={editFontScale.fontScale}
+								fontFamily={editorTypography.fontFamily}
+								baseFontPx={editorTypography.fontSize}
 								className={isLocked ? 'opacity-70 cursor-not-allowed' : ''}
 							/>
 							{/* Template Variable Autocomplete Dropdown */}
@@ -873,7 +889,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								color: theme.colors.textMain,
 								// The prose styles size everything else in `em`, so scaling the
 								// container carries headings, code, and lists with it.
-								fontSize: `${PREVIEW_BASE_FONT_SIZE * previewFontScale.fontScale}px`,
+								fontFamily: previewTypography.fontFamily,
+								fontSize: `${Math.round(previewTypography.fontSize * previewFontScale.fontScale * 10) / 10}px`,
 							}}
 						>
 							<style>{proseStyles}</style>

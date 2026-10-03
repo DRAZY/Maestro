@@ -17,7 +17,12 @@ import type { Theme, Session } from '../../types';
 import type { StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 import { formatDurationHuman as formatDuration, formatNumber } from '../../../shared/formatters';
-import { findSessionByStatId, isWorktreeAgent, buildNameMap } from './chartUtils';
+import {
+	findSessionByStatId,
+	isWorktreeAgent,
+	buildNameMap,
+	barChartLabelWidth,
+} from './chartUtils';
 import { ChartTooltip } from './ChartTooltip';
 
 interface AgentData {
@@ -257,6 +262,8 @@ export const AgentComparisonChart = memo(function AgentComparisonChart({
 
 	const hasWorktreeBars = useMemo(() => agentData.some((d) => d.isWorktree), [agentData]);
 
+	const labelWidth = useMemo(() => barChartLabelWidth(agentData.map((d) => d.label)), [agentData]);
+
 	// Get max duration for bar width calculation
 	const maxDuration = useMemo(() => {
 		if (agentData.length === 0) return 0;
@@ -366,11 +373,13 @@ export const AgentComparisonChart = memo(function AgentComparisonChart({
 								>
 									{/* Agent name label */}
 									<div
-										className="w-28 text-sm truncate flex-shrink-0"
+										className="text-sm truncate flex-shrink-0"
 										style={{
+											width: labelWidth,
 											color: isHovered ? theme.colors.textMain : theme.colors.textDim,
 										}}
 										title={agent.label}
+										data-testid="bar-chart-label"
 									>
 										{agent.label}
 									</div>

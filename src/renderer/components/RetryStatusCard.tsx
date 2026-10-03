@@ -18,7 +18,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Check, RefreshCw, X, Zap } from 'lucide-react';
 
-import { useRetryStore, retryNow, cancelRetry } from '../stores/retryStore';
+import { useRetryStore, useRetryStatus, retryNow, cancelRetry } from '../stores/retryStore';
 import { formatDurationHuman } from '../../shared/formatters';
 import { describeQuotaWindow } from '../../shared/quotaLimitDetail';
 import { getConnectingColor } from '../utils/theme';
@@ -64,6 +64,11 @@ export function RetryStatusCard({
 	fallbackText,
 }: RetryStatusCardProps): React.ReactElement | null {
 	const outage = useRetryStore((s) => s.outages[outageId]);
+
+	// What the retry is ACTUALLY doing, which the outage record cannot say. See
+	// useRetryStatus: `nextRetryAt` is untouched by an early fire, so the
+	// arithmetic below keeps counting down over a resend that is already running.
+	const retryStatus = useRetryStatus(outage?.sessionId ?? '', outage?.tabId ?? '');
 
 	// Constitutional "stuck / backing off" hue - pulsing orange, distinct from
 	// thinking-yellow. Theme-derived so it tracks the palette (see getConnectingColor).
@@ -116,6 +121,11 @@ export function RetryStatusCard({
 	// -- Resolved states: freeze into a compact one-line summary. -----------------
 	if (outage.status === 'recovered') {
 		const totalMs = (outage.resolvedAt ?? outage.startedAt) - outage.startedAt;
+		// `attempts` counts reschedules, so the resend that got through is not in
+		// it (the same correction `resolveOutage` makes for the Usage Dashboard).
+		const sentCount = retryCount + 1;
+		const headline =
+			outage.strategy === 'availability' ? 'Connection recovered.' : 'Quota restored.';
 		return (
 			<div
 				className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm select-none"
@@ -128,11 +138,33 @@ export function RetryStatusCard({
 			>
 				<Check className="w-4 h-4 flex-shrink-0" style={{ color: theme.colors.success }} />
 				<span>
-					<span className="font-medium">Connection recovered.</span>{' '}
+					<span className="font-medium">{headline}</span>{' '}
 					<span style={{ color: theme.colors.textDim }}>
-						{strategyLabel} cleared after {retryCount} {retryCount === 1 ? 'retry' : 'retries'}
+						{strategyLabel} cleared after {sentCount} {sentCount === 1 ? 'retry' : 'retries'}
 						{totalMs > 0 ? ` over ${formatDurationHuman(totalMs)}` : ''}.
 					</span>
+				</span>
+			</div>
+		);
+	}
+
+	if (outage.status === 'failed') {
+		return (
+			<div
+				className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm select-none"
+				style={{
+					borderColor: theme.colors.border,
+					backgroundColor: theme.colors.bgSidebar,
+					color: theme.colors.textDim,
+				}}
+				role="status"
+			>
+				<X className="w-4 h-4 flex-shrink-0" style={{ color: theme.colors.error }} />
+				<span>
+					<span className="font-medium" style={{ color: theme.colors.textMain }}>
+						Auto-retry ended.
+					</span>{' '}
+					The resend failed with a different error: {outage.failureMessage}
 				</span>
 			</div>
 		);
@@ -164,7 +196,9 @@ export function RetryStatusCard({
 	// -- Active outage: live status + controls. -----------------------------------
 	const elapsedMs = Math.max(0, now - outage.startedAt);
 	const remainingMs = outage.nextRetryAt - now;
-	const isFiring = remainingMs <= 0;
+	// Prefer the live entry; fall back to the countdown only when there is no
+	// entry left to ask (a record whose retry has already been cleared).
+	const isFiring = retryStatus ? retryStatus === 'in-flight' : remainingMs <= 0;
 
 	return (
 		<div

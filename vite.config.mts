@@ -39,6 +39,10 @@ export default defineConfig(({ mode }) => ({
 	base: './',
 	define: {
 		__APP_VERSION__: JSON.stringify(appVersion),
+		// Whether this build can report crashes at all. The DSN lives in a CI-injected
+		// artifact, not in source, so a build from source reports nowhere - this flag is
+		// the renderer's copy of that decision. See src/shared/buildProvenance.ts.
+		__CRASH_REPORTING_BUILD__: JSON.stringify(Boolean(process.env.MAESTRO_SENTRY_DSN?.trim())),
 		// Show commit hash only in development mode
 		__COMMIT_HASH__: JSON.stringify(mode === 'development' ? getCommitHash() : ''),
 		// Explicitly define NODE_ENV for React and related packages
