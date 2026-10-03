@@ -289,6 +289,52 @@ describe('FeedbackChatView', () => {
 		expect(screen.queryByTestId('feedback-gh-login')).toBeNull();
 	});
 
+	// gh is signed in, but GitHub refused this account an issue on the repo. The
+	// screen says so up front and names the account, instead of letting the user
+	// write a report that fails at submit.
+	it('names a refused account and offers the login only when it can fix the refusal', async () => {
+		window.maestro.feedback.checkGhAuth.mockResolvedValue({
+			authenticated: false,
+			reason: 'no-repo-access',
+			needsGhLogin: true,
+			message: 'GitHub refused the request because an organization restricts third-party apps.',
+			account: { host: 'github.com', login: 'octocat' },
+		});
+
+		const { unmount } = render(
+			<FeedbackChatView
+				theme={theme}
+				sessions={sessions}
+				onCancel={vi.fn()}
+				onSubmitSuccess={vi.fn()}
+			/>
+		);
+
+		expect(await screen.findByText('GitHub Refused This Account')).toBeTruthy();
+		expect(screen.getByTestId('feedback-gh-account').textContent).toContain('octocat @ github.com');
+		expect(screen.getByTestId('feedback-gh-login')).toBeTruthy();
+		unmount();
+
+		window.maestro.feedback.checkGhAuth.mockResolvedValue({
+			authenticated: false,
+			reason: 'no-repo-access',
+			needsGhLogin: false,
+			message: 'GitHub refused this account an issue on RunMaestro/Maestro.',
+		});
+		render(
+			<FeedbackChatView
+				theme={theme}
+				sessions={sessions}
+				onCancel={vi.fn()}
+				onSubmitSuccess={vi.fn()}
+			/>
+		);
+
+		expect(await screen.findByText('GitHub Refused This Account')).toBeTruthy();
+		expect(screen.queryByTestId('feedback-gh-login')).toBeNull();
+		expect(screen.getByTestId('feedback-gh-recheck')).toBeTruthy();
+	});
+
 	it('Check Again re-asks gh past the cache', async () => {
 		window.maestro.feedback.checkGhAuth
 			.mockResolvedValueOnce({ authenticated: false, reason: 'not-authenticated' })

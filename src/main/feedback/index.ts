@@ -27,6 +27,8 @@ import {
 } from '../utils/cliDetection';
 import { execFileNoThrow } from '../utils/execFile';
 import {
+	parseGhActiveAccount,
+	type GhAccount,
 	isGitHubAuthError,
 	isGitHubMissingScopeError,
 	isGitHubOAuthRestrictionError,
@@ -34,7 +36,8 @@ import {
 import { getSettingsStore } from '../stores/getters';
 import { isInitialized } from '../stores/instances';
 import { generateDebugPackage, type DebugPackageDependencies } from '../debug-package';
-import { captureException } from '../utils/sentry';
+import { captureException, captureMessage } from '../utils/sentry';
+import { isMacOS, isWindows } from '../../shared/platformDetection';
 import type { MaestroCliManager } from '../maestro-cli-manager';
 import {
 	isFeedbackCategory,
@@ -53,10 +56,21 @@ import {
 import { formatAgentLoginCommand } from '../../shared/agentMetadata';
 
 const LOG_CONTEXT = '[Feedback]';
+// The repo feedback issues are filed on, and how long the up-front write
+// probe against it may take before it is treated as inconclusive.
+const FEEDBACK_REPO = 'RunMaestro/Maestro';
+const REPO_PROBE_TIMEOUT_MS = 15_000;
 const ATTACHMENTS_REPO = 'maestro-feedback-attachments';
 
-const GH_NOT_INSTALLED_MESSAGE =
-	'GitHub CLI (gh) is not installed. Install it from https://cli.github.com';
+/** How to install gh here, by the package manager this platform ships or favors. */
+function ghNotInstalledMessage(): string {
+	const how = isMacOS()
+		? 'Install it with "brew install gh" or from https://cli.github.com'
+		: isWindows()
+			? 'Install it with "winget install --id GitHub.cli" or from https://cli.github.com'
+			: 'Install it from https://cli.github.com';
+	return `GitHub CLI (gh) is not installed. ${how}, then Check Again.`;
+}
 const GH_NOT_AUTHENTICATED_MESSAGE =
 	'GitHub CLI (gh) is not signed in to GitHub, so feedback cannot be filed.';
 
@@ -526,7 +540,10 @@ export async function checkFeedbackGhAuth(
 ): Promise<FeedbackAuthResponse> {
 	// A fresh check is what "Check again" and the end of an embedded login ask
 	// for: the cached verdict is the very answer the user just changed.
-	if (options.fresh) clearGhCache();
+	if (options.fresh) {
+		clearGhCache();
+		clearFeedbackRepoVerdicts();
+	}
 
 	// A configured custom path is authoritative: it exists precisely for
 	// binaries that PATH lookup cannot find. Resolve it before reading the
@@ -536,43 +553,135 @@ export async function checkFeedbackGhAuth(
 	const notInstalled: FeedbackAuthResponse = {
 		authenticated: false,
 		reason: 'not-installed',
-		message: GH_NOT_INSTALLED_MESSAGE,
+		message: ghNotInstalledMessage(),
 	};
-	const notAuthenticated = (): FeedbackAuthResponse => ({
+	const notAuthenticated = (account?: GhAccount): FeedbackAuthResponse => ({
 		authenticated: false,
 		reason: 'not-authenticated',
 		message: GH_NOT_AUTHENTICATED_MESSAGE,
+		needsGhLogin: true,
 		login: ghLoginCommandFor(ghCommand),
+		...(account ? { account } : {}),
 	});
 
-	// Prefer cache when available
+	// Prefer cache when available. The shared gh status cache answers
+	// "installed?" and "signed in?"; whether THIS account may file on the
+	// feedback repo is feedback's own question and lives in `repoVerdicts`.
 	const cached = getCachedGhStatus(ghCommand);
-	if (cached) {
-		if (!cached.installed) return notInstalled;
-		if (!cached.authenticated) return notAuthenticated();
-		return { authenticated: true };
-	}
+	if (cached && !cached.installed) return notInstalled;
+	if (cached && !cached.authenticated) return notAuthenticated();
+	const remembered = readRepoVerdict(ghCommand);
+	if (cached && remembered) return remembered;
 
-	// Check if gh is installed. Probe a custom path directly rather than
-	// asking `which` about a name it will never see.
 	const env = getExpandedEnv();
-	const installed =
-		ghCommand === 'gh'
-			? await isGhInstalled()
-			: (await execFileNoThrow(ghCommand, ['--version'], undefined, env)).exitCode === 0;
-	if (!installed) {
-		setCachedGhStatus(ghCommand, false, false);
-		return notInstalled;
+	if (!cached) {
+		// Check if gh is installed. Probe a custom path directly rather than
+		// asking `which` about a name it will never see.
+		const installed =
+			ghCommand === 'gh'
+				? await isGhInstalled()
+				: (await execFileNoThrow(ghCommand, ['--version'], undefined, env)).exitCode === 0;
+		if (!installed) {
+			setCachedGhStatus(ghCommand, false, false);
+			return notInstalled;
+		}
 	}
 
-	// Check auth status (command output ignored; exit code is the signal)
+	// The exit code says signed in or not; the text names the account.
 	const authResult = await execFileNoThrow(ghCommand, ['auth', 'status'], undefined, env);
 	const authenticated = authResult.exitCode === 0;
 	setCachedGhStatus(ghCommand, true, authenticated);
+	const account = parseGhActiveAccount(`${authResult.stdout}\n${authResult.stderr}`);
 
-	if (!authenticated) return notAuthenticated();
+	if (!authenticated) return notAuthenticated(account);
 
-	return { authenticated: true };
+	const verdict = await probeFeedbackRepoAccess(ghCommand, env, account);
+	rememberRepoVerdict(ghCommand, verdict);
+	return verdict;
+}
+
+/**
+ * Whether gh may file an issue on the feedback repo, cached per gh binary for
+ * the same minute as gh's own status. Kept apart from the shared gh status
+ * cache on purpose: Symphony and Create PR read that one, and a refusal from
+ * RunMaestro's org says nothing about whether gh works for the user's repos.
+ */
+const REPO_VERDICT_TTL_MS = 60_000;
+const repoVerdicts = new Map<string, { verdict: FeedbackAuthResponse; at: number }>();
+
+function readRepoVerdict(ghCommand: string): FeedbackAuthResponse | undefined {
+	const entry = repoVerdicts.get(ghCommand);
+	if (!entry) return undefined;
+	if (Date.now() - entry.at >= REPO_VERDICT_TTL_MS) {
+		repoVerdicts.delete(ghCommand);
+		return undefined;
+	}
+	return entry.verdict;
+}
+
+function rememberRepoVerdict(ghCommand: string, verdict: FeedbackAuthResponse): void {
+	repoVerdicts.set(ghCommand, { verdict, at: Date.now() });
+}
+
+/** Forget every remembered repo verdict, so the next check probes again. */
+export function clearFeedbackRepoVerdicts(): void {
+	repoVerdicts.clear();
+}
+
+/**
+ * Prove gh can file an issue on the feedback repo before the user writes one.
+ *
+ * `gh auth status` only proves the token is valid. What fails at submit is a
+ * WRITE: an organization's OAuth App restriction refuses the GitHub CLI's token
+ * on RunMaestro while allowing every public read, so a GET probe passes for
+ * exactly the users it is meant to catch. Instead this POSTs an empty issue.
+ * GitHub authorizes the request first and only then validates it, so an
+ * account that may file gets 422 ("title" wasn't supplied) and nothing is
+ * created, while a refused one gets the same 401/403 a real submit would.
+ *
+ * Only a proven refusal blocks. A network failure or a 5xx says nothing about
+ * the account, so it passes and the submit path reports whatever happens.
+ */
+async function probeFeedbackRepoAccess(
+	ghCommand: string,
+	env: NodeJS.ProcessEnv,
+	account: GhAccount | undefined
+): Promise<FeedbackAuthResponse> {
+	const withAccount = account ? { account } : {};
+	const result = await execFileNoThrow(
+		ghCommand,
+		['api', `repos/${FEEDBACK_REPO}/issues`, '--method', 'POST', '--input', '-'],
+		undefined,
+		{ env, input: '{}', timeout: REPO_PROBE_TIMEOUT_MS }
+	);
+	const stderr = result.stderr ?? '';
+
+	if (result.exitCode === 0) {
+		// GitHub requires a title, so this should be impossible. If it ever
+		// happens a blank issue now exists on a public repo: make it loud.
+		void captureMessage('Feedback repo probe created an issue', 'warning', {
+			stdout: result.stdout.slice(0, 500),
+		});
+		return { authenticated: true, ...withAccount };
+	}
+	if (/\bHTTP 422\b/.test(stderr)) return { authenticated: true, ...withAccount };
+
+	const { message, needsGhLogin } = classifyGhFailure(
+		stderr,
+		`GitHub refused this account an issue on ${FEEDBACK_REPO}. ${stderr.trim()}`.trim()
+	);
+	if (needsGhLogin || /\bHTTP (?:403|404)\b/.test(stderr)) {
+		return {
+			authenticated: false,
+			reason: 'no-repo-access',
+			message,
+			needsGhLogin,
+			...(needsGhLogin ? { login: ghLoginCommandFor(ghCommand) } : {}),
+			...withAccount,
+		};
+	}
+	logger.warn(`Feedback repo probe was inconclusive: ${stderr.trim()}`, LOG_CONTEXT);
+	return { authenticated: true, ...withAccount };
 }
 
 function ghLoginCommandFor(ghCommand: string): FeedbackGhLoginCommand {

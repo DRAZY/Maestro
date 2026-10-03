@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Github, RefreshCw, Terminal as TerminalIcon } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Spinner } from './ui/Spinner';
+import { AccountPill, ghAccountLabel } from './ui/AccountPill';
 import {
 	LoginTerminal,
 	loginPtySessionId,
@@ -38,6 +39,11 @@ export interface GitHubLoginModalProps {
 	theme: Theme;
 	/** Why the login was offered, shown above the terminal. */
 	reason?: string;
+	/**
+	 * The account gh is signed in as now, when known. Named so a user who is on
+	 * the wrong account sees it before signing in again, rather than after.
+	 */
+	account?: { host: string; login: string };
 	onClose: () => void;
 	/** gh now reports signed in. The caller continues where it stopped. */
 	onSignedIn: () => void;
@@ -50,7 +56,13 @@ type Phase =
 	| { kind: 'not-signed-in'; message: string }
 	| { kind: 'error'; message: string };
 
-export function GitHubLoginModal({ theme, reason, onClose, onSignedIn }: GitHubLoginModalProps) {
+export function GitHubLoginModal({
+	theme,
+	reason,
+	account,
+	onClose,
+	onSignedIn,
+}: GitHubLoginModalProps) {
 	const defaultShell = useSettingsStore((s) => s.defaultShell);
 	const shellArgs = useSettingsStore((s) => s.shellArgs);
 	const shellEnvVars = useSettingsStore((s) => s.shellEnvVars);
@@ -221,6 +233,14 @@ export function GitHubLoginModal({ theme, reason, onClose, onSignedIn }: GitHubL
 					one-time code, opens github.com in your browser, and finishes here once you approve it.
 					Signed in somewhere else? Use Check Again.
 				</p>
+				{account && (
+					<div className="flex items-center gap-2 flex-wrap shrink-0">
+						<span className="text-xs" style={{ color: theme.colors.textDim }}>
+							Currently signed in as
+						</span>
+						<AccountPill theme={theme} label={ghAccountLabel(account)} testId="gh-login-account" />
+					</div>
+				)}
 				{reason && (
 					<p className="text-xs select-text" style={{ color: theme.colors.textDim }}>
 						{reason}

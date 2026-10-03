@@ -115,6 +115,45 @@ describe('feedback commands', () => {
 			expect(out).toContain('maestro-cli feedback login');
 		});
 
+		it('names the refused account and the login that can fix the refusal', async () => {
+			mockBridge({
+				feedback_check_auth: {
+					success: true,
+					authenticated: false,
+					reason: 'no-repo-access',
+					needsGhLogin: true,
+					message: 'GitHub refused the request because an organization restricts third-party apps.',
+					login: { command: 'gh', args: [], display: 'gh auth login --web' },
+					account: { host: 'github.com', login: 'octocat' },
+				},
+			});
+			await expect(feedbackAuth({})).rejects.toThrow('__exit__');
+			const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+			expect(out).toContain('signed in as octocat @ github.com');
+			expect(out).toContain('restricts third-party apps');
+			expect(out).toContain('gh auth login --web');
+		});
+
+		it('reports the account and login need in --json', async () => {
+			mockBridge({
+				feedback_check_auth: {
+					success: true,
+					authenticated: false,
+					reason: 'no-repo-access',
+					needsGhLogin: false,
+					message: 'refused',
+					account: { host: 'github.com', login: 'octocat' },
+				},
+			});
+			await expect(feedbackAuth({ json: true })).rejects.toThrow('__exit__');
+			const json = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0]));
+			expect(json).toMatchObject({
+				reason: 'no-repo-access',
+				needsGhLogin: false,
+				account: { host: 'github.com', login: 'octocat' },
+			});
+		});
+
 		it('passes --fresh through to skip the cached verdict', async () => {
 			const sent = mockBridge({ feedback_check_auth: { success: true, authenticated: true } });
 			await feedbackAuth({ fresh: true });

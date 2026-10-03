@@ -26,14 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-	ChevronDown,
-	ChevronRight,
-	KeyRound,
-	Terminal as TerminalIcon,
-	UserRound,
-	Users,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, Terminal as TerminalIcon, Users } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import {
 	LoginTerminal,
@@ -42,6 +35,7 @@ import {
 	type LoginTerminalStatus,
 } from './LoginTerminal';
 import { EnvVarList } from './ui/EnvVarList';
+import { AccountPill } from './ui/AccountPill';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSessionStore } from '../stores/sessionStore';
@@ -430,18 +424,7 @@ export function ReauthModal({ theme, outage, session, onClose }: ReauthModalProp
 				    it spelled out alongside. */}
 				{profile && (
 					<div className="flex items-center gap-2 flex-wrap shrink-0">
-						<span
-							className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium select-text"
-							style={{
-								borderColor: theme.colors.accent,
-								color: theme.colors.accent,
-								backgroundColor: `${theme.colors.accent}20`,
-							}}
-							data-testid="reauth-profile-pill"
-						>
-							<UserRound className="w-3.5 h-3.5 shrink-0" />
-							<span className="truncate">{profile.shortLabel}</span>
-						</span>
+						<AccountPill theme={theme} label={profile.shortLabel} testId="reauth-profile-pill" />
 						{profileEnvHint && (
 							<span
 								className="text-xs font-mono min-w-0 truncate select-text"

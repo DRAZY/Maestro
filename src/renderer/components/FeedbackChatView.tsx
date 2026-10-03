@@ -29,6 +29,7 @@ import {
 	Terminal,
 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
+import { AccountPill, ghAccountLabel } from './ui/AccountPill';
 import { GitHubLoginModal } from './GitHubLoginModal';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -128,6 +129,8 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		ok: boolean;
 		message?: string;
 		reason?: FeedbackAuthResponse['reason'];
+		needsGhLogin?: boolean;
+		account?: FeedbackAuthResponse['account'];
 	}>({
 		checking: true,
 		ok: false,
@@ -205,6 +208,8 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 					ok: result.authenticated,
 					message: result.message,
 					reason: result.reason,
+					needsGhLogin: result.needsGhLogin,
+					account: result.account,
 				});
 			}
 		} catch {
@@ -669,6 +674,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 				<GitHubLoginModal
 					theme={theme}
 					reason={ghLogin.reason}
+					account={ghAuth.account}
 					onClose={() => setGhLogin(null)}
 					onSignedIn={handleGhSignedIn}
 				/>
@@ -680,20 +686,43 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		// --- GH Check Failed ---
 		if (!ghAuth.checking && !ghAuth.ok) {
 			const notInstalled = ghAuth.reason === 'not-installed';
+			// A repo refusal that a new login cannot fix (a 403 for this account)
+			// gets no login button: offering one would loop the user through a
+			// sign-in that ends at the same refusal.
+			const offerLogin =
+				!notInstalled && (ghAuth.reason !== 'no-repo-access' || ghAuth.needsGhLogin === true);
+			const title =
+				ghAuth.reason === 'no-repo-access'
+					? 'GitHub Refused This Account'
+					: ghAuth.reason === 'not-authenticated'
+						? 'Sign In to GitHub'
+						: 'GitHub CLI Required';
 			return (
 				<div className="flex flex-col items-center gap-4 py-8 px-6 text-center">
 					<AlertCircle className="w-10 h-10" style={{ color: theme.colors.warning }} />
-					<div>
+					<div className="flex flex-col items-center">
 						<p className="text-sm font-semibold mb-1" style={{ color: theme.colors.textMain }}>
-							GitHub CLI Required
+							{title}
 						</p>
-						<p className="text-xs leading-relaxed max-w-sm" style={{ color: theme.colors.textDim }}>
+						{ghAuth.account && (
+							<div className="mb-2 max-w-sm">
+								<AccountPill
+									theme={theme}
+									label={ghAccountLabel(ghAuth.account)}
+									testId="feedback-gh-account"
+								/>
+							</div>
+						)}
+						<p
+							className="text-xs leading-relaxed max-w-sm select-text"
+							style={{ color: theme.colors.textDim }}
+						>
 							{ghAuth.message ||
 								'Inline feedback requires the GitHub CLI (gh) to be installed and authenticated locally.'}
 						</p>
 					</div>
 					<div className="flex items-center gap-2">
-						{notInstalled ? (
+						{notInstalled && (
 							<button
 								type="button"
 								onClick={() => openUrl('https://cli.github.com')}
@@ -707,7 +736,8 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 								<ExternalLink className="w-3.5 h-3.5" />
 								Install GitHub CLI
 							</button>
-						) : (
+						)}
+						{offerLogin && (
 							<button
 								type="button"
 								onClick={() => setGhLogin({})}

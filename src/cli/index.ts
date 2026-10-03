@@ -1512,7 +1512,7 @@ const feedback = program
 feedback
 	.command('auth')
 	.description(
-		'Check that the GitHub CLI (gh) is installed and logged in (required to file); prints the login command when it is not'
+		'Check that the GitHub CLI (gh) is installed, logged in, and allowed to file on the feedback repo (required to file); names the gh account, and prints the login command when signing in can fix it'
 	)
 	.option('--fresh', 'Skip the cached verdict (after logging in elsewhere)')
 	.option('--json', 'Output as JSON (for scripting)')

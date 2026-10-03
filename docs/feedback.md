@@ -11,7 +11,9 @@ Maestro includes a built-in feedback system that uses AI to help you craft well-
 - [GitHub CLI](https://cli.github.com/) (`gh`) must be installed
 - gh must be signed in to GitHub. If it is not, the Feedback modal offers **Log in to GitHub**, which runs `gh auth login` (one-time code plus browser) in a terminal inside Maestro and continues into the chat as soon as it finishes. **Check Again** re-checks if you signed in somewhere else.
 
-If filing fails later because the gh login expired, was revoked, or an organization has not approved the GitHub CLI, the same **Log in to GitHub** button appears beside the error and files the issue again once you are signed in.
+Before the chat starts, Maestro also checks that GitHub will accept an issue from your gh account, so a refusal shows up front instead of after you write the report. The check sends GitHub an empty issue, which it authorizes and then rejects for having no title: nothing is created. If GitHub refuses the account (for example, an organization has not approved the GitHub CLI, or the token lacks a scope), the modal names the account gh is signed in as and says what to fix, offering **Log in to GitHub** when signing in again can fix it.
+
+If filing still fails later because the gh login expired or was revoked, the same **Log in to GitHub** button appears beside the error and files the issue again once you are signed in.
 
 ## Sending Feedback
 
@@ -92,7 +94,7 @@ Once submitted, you'll see a confirmation with:
 Agents and scripts can file the same issue through `maestro-cli`, with no modal:
 
 ```bash
-maestro-cli feedback auth                          # gh installed and logged in? (--fresh skips the cache)
+maestro-cli feedback auth                          # gh installed, logged in, and allowed to file? (--fresh skips the cache)
 maestro-cli feedback login                         # sign gh in (device code + browser)
 maestro-cli feedback accounts                      # which account the chat runs as (--use <key> to pick)
 maestro-cli feedback search "tab closes on escape" # find duplicates first

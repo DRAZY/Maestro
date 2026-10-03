@@ -74,10 +74,23 @@ export interface FeedbackGhLoginCommand {
 export interface FeedbackAuthResponse {
 	authenticated: boolean;
 	message?: string;
-	/** Why feedback cannot be filed. Absent when `authenticated`. */
-	reason?: 'not-installed' | 'not-authenticated';
-	/** How to sign gh in. Present when `reason` is `not-authenticated`. */
+	/**
+	 * Why feedback cannot be filed. Absent when `authenticated`.
+	 * `no-repo-access`: gh is signed in, but GitHub refused this account an issue
+	 * on the feedback repo (an org's OAuth restriction, a missing scope, a token
+	 * the API rejects), so the check fails up front instead of at submit.
+	 */
+	reason?: 'not-installed' | 'not-authenticated' | 'no-repo-access';
+	/**
+	 * Whether signing gh in again can fix it. Always true for
+	 * `not-authenticated`; for `no-repo-access` only when the refusal is one a
+	 * fresh login addresses.
+	 */
+	needsGhLogin?: boolean;
+	/** How to sign gh in. Present whenever `needsGhLogin` is. */
 	login?: FeedbackGhLoginCommand;
+	/** The GitHub account gh acts as, when gh names one. Shown as a pill. */
+	account?: { host: string; login: string };
 }
 
 export interface FeedbackSubmitResponse {

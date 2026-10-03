@@ -89,9 +89,25 @@ import {
 	saveImageToTempFile,
 } from '../../../../main/process-manager/utils/imageUtils';
 import { registerFeedbackHandlers } from '../../../../main/ipc/handlers/feedback';
+import { clearFeedbackRepoVerdicts } from '../../../../main/feedback';
+
+/** `gh auth status` for a signed-in account, in gh 2.40+ wording. */
+const statusOk = () => ({
+	exitCode: 0,
+	stdout: '',
+	stderr:
+		'github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true',
+});
+/** The empty-issue probe on an account GitHub lets file: authorized, then 422. */
+const probeAllowed = () => ({
+	exitCode: 1,
+	stdout: '{"message":"Invalid request.","status":"422"}',
+	stderr: 'gh: Invalid request.\n\n"title" wasn\'t supplied. (HTTP 422)',
+});
 
 describe('feedback handlers', () => {
 	beforeEach(() => {
+		clearFeedbackRepoVerdicts();
 		vi.clearAllMocks();
 		registeredHandlers.clear();
 		mockProcessManager.write.mockReset();
@@ -106,15 +122,126 @@ describe('feedback handlers', () => {
 		expect(ipcMain.handle).toHaveBeenCalledWith('feedback:compose-prompt', expect.any(Function));
 	});
 
-	it('returns cached gh auth result when available', async () => {
+	it('trusts a cached install, and still proves repo access once per minute', async () => {
 		vi.mocked(getCachedGhStatus).mockReturnValue({ installed: true, authenticated: true });
+		vi.mocked(execFileNoThrow)
+			.mockResolvedValueOnce(statusOk() as any)
+			.mockResolvedValueOnce(probeAllowed() as any);
 
 		const handler = registeredHandlers.get('feedback:check-gh-auth');
-		const result = await handler!({});
+		const first = await handler!({});
+		const second = await handler!({});
 
-		expect(result).toEqual({ authenticated: true });
+		expect(first).toEqual({
+			authenticated: true,
+			account: { host: 'github.com', login: 'octocat' },
+		});
+		expect(second).toEqual(first);
 		expect(getCachedGhStatus).toHaveBeenCalledWith('gh');
 		expect(isGhInstalled).not.toHaveBeenCalled();
+		// auth status + probe, once: the second check is answered from memory.
+		expect(execFileNoThrow).toHaveBeenCalledTimes(2);
+	});
+
+	// `gh auth status` only proves the token is valid. What fails at submit is a
+	// WRITE refused by an org's OAuth App restriction, which still allows every
+	// public read - so the probe has to be a write that cannot create anything.
+	describe('the up-front repo access probe', () => {
+		beforeEach(() => {
+			vi.mocked(getCachedGhStatus).mockReturnValue(null);
+			vi.mocked(isGhInstalled).mockResolvedValue(true);
+		});
+
+		it('POSTs an empty issue, so GitHub authorizes the write and then rejects the missing title', async () => {
+			vi.mocked(execFileNoThrow)
+				.mockResolvedValueOnce(statusOk() as any)
+				.mockResolvedValueOnce(probeAllowed() as any);
+
+			const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+			expect(result).toMatchObject({ authenticated: true });
+			expect(execFileNoThrow).toHaveBeenLastCalledWith(
+				'gh',
+				['api', 'repos/RunMaestro/Maestro/issues', '--method', 'POST', '--input', '-'],
+				undefined,
+				expect.objectContaining({ input: '{}', env: { PATH: '/usr/bin' } })
+			);
+		});
+
+		it('fails up front on an OAuth restriction, names the fix, and offers the login', async () => {
+			vi.mocked(execFileNoThrow)
+				.mockResolvedValueOnce(statusOk() as any)
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr:
+						'gh: Although you appear to have the correct authorization credentials, the `RunMaestro` organization has enabled OAuth App access restrictions, meaning that data access to third-parties is limited. (HTTP 403)',
+				} as any);
+
+			const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+			expect(result).toMatchObject({
+				authenticated: false,
+				reason: 'no-repo-access',
+				needsGhLogin: true,
+				account: { host: 'github.com', login: 'octocat' },
+				login: { args: expect.arrayContaining(['auth', 'login']) },
+			});
+			expect(result.message).toContain('settings/connections/applications');
+		});
+
+		it('blocks a 403 that a new login cannot fix, without offering one', async () => {
+			vi.mocked(execFileNoThrow)
+				.mockResolvedValueOnce(statusOk() as any)
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr: 'gh: You are blocked from this repository. (HTTP 403)',
+				} as any);
+
+			const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+			expect(result).toMatchObject({
+				authenticated: false,
+				reason: 'no-repo-access',
+				needsGhLogin: false,
+			});
+			expect(result.login).toBeUndefined();
+		});
+
+		it('lets an inconclusive probe through: a network failure says nothing about the account', async () => {
+			vi.mocked(execFileNoThrow)
+				.mockResolvedValueOnce(statusOk() as any)
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr: 'error connecting to api.github.com',
+				} as any);
+
+			const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+			expect(result).toMatchObject({ authenticated: true });
+		});
+
+		it('names the signed-out account so the user knows which login expired', async () => {
+			vi.mocked(execFileNoThrow).mockResolvedValueOnce({
+				exitCode: 1,
+				stdout: '',
+				stderr:
+					'github.com\n  X Failed to log in to github.com account octocat (keyring)\n  - Active account: true\n  - The token in keyring is invalid.',
+			} as any);
+
+			const result = await registeredHandlers.get('feedback:check-gh-auth')!({});
+
+			expect(result).toMatchObject({
+				authenticated: false,
+				reason: 'not-authenticated',
+				needsGhLogin: true,
+				account: { host: 'github.com', login: 'octocat' },
+			});
+			// Signed out: there is nothing to probe.
+			expect(execFileNoThrow).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it('creates a structured bug report issue with uploaded screenshot markdown', async () => {

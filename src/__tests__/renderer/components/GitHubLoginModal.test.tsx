@@ -90,6 +90,27 @@ describe('GitHubLoginModal', () => {
 		expect(mockWrite).toHaveBeenCalledWith(ptySessionId, `${LOGIN.display}; exit $?\r`);
 	});
 
+	// A user on the wrong gh account should see which one before signing in again.
+	it('names the account gh is signed in as, when the caller knows it', async () => {
+		render(
+			<GitHubLoginModal
+				theme={mockTheme}
+				account={{ host: 'github.com', login: 'octocat' }}
+				onClose={vi.fn()}
+				onSignedIn={vi.fn()}
+			/>
+		);
+		expect((await screen.findByTestId('gh-login-account')).textContent).toContain(
+			'octocat @ github.com'
+		);
+	});
+
+	it('names no account when none is known', async () => {
+		render(<GitHubLoginModal theme={mockTheme} onClose={vi.fn()} onSignedIn={vi.fn()} />);
+		await startLogin();
+		expect(screen.queryByTestId('gh-login-account')).toBeNull();
+	});
+
 	it('uses the PowerShell exit form on Windows, never WSL', async () => {
 		platformState.current = 'win32';
 		useSettingsStore.setState({ defaultShell: 'wsl' } as never);

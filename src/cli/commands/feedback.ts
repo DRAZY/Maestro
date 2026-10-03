@@ -156,12 +156,14 @@ async function checkAuth(fresh: boolean): Promise<AuthResult> {
 
 /** Print an auth verdict: the same reason the Feedback modal shows, plus the fix. */
 function printAuth(result: AuthResult): void {
+	const as = result.account ? ` as ${result.account.login} @ ${result.account.host}` : '';
 	if (result.authenticated) {
-		console.log('GitHub CLI is installed and authenticated. Feedback can be filed.');
+		console.log(`GitHub CLI is signed in${as} and can file issues. Feedback can be filed.`);
 		return;
 	}
+	if (as) console.log(`GitHub CLI is signed in${as}.`);
 	console.log(result.message || 'GitHub CLI is not ready.');
-	if (result.reason === 'not-authenticated') {
+	if (result.reason === 'not-authenticated' || result.needsGhLogin) {
 		if (result.login) console.log(`Sign in with:  ${result.login.display}`);
 		console.log('Or run:        maestro-cli feedback login');
 	}
@@ -189,7 +191,9 @@ export async function feedbackAuth(options: AuthOptions): Promise<void> {
 				authenticated,
 				message: result.message,
 				reason: result.reason,
+				needsGhLogin: result.needsGhLogin,
 				login: result.login,
+				account: result.account,
 			})
 		);
 	} else {
@@ -253,6 +257,7 @@ export async function feedbackLogin(options: JsonOption): Promise<void> {
 				authenticated,
 				message: after.message,
 				reason: after.reason,
+				account: after.account,
 			})
 		);
 	} else {
