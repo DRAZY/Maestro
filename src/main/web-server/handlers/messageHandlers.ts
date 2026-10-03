@@ -54,6 +54,7 @@ import {
 	submitFeedbackConversation,
 	subscribeFeedbackIssue,
 } from '../../feedback';
+import { listFeedbackAccounts, rememberFeedbackAccount } from '../../feedback/accounts';
 import {
 	MAX_FEEDBACK_ATTACHMENTS,
 	type FeedbackConversationSubmitPayload,
@@ -897,6 +898,10 @@ export class WebSocketMessageHandler {
 
 			case 'feedback_subscribe':
 				void this.handleFeedbackSubscribe(client, message);
+				break;
+
+			case 'feedback_accounts':
+				void this.handleFeedbackAccounts(client, message);
 				break;
 
 			case 'marketplace_get_manifest':
@@ -5345,6 +5350,30 @@ export class WebSocketMessageHandler {
 		return this.answerFeedback(client, message, async () => ({
 			...(await subscribeFeedbackIssue({ issueNumber, comment })),
 		}));
+	}
+
+	/**
+	 * Handle feedback_accounts - the accounts the Feedback chat can run as, in the
+	 * order it tries them. `use` (a profile key, or null to forget) records the
+	 * account the next conversation tries first, as a pick in the chat does.
+	 */
+	private handleFeedbackAccounts(client: WebClient, message: WebClientMessage): Promise<void> {
+		return this.answerFeedback(client, message, async () => {
+			const getAgentDetector = () =>
+				this.callbacks.getDebugPackageDeps?.()?.getAgentDetector() ?? null;
+			if (message.use === null) {
+				rememberFeedbackAccount(null);
+			} else if (typeof message.use === 'string') {
+				const { accounts } = await listFeedbackAccounts(getAgentDetector);
+				if (!accounts.some((account) => account.key === message.use)) {
+					throw new Error(
+						`No feedback account with key "${message.use}". Run "maestro-cli feedback accounts" to list them.`
+					);
+				}
+				rememberFeedbackAccount(message.use);
+			}
+			return { ...(await listFeedbackAccounts(getAgentDetector)) };
+		});
 	}
 
 	/**

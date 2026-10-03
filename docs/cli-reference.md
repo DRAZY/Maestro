@@ -1317,6 +1317,16 @@ Check that the GitHub CLI (gh) is installed and logged in (required to file)
 | -------- | ------------------------------ | ------- |
 | `--json` | Output as JSON (for scripting) | -       |
 
+## `maestro-cli feedback accounts`
+
+List the provider accounts the Feedback chat can run as, in the order it tries them (first usable one wins)
+
+| Option        | Description                                                               | Default |
+| ------------- | ------------------------------------------------------------------------- | ------- |
+| `--use <key>` | Make this account (a key from the list) the one the next chat tries first | -       |
+| `--clear`     | Forget the remembered account and pick automatically again                | -       |
+| `--json`      | Output as JSON (for scripting)                                            | -       |
+
 ## `maestro-cli feedback search <query>`
 
 Search RunMaestro/Maestro for issues matching a description

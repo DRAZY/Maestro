@@ -16,6 +16,7 @@ vi.mock('../../../cli/services/maestro-client', async (importOriginal) => ({
 }));
 
 import {
+	feedbackAccounts,
 	feedbackAuth,
 	feedbackSearch,
 	feedbackSubmit,
@@ -93,6 +94,53 @@ describe('feedback commands', () => {
 			);
 			await expect(feedbackAuth({})).rejects.toThrow('__exit__');
 			expect(exitSpy).toHaveBeenCalledWith(ExitCode.Unsupported);
+		});
+	});
+
+	describe('accounts', () => {
+		const ready = {
+			key: 'claude-code::/home/me/.claude-work',
+			toolType: 'claude-code',
+			label: 'Claude Code - work',
+			env: {},
+			sshRemoteId: null,
+			agentNames: ['Work'],
+			source: 'agent',
+			status: 'ready',
+		};
+		const missing = { ...ready, key: 'codex::/home/me/.codex', status: 'not-installed' };
+
+		it('lists the accounts and marks the one the chat will use', async () => {
+			const sent = mockBridge({
+				feedback_accounts: { success: true, accounts: [missing, ready], lastWorkingKey: null },
+			});
+			await feedbackAccounts({ json: true });
+			expect(sent[0].payload).toEqual({ type: 'feedback_accounts' });
+			expect(sent[0].responseType).toBe('feedback_accounts_result');
+			const out = JSON.parse(logSpy.mock.calls[0][0] as string);
+			expect(out.pickKey).toBe(ready.key);
+		});
+
+		it('sends --use as the remembered account, and --clear as null', async () => {
+			const sent = mockBridge({
+				feedback_accounts: { success: true, accounts: [ready], lastWorkingKey: ready.key },
+			});
+			await feedbackAccounts({ use: ready.key });
+			await feedbackAccounts({ clear: true });
+			expect(sent.map((s) => s.payload.use)).toEqual([ready.key, null]);
+		});
+
+		it('exits non-zero when no account can run the chat', async () => {
+			mockBridge({
+				feedback_accounts: { success: true, accounts: [missing], lastWorkingKey: null },
+			});
+			await expect(feedbackAccounts({})).rejects.toThrow('__exit__');
+			expect(exitSpy).toHaveBeenCalledWith(ExitCode.GeneralError);
+		});
+
+		it('rejects --use together with --clear', async () => {
+			await expect(feedbackAccounts({ use: 'x', clear: true })).rejects.toThrow('__exit__');
+			expect(exitSpy).toHaveBeenCalledWith(ExitCode.InvalidUsage);
 		});
 	});
 

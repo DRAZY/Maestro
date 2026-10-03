@@ -798,6 +798,8 @@ interface MaestroAPI {
 			issueNumber: number,
 			comment?: string
 		) => Promise<{ success: boolean; error?: string }>;
+		listAccounts: () => Promise<import('../shared/feedbackAccounts').FeedbackAccountsResponse>;
+		rememberAccount: (key: string | null) => Promise<void>;
 	};
 	agentError: {
 		clearError: (sessionId: string) => Promise<{ success: boolean }>;

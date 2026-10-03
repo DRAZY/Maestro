@@ -1,7 +1,34 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FeedbackChatView } from '../../../renderer/components/FeedbackChatView';
 import type { Theme, Session } from '../../../renderer/types';
+import type { FeedbackAccount } from '../../../shared/feedbackAccounts';
+
+function account(overrides: Partial<FeedbackAccount> & { key: string }): FeedbackAccount {
+	return {
+		toolType: 'claude-code',
+		label: overrides.key,
+		env: {},
+		sshRemoteId: null,
+		agentNames: [],
+		source: 'agent',
+		status: 'ready',
+		...overrides,
+	};
+}
+
+const WORK = account({
+	key: 'claude-code::/home/me/.claude-work',
+	label: 'Claude Code - work',
+	env: { CLAUDE_CONFIG_DIR: '/home/me/.claude-work' },
+	agentNames: ['Agent 1'],
+});
+const DEFAULT = account({
+	key: 'claude-code::/home/me/.claude',
+	label: 'Claude Code (default)',
+	source: 'provider-default',
+	status: 'not-logged-in',
+});
 
 const theme: Theme = {
 	id: 'test-dark',
@@ -57,11 +84,12 @@ describe('FeedbackChatView', () => {
 		});
 	});
 
-	it('auto-starts chat when gh is authenticated and a supported agent is detected', async () => {
+	it('auto-starts chat as the first usable account when gh is authenticated', async () => {
 		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
-		window.maestro.agents.detect.mockResolvedValue([
-			{ id: 'claude-code', name: 'Claude Code', available: true },
-		]);
+		window.maestro.feedback.listAccounts.mockResolvedValue({
+			accounts: [WORK, DEFAULT],
+			lastWorkingKey: null,
+		});
 		window.maestro.feedback.getConversationPrompt.mockResolvedValue({
 			prompt: 'system prompt',
 			environment: '- Maestro version: 1.0.0',
@@ -87,6 +115,81 @@ describe('FeedbackChatView', () => {
 
 		// The conversation prompt was fetched (chat actually started).
 		expect(window.maestro.feedback.getConversationPrompt).toHaveBeenCalled();
+
+		// The picker names the account it chose, so the user can override it.
+		const picker = screen.getByTestId('feedback-account-picker') as HTMLSelectElement;
+		expect(picker.value).toBe(WORK.key);
+	});
+
+	it('falls through to the next account when the first turn fails, and remembers the one that worked', async () => {
+		const OTHER = account({
+			key: 'claude-code::/home/me/.claude-home',
+			label: 'Claude Code - home',
+			env: { CLAUDE_CONFIG_DIR: '/home/me/.claude-home' },
+		});
+		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
+		window.maestro.feedback.listAccounts.mockResolvedValue({
+			accounts: [WORK, OTHER],
+			lastWorkingKey: null,
+		});
+		window.maestro.agents.get.mockResolvedValue({
+			id: 'claude-code',
+			available: true,
+			command: 'claude',
+			args: [],
+		});
+
+		let onExit: ((sid: string, code: number) => void) | undefined;
+		let onData: ((sid: string, data: string) => void) | undefined;
+		window.maestro.process.onExit.mockImplementation((cb: typeof onExit) => {
+			onExit = cb;
+			return () => {};
+		});
+		// The shared setup mock has no onData; give this test its own.
+		(window.maestro.process as unknown as { onData: unknown }).onData = vi.fn(
+			(cb: typeof onData) => {
+				onData = cb;
+				return () => {};
+			}
+		);
+		const spawned: Array<{ sessionId: string; sessionCustomEnvVars?: Record<string, string> }> = [];
+		window.maestro.process.spawn.mockImplementation(
+			(config: { sessionId: string; sessionCustomEnvVars?: Record<string, string> }) => {
+				spawned.push(config);
+				const attempt = spawned.length;
+				queueMicrotask(() => {
+					if (attempt === 1) {
+						onExit?.(config.sessionId, 1);
+					} else {
+						onData?.(config.sessionId, JSON.stringify({ confidence: 50, message: 'Tell me more' }));
+						onExit?.(config.sessionId, 0);
+					}
+				});
+				return Promise.resolve({ pid: 1, success: true });
+			}
+		);
+
+		render(
+			<FeedbackChatView
+				theme={theme}
+				sessions={sessions}
+				onCancel={vi.fn()}
+				onSubmitSuccess={vi.fn()}
+			/>
+		);
+
+		const input = await screen.findByPlaceholderText('Describe your issue or idea...');
+		fireEvent.change(input, { target: { value: 'The player gets stuck' } });
+		await act(async () => {
+			fireEvent.keyDown(input, { key: 'Enter' });
+		});
+
+		await screen.findByText('Tell me more');
+		expect(spawned.map((c) => c.sessionCustomEnvVars)).toEqual([WORK.env, OTHER.env]);
+		expect(window.maestro.feedback.rememberAccount).toHaveBeenCalledWith(OTHER.key);
+		expect((screen.getByTestId('feedback-account-picker') as HTMLSelectElement).value).toBe(
+			OTHER.key
+		);
 	});
 
 	it('shows loading spinner during GH auth check', () => {
@@ -106,7 +209,10 @@ describe('FeedbackChatView', () => {
 
 	it('shows the no-providers screen when gh is authenticated but no supported agents are detected', async () => {
 		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
-		window.maestro.agents.detect.mockResolvedValue([]);
+		window.maestro.feedback.listAccounts.mockResolvedValue({
+			accounts: [account({ key: 'codex::/home/me/.codex', status: 'not-installed' })],
+			lastWorkingKey: null,
+		});
 
 		render(
 			<FeedbackChatView
@@ -148,9 +254,9 @@ describe('FeedbackChatView', () => {
 		expect(onCancel).toHaveBeenCalledOnce();
 	});
 
-	it('shows a distinct error screen when agent detection itself throws', async () => {
+	it('shows a distinct error screen when account discovery itself throws', async () => {
 		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
-		window.maestro.agents.detect.mockRejectedValue(new Error('IPC channel closed'));
+		window.maestro.feedback.listAccounts.mockRejectedValue(new Error('IPC channel closed'));
 
 		render(
 			<FeedbackChatView
@@ -177,9 +283,10 @@ describe('FeedbackChatView', () => {
 	it('lets the user dismiss the boot screen if conversation start fails', async () => {
 		const onCancel = vi.fn();
 		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
-		window.maestro.agents.detect.mockResolvedValue([
-			{ id: 'claude-code', name: 'Claude Code', available: true },
-		]);
+		window.maestro.feedback.listAccounts.mockResolvedValue({
+			accounts: [WORK, DEFAULT],
+			lastWorkingKey: null,
+		});
 		window.maestro.feedback.getConversationPrompt.mockRejectedValue(
 			new Error('Prompt fetch failed')
 		);

@@ -21,13 +21,13 @@ Click the **Feedback** button in the bottom-left corner of the sidebar, next to 
 
 You can also open it via **Quick Actions** (`Cmd+K` / `Ctrl+K`) → "Send Feedback".
 
-### 2. Choose an AI Agent
+### 2. Which Account Runs the Chat
 
-Select which installed AI provider will conduct the feedback conversation. Maestro auto-detects available agents (Claude Code, Codex, OpenCode) and pre-selects the first one found.
+Maestro picks the account for you. It looks at the accounts your own agents run as (Claude Code, Codex, or OpenCode, including any per-agent `CLAUDE_CONFIG_DIR` or `CODEX_HOME`) and uses the first one that is installed and signed in. The provider's default login and accounts on SSH remotes are tried last.
 
-![Agent selection](./screenshots/feedback-1.png)
+If the first account cannot answer (for example, its login expired), the chat sends your message to the next account instead of failing. The account that answered is remembered for next time.
 
-Click **Start** to begin.
+The **Running as** menu under the progress bar shows the account in use. Pick another one there to override it.
 
 ### 3. Describe Your Issue
 
@@ -91,6 +91,7 @@ Agents and scripts can file the same issue through `maestro-cli`, with no modal:
 
 ```bash
 maestro-cli feedback auth                          # gh installed and logged in?
+maestro-cli feedback accounts                      # which account the chat runs as (--use <key> to pick)
 maestro-cli feedback search "tab closes on escape" # find duplicates first
 maestro-cli feedback submit -c bug -s "..." -e "..." -a "..." --attach shot.png --support-package
 maestro-cli feedback subscribe 1234 --comment "Same on Linux"

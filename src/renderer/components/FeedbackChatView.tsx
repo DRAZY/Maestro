@@ -6,7 +6,8 @@
  * and when understanding reaches 80%, submits a well-structured GitHub issue.
  *
  * Features:
- * - Auto-picks the first available supported provider - no selection step
+ * - Runs as the first working account among the user's own agents (with a
+ *   picker to override), falling through to the next when a first turn fails
  * - Chat interface with progress bar
  * - Screenshot drag-and-drop
  * - Support package opt-in
@@ -31,7 +32,7 @@ import { Spinner } from './ui/Spinner';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
-import type { Theme, Session, ToolType } from '../types';
+import type { Theme, Session } from '../types';
 import {
 	FeedbackConversationManager,
 	getConfidenceColor,
@@ -44,6 +45,11 @@ import { captureException } from '../utils/sentry';
 import { useFeedbackDraftStore } from '../stores/feedbackDraftStore';
 import { useAutosizeTextarea } from '../hooks/ui/useAutosizeTextarea';
 import { KEYSTROKE_TEXTAREA_MAX_HEIGHT } from '../utils/textareaSizing';
+import {
+	describeFeedbackAccountStatus,
+	isFeedbackAccountUsable,
+	type FeedbackAccount,
+} from '../../shared/feedbackAccounts';
 import {
 	MAX_FEEDBACK_ATTACHMENTS as MAX_ATTACHMENTS,
 	MAX_FEEDBACK_ATTACHMENT_BYTES as MAX_ATTACHMENT_BYTES,
@@ -80,21 +86,16 @@ function readFileAsDataUrl(file: File): Promise<string> {
 	});
 }
 
-// ============================================================================
-// Agent Tile Data
-// ============================================================================
-
-interface AgentTile {
-	id: ToolType;
-	name: string;
-	supported: boolean;
+/**
+ * The account a new or retried turn should run as: the first usable account
+ * that has not already failed this conversation.
+ */
+function nextUsableAccount(
+	accounts: FeedbackAccount[],
+	failed: ReadonlyMap<string, string>
+): FeedbackAccount | undefined {
+	return accounts.find((account) => isFeedbackAccountUsable(account) && !failed.has(account.key));
 }
-
-const AGENT_TILES: AgentTile[] = [
-	{ id: 'claude-code', name: 'Claude Code', supported: true },
-	{ id: 'codex', name: 'OpenAI Codex', supported: true },
-	{ id: 'opencode', name: 'OpenCode', supported: true },
-];
 
 // ============================================================================
 // Component Props
@@ -124,8 +125,15 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		checking: true,
 		ok: false,
 	});
-	const [selectedAgent, setSelectedAgent] = useState<ToolType>('claude-code');
-	const [detectedAgents, setDetectedAgents] = useState<Set<string>>(new Set());
+	// Accounts the chat can run as, in the order to try them (see
+	// shared/feedbackAccounts). Built from the user's own agents, because the
+	// provider's default login is often not one they have signed into.
+	const [accounts, setAccounts] = useState<FeedbackAccount[]>([]);
+	const [activeAccountKey, setActiveAccountKey] = useState<string | null>(null);
+	// Accounts that failed a turn in this conversation, with why.
+	const [failedAccounts, setFailedAccounts] = useState<ReadonlyMap<string, string>>(
+		() => new Map()
+	);
 	const [agentsLoaded, setAgentsLoaded] = useState(false);
 	const [agentsDetectError, setAgentsDetectError] = useState<string | null>(null);
 	const [messages, setMessages] = useState<FeedbackMessage[]>([]);
@@ -155,6 +163,11 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const startedRef = useRef(false);
+	// Set once any turn has been answered. Until then a failed turn falls through
+	// to the next account; after it, a failure is reported rather than silently
+	// moving the conversation to a different account.
+	const answeredRef = useRef(false);
+	const lastWorkingKeyRef = useRef<string | null>(null);
 
 	// --- Report desired width based on current step ---
 	useEffect(() => {
@@ -181,18 +194,16 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		};
 	}, []);
 
-	// --- Agent Detection ---
+	// --- Account discovery: every account the user's agents run as, checked ---
 	useEffect(() => {
 		let mounted = true;
 		(async () => {
 			try {
-				const agents = await window.maestro.agents.detect();
+				const result = await window.maestro.feedback.listAccounts();
 				if (mounted) {
-					const available = new Set<string>(agents.filter((a) => a.available).map((a) => a.id));
-					setDetectedAgents(available);
-					// Auto-select first available
-					const firstAvailable = AGENT_TILES.find((t) => t.supported && available.has(t.id));
-					if (firstAvailable) setSelectedAgent(firstAvailable.id);
+					setAccounts(result.accounts);
+					lastWorkingKeyRef.current = result.lastWorkingKey;
+					setActiveAccountKey(result.accounts.find(isFeedbackAccountUsable)?.key ?? null);
 					setAgentsLoaded(true);
 				}
 			} catch (error) {
@@ -277,10 +288,10 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		}
 	}, [lastResponse, runIssueSearch]);
 
-	// Available agent tiles
-	const availableTiles = useMemo(
-		() => AGENT_TILES.filter((t) => t.supported && detectedAgents.has(t.id)),
-		[detectedAgents]
+	const usableAccounts = useMemo(() => accounts.filter(isFeedbackAccountUsable), [accounts]);
+	const activeAccount = useMemo(
+		() => accounts.find((account) => account.key === activeAccountKey),
+		[accounts, activeAccountKey]
 	);
 
 	// Prose styles for markdown rendering in assistant messages
@@ -293,11 +304,13 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	// --- Start conversation ---
 	const startConversation = useCallback(async () => {
 		try {
+			if (!activeAccount) throw new Error('No account is available to run the feedback chat.');
 			const { prompt, cwd } = await window.maestro.feedback.getConversationPrompt();
 			managerRef.current.start({
-				agentType: selectedAgent,
+				agentType: activeAccount.toolType,
 				systemPrompt: prompt,
 				cwd,
+				account: activeAccount,
 			});
 			setStep('chat');
 			// Focus input immediately - no auto-greeting, user speaks first
@@ -312,19 +325,37 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 			startedRef.current = false;
 			setSubmitError(error instanceof Error ? error.message : 'Failed to start conversation');
 		}
-	}, [selectedAgent]);
+	}, [activeAccount]);
 
-	// --- Auto-start conversation once GH auth + agent detection are ready.
-	//     The previous "pick a provider" screen is gone (#766) - Maestro infers
-	//     the provider from the first detected supported agent.
+	// --- Auto-start conversation once GH auth + account discovery are ready.
+	//     There is no "pick a provider" screen (#766): the first usable account
+	//     runs it, and the picker in the chat header overrides that.
 	useEffect(() => {
 		if (startedRef.current) return;
 		if (ghAuth.checking || !ghAuth.ok) return;
 		if (!agentsLoaded || agentsDetectError) return;
-		if (availableTiles.length === 0) return;
+		if (!activeAccount) return;
 		startedRef.current = true;
 		void startConversation();
-	}, [ghAuth, agentsLoaded, agentsDetectError, availableTiles, startConversation]);
+	}, [ghAuth, agentsLoaded, agentsDetectError, activeAccount, startConversation]);
+
+	// --- Run later turns as another account (picker override) ---
+	const selectAccount = useCallback(
+		(key: string) => {
+			const account = accounts.find((candidate) => candidate.key === key);
+			if (!account) return;
+			setActiveAccountKey(key);
+			// Picking an account by hand is a request to try it, even if it failed.
+			setFailedAccounts((prev) => {
+				if (!prev.has(key)) return prev;
+				const next = new Map(prev);
+				next.delete(key);
+				return next;
+			});
+			if (managerRef.current.isActive) managerRef.current.switchAccount(account.toolType, account);
+		},
+		[accounts]
+	);
 
 	// --- Send message ---
 	const sendMessage = useCallback(async () => {
@@ -339,16 +370,62 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		setDiagnostics([]);
 
 		try {
-			const response = await managerRef.current.sendMessage(text, updatedMessages, {
-				onDiagnostic: (diagnostic) => {
+			const callbacks = {
+				onDiagnostic: (diagnostic: FeedbackDiagnostic) => {
 					setDiagnostics((prev) => [...prev, diagnostic]);
 				},
-				onComplete: (r) => {
+				onComplete: (r: FeedbackParsedResponse) => {
 					setConfidence(r.confidence);
 					setIsReady(r.ready);
 					setLastResponse(r);
 				},
-			});
+			};
+			let accountKey = activeAccountKey;
+			let result = await managerRef.current.sendTurn(text, updatedMessages, callbacks);
+
+			// Until some account has answered, a failed turn (most often a refused
+			// login) moves on to the next account instead of ending the chat.
+			const failed = new Map(failedAccounts);
+			while (result.failed && !answeredRef.current && accountKey) {
+				failed.set(accountKey, result.error ?? 'Failed');
+				const next = nextUsableAccount(accounts, failed);
+				if (!next) break;
+				accountKey = next.key;
+				setActiveAccountKey(next.key);
+				setDiagnostics([]);
+				managerRef.current.switchAccount(next.toolType, next);
+				result = await managerRef.current.sendTurn(text, updatedMessages, callbacks);
+			}
+			if (result.failed && accountKey) failed.set(accountKey, result.error ?? 'Failed');
+			setFailedAccounts(failed);
+
+			if (!result.failed) {
+				answeredRef.current = true;
+				if (accountKey && accountKey !== lastWorkingKeyRef.current) {
+					lastWorkingKeyRef.current = accountKey;
+					void window.maestro.feedback.rememberAccount(accountKey).catch(() => {
+						// Remembering only saves the next chat a fall-through.
+					});
+				}
+			}
+
+			// Every account failed before any answered: say which ones and why,
+			// rather than the generic "something went wrong".
+			const response =
+				result.failed && !answeredRef.current
+					? {
+							...result.response,
+							message: [
+								`No account could answer. Tried: ${[...failed.keys()]
+									.map((key) => accounts.find((a) => a.key === key)?.label ?? key)
+									.join(', ')}.`,
+								result.error ? `Last error: ${result.error}` : '',
+								'Sign one of these accounts in (run the provider login in a terminal), or pick another account above, then send again.',
+							]
+								.filter(Boolean)
+								.join('\n\n'),
+						}
+					: result.response;
 
 			setMessages((prev) => [
 				...prev,
@@ -374,7 +451,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 			setIsLoading(false);
 			inputRef.current?.focus();
 		}
-	}, [inputValue, isLoading, messages]);
+	}, [inputValue, isLoading, messages, activeAccountKey, failedAccounts, accounts]);
 
 	// --- Create new issue (skipping or after matching) ---
 	const createNewIssue = useCallback(async () => {
@@ -597,7 +674,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	}
 
 	// --- No supported AI provider detected ---
-	if (agentsLoaded && availableTiles.length === 0) {
+	if (agentsLoaded && usableAccounts.length === 0) {
 		return (
 			<div className="flex flex-col items-center gap-4 py-8 px-6 text-center">
 				<AlertCircle className="w-10 h-10" style={{ color: theme.colors.warning }} />
@@ -920,6 +997,53 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 						}}
 					/>
 				</div>
+				{/* Which account answers, with an override. Built from the user's own
+				    agents, so someone who switches accounts per agent can see and
+				    change which login this chat uses. */}
+				{accounts.length > 0 && (
+					<div
+						className="flex items-center gap-2 mt-2 text-2xs min-w-0"
+						style={{ color: theme.colors.textDim }}
+					>
+						<span className="shrink-0">Running as</span>
+						<select
+							value={activeAccountKey ?? ''}
+							onChange={(e) => selectAccount(e.target.value)}
+							disabled={isLoading || step === 'submitting'}
+							data-testid="feedback-account-picker"
+							aria-label="Account the feedback chat runs as"
+							className="min-w-0 max-w-[60%] px-1.5 py-0.5 rounded border bg-transparent outline-none cursor-pointer disabled:opacity-60"
+							style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+						>
+							{accounts.map((account) => (
+								<option
+									key={account.key}
+									value={account.key}
+									disabled={!isFeedbackAccountUsable(account)}
+									style={{ backgroundColor: theme.colors.bgSidebar }}
+								>
+									{account.label} -{' '}
+									{failedAccounts.has(account.key)
+										? 'failed'
+										: describeFeedbackAccountStatus(account)}
+									{account.agentNames.length > 0
+										? ` (${account.agentNames.length} agent${account.agentNames.length === 1 ? '' : 's'})`
+										: ''}
+								</option>
+							))}
+						</select>
+						{activeAccount && (
+							<span
+								className="truncate"
+								title={failedAccounts.get(activeAccount.key) ?? activeAccount.statusDetail}
+							>
+								{failedAccounts.has(activeAccount.key)
+									? 'last turn failed'
+									: activeAccount.statusDetail}
+							</span>
+						)}
+					</div>
+				)}
 			</div>
 
 			{/* ── MIDDLE: Scrollable messages ── */}

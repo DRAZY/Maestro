@@ -87,6 +87,7 @@ import { notifyFlash } from './commands/notify-flash';
 import { profilingStart, profilingStop, profilingStatus } from './commands/profiling';
 import { supportPackage } from './commands/support-package';
 import {
+	feedbackAccounts,
 	feedbackAuth,
 	feedbackSearch,
 	feedbackSubmit,
@@ -1512,6 +1513,19 @@ feedback
 	.description('Check that the GitHub CLI (gh) is installed and logged in (required to file)')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(feedbackAuth);
+
+feedback
+	.command('accounts')
+	.description(
+		'List the provider accounts the Feedback chat can run as, in the order it tries them (first usable one wins)'
+	)
+	.option(
+		'--use <key>',
+		'Make this account (a key from the list) the one the next chat tries first'
+	)
+	.option('--clear', 'Forget the remembered account and pick automatically again')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(feedbackAccounts);
 
 feedback
 	.command('search <query>')

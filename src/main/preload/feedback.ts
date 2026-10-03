@@ -16,6 +16,7 @@ import type {
 	FeedbackSubmissionPayload,
 	FeedbackSubmitResponse,
 } from '../../shared/feedback';
+import type { FeedbackAccountsResponse } from '../../shared/feedbackAccounts';
 
 export type {
 	FeedbackAttachmentPayload,
@@ -60,6 +61,14 @@ export interface FeedbackApi {
 	 * Subscribe to an existing issue (+1 reaction) and optionally comment
 	 */
 	subscribeIssue: (issueNumber: number, comment?: string) => Promise<FeedbackSubmitResponse>;
+	/**
+	 * Accounts the feedback chat can run as, checked and in pick order
+	 */
+	listAccounts: () => Promise<FeedbackAccountsResponse>;
+	/**
+	 * Remember the account the next conversation tries first
+	 */
+	rememberAccount: (key: string | null) => Promise<void>;
 }
 
 /**
@@ -93,5 +102,11 @@ export function createFeedbackApi(): FeedbackApi {
 
 		subscribeIssue: (issueNumber: number, comment?: string): Promise<FeedbackSubmitResponse> =>
 			ipcRenderer.invoke('feedback:subscribe-issue', { issueNumber, comment }),
+
+		listAccounts: (): Promise<FeedbackAccountsResponse> =>
+			ipcRenderer.invoke('feedback:list-accounts'),
+
+		rememberAccount: (key: string | null): Promise<void> =>
+			ipcRenderer.invoke('feedback:remember-account', { key }),
 	};
 }

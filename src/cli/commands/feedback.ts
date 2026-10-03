@@ -29,6 +29,11 @@ import {
 	type FeedbackConversationSubmitPayload,
 	type FeedbackIssueMatch,
 } from '../../shared/feedback';
+import {
+	describeFeedbackAccountStatus,
+	isFeedbackAccountUsable,
+	type FeedbackAccountsResponse,
+} from '../../shared/feedbackAccounts';
 
 /**
  * Filing uploads screenshots, may build and upload a support package, and runs
@@ -158,6 +163,63 @@ export async function feedbackAuth(options: JsonOption): Promise<void> {
 		console.log(result.message || 'GitHub CLI is not ready.');
 	}
 	if (!authenticated) exitWith(ExitCode.GeneralError);
+}
+
+interface AccountsOptions extends JsonOption {
+	use?: string;
+	clear?: boolean;
+}
+
+/**
+ * `feedback accounts` - which provider account the Feedback chat runs as. The
+ * chat tries them in this order and falls through to the next when a first
+ * turn fails; `--use` is the chat's account picker.
+ */
+export async function feedbackAccounts(options: AccountsOptions): Promise<void> {
+	if (options.use !== undefined && options.clear) {
+		fail('Pass --use or --clear, not both.', options, ExitCode.InvalidUsage);
+	}
+	const use = options.clear ? null : options.use;
+	let result: { success: boolean; error?: string } & Partial<FeedbackAccountsResponse>;
+	try {
+		result = await withMaestroClient((client) =>
+			client.sendCommand(
+				{ type: 'feedback_accounts', ...(use !== undefined ? { use } : {}) },
+				'feedback_accounts_result'
+			)
+		);
+	} catch (error) {
+		failFromError(error, options);
+	}
+	if (!result.success)
+		fail(result.error || 'Listing accounts failed', options, ExitCode.GeneralError);
+
+	const accounts = result.accounts ?? [];
+	const lastWorkingKey = result.lastWorkingKey ?? null;
+	const pick = accounts.find(isFeedbackAccountUsable) ?? null;
+	if (options.json) {
+		console.log(
+			JSON.stringify({ success: true, accounts, lastWorkingKey, pickKey: pick?.key ?? null })
+		);
+		return;
+	}
+	if (accounts.length === 0) {
+		console.log(
+			'No Claude Code, Codex, or OpenCode account found. Install one to use the Feedback chat.'
+		);
+		exitWith(ExitCode.GeneralError);
+	}
+	for (const account of accounts) {
+		const marker = account === pick ? '>' : ' ';
+		const agents =
+			account.agentNames.length > 0 ? ` - agents: ${account.agentNames.join(', ')}` : '';
+		const detail = account.statusDetail ? ` (${account.statusDetail})` : '';
+		console.log(
+			`${marker} ${account.label} [${describeFeedbackAccountStatus(account)}]${detail}${agents}`
+		);
+		console.log(`    key: ${account.key}`);
+	}
+	if (!pick) exitWith(ExitCode.GeneralError);
 }
 
 /** `feedback search <query>` - possible duplicates on RunMaestro/Maestro. */

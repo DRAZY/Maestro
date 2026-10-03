@@ -62,4 +62,15 @@ describe('Feedback Preload API', () => {
 		});
 		expect(result.prompt).toBe('rendered prompt');
 	});
+
+	it('lists and remembers feedback accounts over IPC', async () => {
+		mockInvoke.mockResolvedValue({ accounts: [], lastWorkingKey: null });
+		await api.listAccounts();
+		expect(mockInvoke).toHaveBeenCalledWith('feedback:list-accounts');
+
+		await api.rememberAccount('claude-code::/home/me/.claude-work');
+		expect(mockInvoke).toHaveBeenCalledWith('feedback:remember-account', {
+			key: 'claude-code::/home/me/.claude-work',
+		});
+	});
 });
