@@ -100,6 +100,13 @@ function run(cmd, args, { input, env } = {}) {
 }
 
 const git = (...args) => run('git', args);
+/** A file's exact contents at `rev`. `git()` trims, which drops the trailing newline. */
+const gitFileAt = (rev, file) =>
+	execFileSync('git', ['show', `${rev}:${file}`], {
+		cwd: ROOT,
+		encoding: 'utf-8',
+		maxBuffer: 64 * 1024 * 1024,
+	});
 const gh = (...args) => run('gh', args);
 const ghJson = (...args) => JSON.parse(gh(...args) || 'null');
 /** `gh api --paginate --jq '.[]'` style output: one JSON value per line. */
@@ -909,11 +916,11 @@ function bumpCommand(opts) {
 	if (branch === 'main' && /-rc/i.test(next)) misuse('main must never carry an -RC version');
 
 	const files = {
-		'package.json': replaceVersion(git('show', `${base}:package.json`), current, next, 1),
+		'package.json': replaceVersion(gitFileAt(base, 'package.json'), current, next, 1),
 	};
 	// Match past practice: main bumps also move the lockfile's two root fields;
 	// rc bumps have left the lockfile alone, so only follow it when it agrees.
-	const lockText = git('show', `${base}:package-lock.json`);
+	const lockText = gitFileAt(base, 'package-lock.json');
 	const lock = JSON.parse(lockText);
 	if (lock.version === current && lock.packages?.['']?.version === current) {
 		const bumped = replaceVersion(lockText, current, next, 2);
