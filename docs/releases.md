@@ -14,34 +14,26 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ---
 
-## v0.17.x - Maestro Cue
+## v0.17.x - Security Release
 
-**Latest: v0.17.7** | Released October 4, 2026
+**Latest: v0.17.8** | Released October 4, 2026
 
-# 0.17.7 Highlights
+# 0.17.8 Highlights
 
-🎬 **The media player's close and minimize buttons work again, wherever it ends up.** A player that drifted to the very top of the window slid under the title bar, which swallowed every click on it, so you could not close it, minimize it, or drag it away. It now always stays below the title bar, when it opens, while you drag it, and when the window is resized, and a player stuck up there from before comes back down on its own.
+🔒 **This is a security release, and every user should install it.** Maestro runs a small built-in server so `maestro-cli` and the phone interface can drive the app. Until now that server listened on your whole network from the moment Maestro opened, even with Live off, and it answered requests from any web page. Anyone who got hold of its URL (someone on the same Wi-Fi while you used the phone link, a pairing link that leaked, or a web page that knew the URL) could run commands on your computer through it.
 
-🧾 **`maestro-cli` output is clean JSON again.** Diagnostic log lines were printed ahead of the result, so any script piping `--json` into a parser broke on the first line. They now go to stderr where they belong, and the CLI stops kicking off a second WakaTime download while the first check is still looking for it.
+📡 **The server now stays on your computer until you turn Live on.** While the button reads OFFLINE it listens on 127.0.0.1 only, so nothing on your network can reach it, and `maestro-cli` works exactly as before. Turning Live on opens it to your LAN for your phone, and turning Live off closes it again with a fresh token. If a Persistent Web Link let you reach Maestro from your phone with Live off, turn Live on to use it now.
 
-🪝 **Claude's answer survives a Stop hook.** When a Stop hook told Claude to keep working, only what it wrote afterwards reached the chat, and the reply to your actual question vanished. You now get both, with the held-back answer first.
+🛡️ **Web pages can no longer drive Maestro, even with the URL.** The server refuses any browser request from a page it did not serve itself, WebSocket connections included, so a malicious site that learns your link gets nothing back. The file `maestro-cli` reads its token from is now readable by your user account only.
 
-🐛 **Send Feedback signs you in instead of turning you away.** The feedback chat now runs as one of the accounts your own agents already use, so a per-agent login no longer fails with "not logged in". If GitHub needs you, Log in to GitHub runs right inside the dialog, and before you write a word it confirms your account can actually file on the Maestro repo and names the account it will file as.
+## Also in 0.17.8
 
-🌳 **The Files pane tree reads like a tree.** Files and folders at the same depth now share one icon column, so a deep project no longer looks like a staircase. Prefer classic tree lines? Turn on branch connectors under Settings > Display.
-
-## Also in 0.17.7
-
-- 💬 **Quote part of a reply in your next message** by selecting it, right-clicking, and choosing Quote in Message.
-- 🔍 **See exactly what you changed in a Maestro Prompt** with a diff against the bundled default, unsaved edits included.
-- 🔀 **Branch switching waits for pushes, pulls, and busy agents**, and the branch switcher says why, instead of yanking files out from under a running push.
-- 📡 **Codex keeps going through a brief reconnect.** A "Reconnecting..." notice used to end the turn while Codex was still retrying, and the real disconnect is now retried too.
-- 🛰️ **Director's Notes stops stalling on an offline SSH remote**, answering in a few seconds with that host's last known history instead of sitting on "Loading activity..." for up to 40 seconds.
-- 🎯 **The Director's Notes Help tab explains the Ideal End State**, shows whether you have set one, and takes you straight to the setting.
-- 🔎 **Clicking a node in the Document Graph keeps your zoom** instead of re-framing the whole graph.
+- 🔁 **Running Maestro behind a reverse proxy?** Have it forward the original `Host` header (nginx: `proxy_set_header Host $host;`, Caddy does this already), or browser requests through it will be refused.
+- 🙏 **Thank you to CopperKoi and YoAm**, who found these problems and reported them responsibly. The full write-up is in advisory [GHSA-q8p2-cpg2-fhpc](https://github.com/RunMaestro/Maestro/security/advisories/GHSA-q8p2-cpg2-fhpc).
 
 ### Previous Releases in this Series
 
+- **v0.17.7** (October 4, 2026) - Maestro Cue
 - **v0.17.6** (October 2, 2026) - Maestro Cue
 - **v0.17.5** (September 25, 2026) - Maestro Cue
 - **v0.17.4** (September 21, 2026) - Maestro Cue
