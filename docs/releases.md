@@ -15,38 +15,33 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ## v0.17.x - Maestro Cue
 
-**Latest: v0.17.6** | Released October 2, 2026
+**Latest: v0.17.7** | Released October 4, 2026
 
-# 0.17.6 Highlights
+# 0.17.7 Highlights
 
-🔍 **Pan and zoom any diagram or image, full window.** Mermaid diagrams and markdown images get an expand button, chat images open with a click, and anything else opens from its right-click menu with Expand (Pan and Zoom). Zoom at the cursor with the wheel or a pinch, drag or arrow-key to pan, double-click to fit, and diagrams stay vector-sharp however far you go in. Pinching an image in the file preview no longer zooms the whole window either.
+🎬 **The media player's close and minimize buttons work again, wherever it ends up.** A player that drifted to the very top of the window slid under the title bar, which swallowed every click on it, so you could not close it, minimize it, or drag it away. It now always stays below the title bar, when it opens, while you drag it, and when the window is resized, and a player stuck up there from before comes back down on its own.
 
-📨 **Send to Agent waits its turn.** Handing context to a busy agent used to start it right on top of the running turn. It now opens a new tab and queues the context for when the current turn finishes, and with Forced Parallel Execution on, Force Send to Agent still runs it alongside. A dimmed Force Send also tells you why it is dimmed and takes you straight to the setting that unlocks it.
+🧾 **`maestro-cli` output is clean JSON again.** Diagnostic log lines were printed ahead of the result, so any script piping `--json` into a parser broke on the first line. They now go to stderr where they belong, and the CLI stops kicking off a second WakaTime download while the first check is still looking for it.
 
-🍞 **Toasts go where you want them and stay out of your way.** Pick any corner in Settings > Notifications, or search Move Toast Notifications in Quick Actions. In a bottom corner they now lift above the message input, group chat included, instead of covering what you are typing.
+🪝 **Claude's answer survives a Stop hook.** When a Stop hook told Claude to keep working, only what it wrote afterwards reached the chat, and the reply to your actual question vanished. You now get both, with the held-back answer first.
 
-🩹 **The outage card tells the truth.** It clears the moment a resend gets through, counts the retry that worked, and says "Quota restored." when it was your quota that came back. When a resend fails for a different reason, like an expired login, the card says auto-retry ended and names the real error instead of showing a green "Connection recovered." above it.
+🐛 **Send Feedback signs you in instead of turning you away.** The feedback chat now runs as one of the accounts your own agents already use, so a per-agent login no longer fails with "not logged in". If GitHub needs you, Log in to GitHub runs right inside the dialog, and before you write a word it confirms your account can actually file on the Maestro repo and names the account it will file as.
 
-🗣️ **Your agents can do more of Maestro for you.** `maestro-cli` now starts and drives group chats, files feedback (searching for duplicates and adding a +1 first), writes a support package, flips any Cue subscription on or off, lists recent Cue runs, reads and redirects an agent's Auto Run, browses and installs from the Playbook Exchange, and queues audio or video in the player without starting it. A failing call now reports back right away instead of hanging until it times out.
+🌳 **The Files pane tree reads like a tree.** Files and folders at the same depth now share one icon column, so a deep project no longer looks like a staircase. Prefer classic tree lines? Turn on branch connectors under Settings > Display.
 
-## Also in 0.17.6
+## Also in 0.17.7
 
-- 💾 **Auto Run gets Save & Exit**, which saves to the loaded playbook and closes, or creates a dated, codenamed playbook when none is loaded.
-- ↕️ **Drag the Auto Run document list taller** by its bottom edge; it remembers the height, never runs off the bottom of a smaller screen, and a double-click resets it.
-- 📋 **Every code block has a working copy button**, in documents, release notes, and wizard replies as well as chat.
-- 🧭 **The Left Bar scrolls to the agent you jump to**, whether you got there by shortcut, Cmd+K, Cmd+O, a toast, or the CLI.
-- ⌨️ **Quick Actions shows each agent's Opt+Cmd+number chord** next to its name, so you pick up the shortcut while you search.
-- 📎 **@-mentions search every file in a big repo**, so the file you meant no longer loses to loose matches from deep folders.
-- 🔁 **Cue GitHub triggers fire on new comments again**, and `max_notifications` is honored, for subscriptions that set `retrigger_on_comments`.
-- ⏹️ **Cue shell commands and CLI runs appear in the Process Monitor**, badged with their trigger, and Stop ends them.
-- ⏱️ **"Time in the Wizard" counts the time you spent working**, so a wizard tab left open overnight no longer logs the whole night.
-- 🔑 **Codex sign-in works on SSH remotes** through device-code login, and the remote login hint names your provider's own command.
-- 🧰 **Install/Update CLI no longer breaks an existing `maestro-cli` link**, and its Settings section now sits right below your Conductor Profile.
-- ⏳ **Loading a big file tree shows a spinner** while Load more or Load all is scanning.
-- 📊 **Usage Dashboard agent names stop clipping**, since the name column now fits the longest one.
+- 💬 **Quote part of a reply in your next message** by selecting it, right-clicking, and choosing Quote in Message.
+- 🔍 **See exactly what you changed in a Maestro Prompt** with a diff against the bundled default, unsaved edits included.
+- 🔀 **Branch switching waits for pushes, pulls, and busy agents**, and the branch switcher says why, instead of yanking files out from under a running push.
+- 📡 **Codex keeps going through a brief reconnect.** A "Reconnecting..." notice used to end the turn while Codex was still retrying, and the real disconnect is now retried too.
+- 🛰️ **Director's Notes stops stalling on an offline SSH remote**, answering in a few seconds with that host's last known history instead of sitting on "Loading activity..." for up to 40 seconds.
+- 🎯 **The Director's Notes Help tab explains the Ideal End State**, shows whether you have set one, and takes you straight to the setting.
+- 🔎 **Clicking a node in the Document Graph keeps your zoom** instead of re-framing the whole graph.
 
 ### Previous Releases in this Series
 
+- **v0.17.6** (October 2, 2026) - Maestro Cue
 - **v0.17.5** (September 25, 2026) - Maestro Cue
 - **v0.17.4** (September 21, 2026) - Maestro Cue
 - **v0.17.3** (July 4, 2026) - Maestro Cue
