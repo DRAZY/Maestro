@@ -7,6 +7,7 @@ import type {
 	CustomAICommand,
 	BatchRunState,
 	AITab,
+	ConsultHoldTarget,
 } from '../../types';
 import { getActiveTab, getBusyTabs, getTabDisplayName } from '../../utils/tabHelpers';
 import { prepareMaestroSystemPrompt } from '../../utils/spawnHelpers';
@@ -28,7 +29,13 @@ import {
 import { getAiCommandEntry } from '../../stores/aiCommandStore';
 import { gitService } from '../../services/git';
 import type { CrossAgentMentionPlan } from '../../services/crossAgentMentions';
-import { hasRunnableQueueItem, hasWorkAheadOfNewMessage } from '../../utils/executionQueue';
+import {
+	dropConsultHold,
+	hasConsultHoldForTab,
+	hasRunnableQueueItem,
+	hasWorkAheadOfNewMessage,
+} from '../../utils/executionQueue';
+import { withConsultPendingNote } from '../../services/crossAgentConsultHold';
 import { probeSessionAiProcesses } from '../../services/process';
 import { isAgentAlreadyRunningError } from '../../../shared/processErrors';
 import { hasPendingRetry, noteDirectDispatch } from '../../stores/retryStore';
@@ -172,7 +179,7 @@ export interface UseInputProcessingDeps {
 		message: string,
 		sourceSession: Session,
 		sourceTabId: string
-	) => void;
+	) => ConsultHoldTarget[] | void;
 }
 
 /**
@@ -947,9 +954,19 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					liveTab?.id || liveSession.activeTabId
 				);
 
+				// This tab's previous turn consulted another agent and is waiting on
+				// the reply to finish. A new message sent now would land between that
+				// turn and its conclusion, so it queues behind the hold - forced
+				// parallel included, since the hold is this tab's own unfinished turn.
+				const consultHoldsTab = hasConsultHoldForTab(
+					liveSession.executionQueue,
+					liveTab?.id || liveSession.activeTabId
+				);
+
 				const shouldQueue =
 					connectionHold ||
 					retryHoldsTab ||
+					consultHoldsTab ||
 					processStateRequiresQueue ||
 					(!forceParallel && queuedWorkAhead) ||
 					(forceParallel
@@ -972,6 +989,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					connectionHold,
 					queuedWorkAhead,
 					retryHoldsTab,
+					consultHoldsTab,
 					shouldQueue,
 					queueLength: liveSession.executionQueue.length,
 				});
@@ -1045,15 +1063,17 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			}
 
 			// This message dispatches now, so its consults fire now too - just before
-			// the source agent's own turn, matching the order the user sees.
-			if (crossAgentMentionPlan) {
-				onDispatchCrossAgentMentions?.(
-					crossAgentMentionPlan,
-					effectiveInputValue,
-					activeSession,
-					mentionSourceTabId
-				);
-			}
+			// the source agent's own turn, matching the order the user sees. The
+			// returned targets are what this turn's consult hold is waiting on.
+			const consultTargets =
+				(crossAgentMentionPlan &&
+					onDispatchCrossAgentMentions?.(
+						crossAgentMentionPlan,
+						effectiveInputValue,
+						activeSession,
+						mentionSourceTabId
+					)) ||
+				[];
 
 			// Check if we're in read-only mode for the log entry (tab setting OR Auto Run without worktree).
 			// Force Send (Cmd+Shift+Enter / the Force Send button on a queued item) is an explicit user
@@ -1457,6 +1477,11 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							);
 						}
 
+						// A mid-message @mention is being answered by the consulted agent
+						// in parallel: tell this turn so it works without finishing, and
+						// waits for the reply its consult hold will deliver.
+						effectivePrompt = withConsultPendingNote(effectivePrompt, consultTargets);
+
 						// Prepare Maestro system prompt. Always send it; the main-process handler
 						// decides how to deliver it based on agent capabilities:
 						//  - Native --append-system-prompt agents (e.g. Claude Code): re-send every
@@ -1524,6 +1549,10 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						updateSessionWith(resolvedSessionId, (s) => {
 							const errorTabId = targetTabId ?? s.activeTabId;
 							const errorTab = s.aiTabs?.find((tab) => tab.id === errorTabId);
+							// This turn never started, so the consult hold it placed has no
+							// answer to finish. Left in place it would later run a
+							// continuation for a message the agent never received.
+							const executionQueue = dropConsultHold(s.executionQueue, errorTabId);
 							// A collision means the tab is BUSY with somebody else's turn.
 							// Clearing its state told every busy-based rule in the app that
 							// the agent was free while a live process kept streaming into
@@ -1533,7 +1562,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							// it and writes the error the user can act on.
 							if (isSpawnCollision) {
 								const requeued = buildComposerQueuedItem(errorTabId, errorTab, s);
-								return { ...s, executionQueue: [...s.executionQueue, requeued] };
+								return { ...s, executionQueue: [...executionQueue, requeued] };
 							}
 							// Reset target tab's state to 'idle' and add error log
 							const updatedAiTabs =
@@ -1555,6 +1584,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								busySource: undefined,
 								thinkingStartTime: undefined,
 								aiTabs: updatedAiTabs,
+								executionQueue,
 							};
 						});
 					}
