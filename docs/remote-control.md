@@ -115,6 +115,10 @@ On your own network the web interface is served over plain HTTP, so a password t
 A reverse proxy must forward the original `Host` header (nginx: `proxy_set_header Host $host;`, Caddy does this by default). Maestro refuses browser requests whose `Origin` does not match the `Host` they were sent to.
 </Note>
 
+<Note>
+A reverse proxy must forward the original `Host` header (nginx: `proxy_set_header Host $host;`, Caddy does this by default). Maestro refuses browser requests whose `Origin` does not match the `Host` they were sent to.
+</Note>
+
 ## Connection Handling
 
 The browser talks to the desktop app over a WebSocket. If the connection drops (the phone sleeps, you switch apps, the network changes), the page reconnects and then reloads itself so it picks up everything that happened while it was away; the desktop app is the single source of truth. Anything you typed during the gap but had not yet sent needs to be sent again.
