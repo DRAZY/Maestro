@@ -77,6 +77,27 @@ function getImageOnlyPrompt(): string {
 export let DEFAULT_IMAGE_ONLY_PROMPT: string = getImageOnlyPrompt();
 
 /**
+ * Composer submits still waiting on their process-ownership probe, keyed
+ * `${sessionId}:${tabId}`, holding what each one took out of the composer. The
+ * probe is a bridge round trip (135ms in the field, up to its deadline on a
+ * stalled socket), and a second Enter inside that window - key repeat,
+ * dictation's Enter plus a manual one, the send button - is the same submit
+ * again. It used to read the same draft, resume after the first had marked the
+ * tab busy, and queue a duplicate.
+ *
+ * Taking the draft before the probe already makes the repeat read an empty box.
+ * This catches what that cannot: a render that has not landed yet, so the
+ * repeat still holds the same `stagedImages` array. It matches on CONTENT, not
+ * just on the tab, because a message the user typed after the first was taken
+ * is new and must go through (it queues behind the first) - ignoring every
+ * Enter for the length of a stalled probe would swallow it.
+ *
+ * Module scope, not a ref: a ref belongs to one hook instance, and the guard
+ * has to hold for the tab.
+ */
+const composerSubmitsInFlight = new Map<string, Array<{ text: string; images: string[] }>>();
+
+/**
  * Dependencies for the useInputProcessing hook.
  */
 export interface UseInputProcessingDeps {
@@ -615,6 +636,63 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 
 			const currentMode = activeSession.inputMode;
 
+			// A submit straight from the composer (Enter, the send button), as
+			// opposed to a replay, Force Send, or recovery that hands its own text
+			// in. Only these read the draft, so only these can read it twice.
+			const isComposerSubmit = overrideInputValue === undefined;
+			const inFlightKey = `${activeSession.id}:${targetTabId ?? ''}`;
+			const submitted = { text: effectiveInputValue, images: effectiveImages };
+			const isRepeatOfInFlight = (composerSubmitsInFlight.get(inFlightKey) ?? []).some(
+				(prior) =>
+					(!submitted.text.trim() || submitted.text === prior.text) &&
+					(submitted.images === prior.images ||
+						(submitted.images.length === 0 && prior.images.length === 0))
+			);
+			if (currentMode === 'ai' && isComposerSubmit && isRepeatOfInFlight) {
+				logger.info(
+					'[processInput] Ignoring a repeat composer submit while the first is in flight'
+				);
+				return;
+			}
+
+			// The AI path takes the draft out of the composer BEFORE its ownership
+			// probe rather than after, so a second Enter during the probe reads an
+			// empty box instead of the same text. `composerTaken` tells the exits
+			// past the probe the composer is already clear: clearing again there
+			// would wipe whatever the user typed while the probe was out. Nothing
+			// past the probe returns without sending or queuing the message (and
+			// the probe resolves on failure rather than rejecting), so the taken
+			// draft never needs putting back.
+			let composerTaken = false;
+			const clearComposer = () => {
+				setInputValue('');
+				if (!usingOverrideImages) setStagedImages([]);
+				syncAiInputToSession('', syncTarget);
+				if (inputRef.current) inputRef.current.style.height = 'auto';
+			};
+			const clearComposerUnlessTaken = () => {
+				if (!composerTaken) clearComposer();
+			};
+			// The probe is the only await between Enter and the queue/send decision,
+			// and everything after it is synchronous, so the in-flight window is
+			// exactly the probe.
+			const probeForSubmit = async (tabId: string | undefined) => {
+				if (!isComposerSubmit) return probeSessionAiProcesses(activeSession.id, tabId);
+				const inFlight = composerSubmitsInFlight.get(inFlightKey) ?? [];
+				composerSubmitsInFlight.set(inFlightKey, [...inFlight, submitted]);
+				try {
+					clearComposer();
+					composerTaken = true;
+					return await probeSessionAiProcesses(activeSession.id, tabId);
+				} finally {
+					const remaining = (composerSubmitsInFlight.get(inFlightKey) ?? []).filter(
+						(entry) => entry !== submitted
+					);
+					if (remaining.length > 0) composerSubmitsInFlight.set(inFlightKey, remaining);
+					else composerSubmitsInFlight.delete(inFlightKey);
+				}
+			};
+
 			// Handle wizard mode - route messages to wizard sendMessage instead of normal AI processing
 			// This allows the wizard to have its own conversation without affecting the regular AI queue
 			if (currentMode === 'ai' && isWizardActive && onWizardSendMessage) {
@@ -724,7 +802,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					// store can still read idle for a moment after a turn starts, and a
 					// consult fired in that window is exactly the premature ping this
 					// whole path exists to prevent.
-					const mentionProbe = await probeSessionAiProcesses(activeSession.id, mentionSourceTabId);
+					const mentionProbe = await probeForSubmit(mentionSourceTabId);
 					const liveMentionSession =
 						useSessionStore.getState().sessions.find((s) => s.id === activeSession.id) ??
 						activeSession;
@@ -772,10 +850,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							};
 						});
 
-						setInputValue('');
-						if (!usingOverrideImages) setStagedImages([]);
-						syncAiInputToSession('', syncTarget);
-						if (inputRef.current) inputRef.current.style.height = 'auto';
+						clearComposerUnlessTaken();
 						if (mentionProbe.probeFailed) {
 							requestWebBridgeReconcile();
 						}
@@ -837,10 +912,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						});
 
 					// Clear the composer.
-					setInputValue('');
-					if (!usingOverrideImages) setStagedImages([]);
-					syncAiInputToSession('', syncTarget);
-					if (inputRef.current) inputRef.current.style.height = 'auto';
+					clearComposerUnlessTaken();
 					return;
 				}
 			}
@@ -859,7 +931,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 				// and spawning another turn with the same id would replace the live
 				// process and discard its eventual response. A failed probe holds the
 				// message until bridge recovery can answer authoritatively.
-				const processState = await probeSessionAiProcesses(activeSession.id, activeTab?.id);
+				const processState = await probeForSubmit(activeTab?.id);
 				if (processState.probeFailed) {
 					logger.warn(
 						'[processInput] Failed to reconcile active processes before queue decision; holding the message for bridge recovery'
@@ -1050,11 +1122,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						};
 					});
 
-					// Clear input
-					setInputValue('');
-					if (!usingOverrideImages) setStagedImages([]);
-					syncAiInputToSession('', syncTarget); // Sync empty value to session state
-					if (inputRef.current) inputRef.current.style.height = 'auto';
+					clearComposerUnlessTaken();
 					if (processState.probeFailed) {
 						requestWebBridgeReconcile();
 					}
@@ -1328,18 +1396,22 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			});
 			window.maestro.web.broadcastUserInput(activeSession.id, effectiveInputValue, currentMode);
 
-			setInputValue('');
-			if (!usingOverrideImages) setStagedImages([]);
+			// An AI send already took the draft before its probe; clearing here again
+			// would wipe whatever the user typed while that probe was out.
+			if (!composerTaken) {
+				setInputValue('');
+				if (!usingOverrideImages) setStagedImages([]);
 
-			// Sync empty value to session state (prevents stale input restoration on blur)
-			if (isAiMode) {
-				syncAiInputToSession('', syncTarget);
-			} else {
-				syncTerminalInputToSession('');
+				// Sync empty value to session state (prevents stale input restoration on blur)
+				if (isAiMode) {
+					syncAiInputToSession('', syncTarget);
+				} else {
+					syncTerminalInputToSession('');
+				}
+
+				// Reset height
+				if (inputRef.current) inputRef.current.style.height = 'auto';
 			}
-
-			// Reset height
-			if (inputRef.current) inputRef.current.style.height = 'auto';
 
 			// Write to the appropriate process based on inputMode
 			// Each session has TWO processes: AI agent and terminal
