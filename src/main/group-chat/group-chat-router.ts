@@ -33,7 +33,6 @@ import {
 	findSessionForParticipantName,
 	findUniqueMentionMatch,
 	getMentionNameForContext,
-	getMentionMatchPriority,
 	mentionMatches,
 	stripUnmatchedTrailingClosers,
 	normalizeMentionName,
